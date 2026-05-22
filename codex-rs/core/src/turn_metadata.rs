@@ -20,6 +20,8 @@ use codex_protocol::ThreadId;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::ThreadSource;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
@@ -32,6 +34,8 @@ const THREAD_ID_KEY: &str = "thread_id";
 const THREAD_SOURCE_KEY: &str = "thread_source";
 const TURN_ID_KEY: &str = "turn_id";
 const FORKED_FROM_THREAD_ID_KEY: &str = "forked_from_thread_id";
+const PARENT_THREAD_ID_KEY: &str = "parent_thread_id";
+const SUBAGENT_TYPE_KEY: &str = "subagent_type";
 
 pub(crate) struct McpTurnMetadataContext<'a> {
     pub(crate) model: &'a str,
@@ -73,19 +77,68 @@ impl From<WorkspaceGitMetadata> for TurnMetadataWorkspace {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum TurnMetadataSubagentType {
+    Review,
+    Compact,
+    ThreadSpawn,
+    MemoryConsolidation,
+    Other,
+}
+
 /// Thread lineage sent to Responses via `x-codex-turn-metadata`.
 ///
 /// `forked_from_thread_id` is history/data lineage: the current thread copied
-/// conversation state from that source thread.
+/// conversation state from that source thread. `parent_thread_id` is
+/// subagent/control lineage: the current thread is a spawned child of that
+/// immediate parent. They often match for forked thread-spawn subagents, but
+/// root forks have no parent and non-forked subagents have no fork source, so
+/// the fields must stay separate.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ThreadMetadataLineage {
     forked_from_thread_id: Option<String>,
+    parent_thread_id: Option<String>,
+    subagent_type: Option<TurnMetadataSubagentType>,
 }
 
 impl ThreadMetadataLineage {
-    pub(crate) fn from_fork_source(forked_from_thread_id: Option<ThreadId>) -> Self {
+    pub(crate) fn for_session(
+        forked_from_thread_id: Option<ThreadId>,
+        session_source: &SessionSource,
+    ) -> Self {
+        let (parent_thread_id, subagent_type) = match session_source {
+            SessionSource::SubAgent(SubAgentSource::Review) => {
+                (None, Some(TurnMetadataSubagentType::Review))
+            }
+            SessionSource::SubAgent(SubAgentSource::Compact) => {
+                (None, Some(TurnMetadataSubagentType::Compact))
+            }
+            SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                parent_thread_id, ..
+            }) => (
+                Some(parent_thread_id.to_string()),
+                Some(TurnMetadataSubagentType::ThreadSpawn),
+            ),
+            SessionSource::SubAgent(SubAgentSource::MemoryConsolidation) => {
+                (None, Some(TurnMetadataSubagentType::MemoryConsolidation))
+            }
+            SessionSource::SubAgent(SubAgentSource::Other(_)) => {
+                (None, Some(TurnMetadataSubagentType::Other))
+            }
+            SessionSource::Cli
+            | SessionSource::VSCode
+            | SessionSource::Exec
+            | SessionSource::Mcp
+            | SessionSource::Custom(_)
+            | SessionSource::Internal(_)
+            | SessionSource::Unknown => (None, None),
+        };
+
         Self {
             forked_from_thread_id: forked_from_thread_id.map(|thread_id| thread_id.to_string()),
+            parent_thread_id,
+            subagent_type,
         }
     }
 }
@@ -98,6 +151,10 @@ pub(crate) struct TurnMetadataBag {
     thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     forked_from_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    subagent_type: Option<TurnMetadataSubagentType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     thread_source: Option<ThreadSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,6 +180,8 @@ fn is_core_turn_metadata_key(key: &str) -> bool {
             | TURN_ID_KEY
             | TURN_STARTED_AT_UNIX_MS_KEY
             | FORKED_FROM_THREAD_ID_KEY
+            | PARENT_THREAD_ID_KEY
+            | SUBAGENT_TYPE_KEY
     )
 }
 
@@ -176,6 +235,8 @@ fn build_turn_metadata_bag(
         session_id,
         thread_id,
         forked_from_thread_id: lineage.forked_from_thread_id,
+        parent_thread_id: lineage.parent_thread_id,
+        subagent_type: lineage.subagent_type,
         thread_source,
         turn_id,
         workspaces,
@@ -394,6 +455,8 @@ impl TurnMetadataState {
                 state.base_metadata.thread_id.clone(),
                 ThreadMetadataLineage {
                     forked_from_thread_id: state.base_metadata.forked_from_thread_id.clone(),
+                    parent_thread_id: state.base_metadata.parent_thread_id.clone(),
+                    subagent_type: state.base_metadata.subagent_type,
                 },
                 state.base_metadata.thread_source,
                 state.base_metadata.turn_id.clone(),
