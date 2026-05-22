@@ -16,6 +16,7 @@ use codex_git_utils::get_git_remote_urls_assume_git_repo;
 use codex_git_utils::get_git_repo_root;
 use codex_git_utils::get_has_changes;
 use codex_git_utils::get_head_commit_hash;
+use codex_protocol::ThreadId;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
@@ -26,6 +27,11 @@ const MODEL_KEY: &str = "model";
 const REASONING_EFFORT_KEY: &str = "reasoning_effort";
 const TURN_STARTED_AT_UNIX_MS_KEY: &str = "turn_started_at_unix_ms";
 const USER_INPUT_REQUESTED_DURING_TURN_KEY: &str = "user_input_requested_during_turn";
+const SESSION_ID_KEY: &str = "session_id";
+const THREAD_ID_KEY: &str = "thread_id";
+const THREAD_SOURCE_KEY: &str = "thread_source";
+const TURN_ID_KEY: &str = "turn_id";
+const FORKED_FROM_THREAD_ID_KEY: &str = "forked_from_thread_id";
 
 pub(crate) struct McpTurnMetadataContext<'a> {
     pub(crate) model: &'a str,
@@ -67,12 +73,31 @@ impl From<WorkspaceGitMetadata> for TurnMetadataWorkspace {
     }
 }
 
+/// Thread lineage sent to Responses via `x-codex-turn-metadata`.
+///
+/// `forked_from_thread_id` is history/data lineage: the current thread copied
+/// conversation state from that source thread.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ThreadMetadataLineage {
+    forked_from_thread_id: Option<String>,
+}
+
+impl ThreadMetadataLineage {
+    pub(crate) fn from_fork_source(forked_from_thread_id: Option<ThreadId>) -> Self {
+        Self {
+            forked_from_thread_id: forked_from_thread_id.map(|thread_id| thread_id.to_string()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Default)]
 pub(crate) struct TurnMetadataBag {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    forked_from_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     thread_source: Option<ThreadSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,6 +112,18 @@ impl TurnMetadataBag {
     fn to_header_value(&self) -> Option<String> {
         to_ascii_json_string(self).ok()
     }
+}
+
+fn is_core_turn_metadata_key(key: &str) -> bool {
+    matches!(
+        key,
+        SESSION_ID_KEY
+            | THREAD_ID_KEY
+            | THREAD_SOURCE_KEY
+            | TURN_ID_KEY
+            | TURN_STARTED_AT_UNIX_MS_KEY
+            | FORKED_FROM_THREAD_ID_KEY
+    )
 }
 
 fn merge_turn_metadata(
@@ -107,7 +144,7 @@ fn merge_turn_metadata(
     }
     if let Some(responsesapi_client_metadata) = responsesapi_client_metadata {
         for (key, value) in responsesapi_client_metadata {
-            if key == TURN_STARTED_AT_UNIX_MS_KEY {
+            if is_core_turn_metadata_key(key) {
                 continue;
             }
             metadata
@@ -121,6 +158,7 @@ fn merge_turn_metadata(
 fn build_turn_metadata_bag(
     session_id: Option<String>,
     thread_id: Option<String>,
+    lineage: ThreadMetadataLineage,
     thread_source: Option<ThreadSource>,
     turn_id: Option<String>,
     sandbox: Option<String>,
@@ -137,6 +175,7 @@ fn build_turn_metadata_bag(
     TurnMetadataBag {
         session_id,
         thread_id,
+        forked_from_thread_id: lineage.forked_from_thread_id,
         thread_source,
         turn_id,
         workspaces,
@@ -167,6 +206,7 @@ pub async fn build_turn_metadata_header(
     build_turn_metadata_bag(
         /*session_id*/ None,
         /*thread_id*/ None,
+        ThreadMetadataLineage::default(),
         /*thread_source*/ None,
         /*turn_id*/ None,
         sandbox.map(ToString::to_string),
@@ -198,6 +238,7 @@ impl TurnMetadataState {
     pub(crate) fn new(
         session_id: String,
         thread_id: String,
+        lineage: ThreadMetadataLineage,
         thread_source: Option<ThreadSource>,
         turn_id: String,
         cwd: AbsolutePathBuf,
@@ -217,6 +258,7 @@ impl TurnMetadataState {
         let base_metadata = build_turn_metadata_bag(
             Some(session_id),
             Some(thread_id),
+            lineage,
             thread_source,
             Some(turn_id),
             sandbox,
@@ -350,6 +392,9 @@ impl TurnMetadataState {
             let enriched_metadata = build_turn_metadata_bag(
                 state.base_metadata.session_id.clone(),
                 state.base_metadata.thread_id.clone(),
+                ThreadMetadataLineage {
+                    forked_from_thread_id: state.base_metadata.forked_from_thread_id.clone(),
+                },
                 state.base_metadata.thread_source,
                 state.base_metadata.turn_id.clone(),
                 state.base_metadata.sandbox.clone(),

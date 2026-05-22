@@ -75,6 +75,7 @@ pub(super) async fn spawn_review_thread(
     let turn_metadata_state = Arc::new(TurnMetadataState::new(
         sess.session_id().to_string(),
         sess.thread_id().to_string(),
+        ThreadMetadataLineage::from_fork_source(sess.forked_from_thread_id()),
         parent_turn_context.thread_source,
         review_turn_id.clone(),
         #[allow(deprecated)]
