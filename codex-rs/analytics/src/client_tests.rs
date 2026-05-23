@@ -6,8 +6,10 @@ use crate::events::CodexAcceptedLineFingerprintsEventRequest;
 use crate::events::SkillInvocationEventParams;
 use crate::events::SkillInvocationEventRequest;
 use crate::events::TrackEventRequest;
+use crate::events::subagent_thread_started_event_request;
 use crate::facts::AnalyticsFact;
 use crate::facts::InvocationType;
+use crate::facts::SubAgentThreadStartedInput;
 use codex_app_server_protocol::ApprovalsReviewer as AppServerApprovalsReviewer;
 use codex_app_server_protocol::AskForApproval as AppServerAskForApproval;
 use codex_app_server_protocol::ClientRequest;
@@ -28,6 +30,7 @@ use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus as AppServerTurnStatus;
 use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::TurnSteerResponse;
+use codex_protocol::protocol::SubAgentSource;
 use codex_utils_absolute_path::test_support::PathBufExt;
 use codex_utils_absolute_path::test_support::test_path_buf;
 use std::collections::HashSet;
@@ -72,6 +75,23 @@ fn sample_regular_track_event(thread_id: &str) -> TrackEventRequest {
             model_slug: Some("gpt-5.1-codex".to_string()),
         },
     })
+}
+
+fn sample_session_scoped_track_event(session_id: &str, thread_id: &str) -> TrackEventRequest {
+    TrackEventRequest::ThreadInitialized(subagent_thread_started_event_request(
+        SubAgentThreadStartedInput {
+            session_id: session_id.to_string(),
+            thread_id: thread_id.to_string(),
+            parent_thread_id: None,
+            product_client_id: "codex-tui".to_string(),
+            client_name: "codex-tui".to_string(),
+            client_version: "1.0.0".to_string(),
+            model: "gpt-5".to_string(),
+            ephemeral: false,
+            subagent_source: SubAgentSource::Other("test".to_string()),
+            created_at: 1,
+        },
+    ))
 }
 
 fn client_with_receiver() -> (AnalyticsEventsClient, mpsc::Receiver<AnalyticsFact>) {
@@ -280,4 +300,23 @@ fn track_event_request_batches_only_isolates_accepted_line_fingerprint_events() 
     assert_eq!(batches[3].len(), 2);
     assert!(batches[1][0].should_send_in_isolated_request());
     assert!(batches[2][0].should_send_in_isolated_request());
+}
+
+#[test]
+fn track_event_request_batches_split_session_context() {
+    let batches = track_event_request_batches(vec![
+        sample_session_scoped_track_event("session-a", "thread-a-1"),
+        sample_session_scoped_track_event("session-a", "thread-a-2"),
+        sample_session_scoped_track_event("session-b", "thread-b-1"),
+        sample_regular_track_event("thread-without-session"),
+    ]);
+
+    assert_eq!(batches.len(), 3);
+    assert_eq!(batches[0].len(), 2);
+    assert_eq!(batches[0][0].session_id(), Some("session-a"));
+    assert_eq!(batches[0][1].session_id(), Some("session-a"));
+    assert_eq!(batches[1].len(), 1);
+    assert_eq!(batches[1][0].session_id(), Some("session-b"));
+    assert_eq!(batches[2].len(), 1);
+    assert_eq!(batches[2][0].session_id(), None);
 }

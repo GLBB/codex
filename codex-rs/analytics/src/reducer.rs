@@ -146,6 +146,7 @@ struct ConnectionState {
 #[derive(Default)]
 struct ThreadAnalyticsState {
     connection_id: Option<u64>,
+    session_id: Option<String>,
     metadata: Option<ThreadMetadataState>,
 }
 
@@ -225,6 +226,7 @@ impl<'a> AnalyticsDropSite<'a> {
 
 enum MissingAnalyticsContext {
     ThreadConnection,
+    ThreadSessionId,
     Connection { connection_id: u64 },
     ThreadMetadata,
 }
@@ -523,6 +525,9 @@ impl AnalyticsReducer {
             .and_then(|thread| thread.connection_id);
         let thread_state = self.threads.entry(input.thread_id.clone()).or_default();
         thread_state
+            .session_id
+            .get_or_insert_with(|| input.session_id.clone());
+        thread_state
             .metadata
             .get_or_insert_with(|| ThreadMetadataState {
                 thread_source: Some(ThreadSource::Subagent),
@@ -543,14 +548,17 @@ impl AnalyticsReducer {
         input: GuardianReviewEventParams,
         out: &mut Vec<TrackEventRequest>,
     ) {
-        let Some(connection_state) =
-            self.thread_connection_or_warn(AnalyticsDropSite::guardian(&input))
-        else {
+        let drop_site = AnalyticsDropSite::guardian(&input);
+        let Some(connection_state) = self.thread_connection_or_warn(drop_site) else {
+            return;
+        };
+        let Some(session_id) = self.thread_session_id_or_warn(drop_site) else {
             return;
         };
         out.push(TrackEventRequest::GuardianReview(Box::new(
             GuardianReviewEventRequest {
                 event_type: "codex_guardian_review",
+                session_id: session_id.to_string(),
                 event_params: GuardianReviewEventPayload {
                     app_server_client: connection_state.app_server_client.clone(),
                     runtime: connection_state.runtime.clone(),
@@ -1231,6 +1239,7 @@ impl AnalyticsReducer {
         out: &mut Vec<TrackEventRequest>,
     ) {
         let session_source: SessionSource = thread.source.into();
+        let session_id = thread.session_id;
         let thread_id = thread.id;
         let Some(connection_state) = self.connections.get(&connection_id) else {
             return;
@@ -1244,12 +1253,14 @@ impl AnalyticsReducer {
             thread_id.clone(),
             ThreadAnalyticsState {
                 connection_id: Some(connection_id),
+                session_id: Some(session_id.clone()),
                 metadata: Some(thread_metadata.clone()),
             },
         );
         out.push(TrackEventRequest::ThreadInitialized(
             ThreadInitializedEvent {
                 event_type: "codex_thread_initialized",
+                session_id,
                 event_params: ThreadInitializedEventParams {
                     thread_id,
                     app_server_client: connection_state.app_server_client.clone(),
@@ -1267,14 +1278,18 @@ impl AnalyticsReducer {
     }
 
     fn ingest_compaction(&mut self, input: CodexCompactionEvent, out: &mut Vec<TrackEventRequest>) {
-        let Some((connection_state, thread_metadata)) =
-            self.thread_context_or_warn(AnalyticsDropSite::compaction(&input))
+        let drop_site = AnalyticsDropSite::compaction(&input);
+        let Some((connection_state, thread_metadata)) = self.thread_context_or_warn(drop_site)
         else {
+            return;
+        };
+        let Some(session_id) = self.thread_session_id_or_warn(drop_site) else {
             return;
         };
         out.push(TrackEventRequest::Compaction(Box::new(
             CodexCompactionEventRequest {
                 event_type: "codex_compaction_event",
+                session_id: session_id.to_string(),
                 event_params: codex_compaction_event_params(
                     input,
                     connection_state.app_server_client.clone(),
@@ -1375,8 +1390,12 @@ impl AnalyticsReducer {
             warn_missing_analytics_context(&drop_site, MissingAnalyticsContext::ThreadMetadata);
             return;
         };
+        let Some(session_id) = self.thread_session_id_or_warn(drop_site) else {
+            return;
+        };
         out.push(TrackEventRequest::TurnSteer(CodexTurnSteerEventRequest {
             event_type: "codex_turn_steer_event",
+            session_id: session_id.to_string(),
             event_params: CodexTurnSteerEventParams {
                 thread_id: pending_request.thread_id,
                 expected_turn_id: Some(pending_request.expected_turn_id),
@@ -1494,8 +1513,12 @@ impl AnalyticsReducer {
             warn_missing_analytics_context(&drop_site, MissingAnalyticsContext::ThreadMetadata);
             return;
         };
+        let Some(session_id) = self.thread_session_id_or_warn(drop_site) else {
+            return;
+        };
         let turn_event = TrackEventRequest::TurnEvent(Box::new(CodexTurnEventRequest {
             event_type: "codex_turn_event",
+            session_id: session_id.to_string(),
             event_params: codex_turn_event_params(
                 connection_state.app_server_client.clone(),
                 connection_state.runtime.clone(),
@@ -1551,6 +1574,18 @@ impl AnalyticsReducer {
         };
         Some((connection_state, thread_metadata))
     }
+
+    fn thread_session_id_or_warn(&self, drop_site: AnalyticsDropSite<'_>) -> Option<&str> {
+        let Some(session_id) = self
+            .threads
+            .get(drop_site.thread_id)
+            .and_then(|thread| thread.session_id.as_deref())
+        else {
+            warn_missing_analytics_context(&drop_site, MissingAnalyticsContext::ThreadSessionId);
+            return None;
+        };
+        Some(session_id)
+    }
 }
 
 fn warn_missing_analytics_context(
@@ -1559,6 +1594,7 @@ fn warn_missing_analytics_context(
 ) {
     let (missing_context, connection_id) = match missing {
         MissingAnalyticsContext::ThreadConnection => ("thread_connection", None),
+        MissingAnalyticsContext::ThreadSessionId => ("thread_session_id", None),
         MissingAnalyticsContext::Connection { connection_id } => {
             ("connection", Some(connection_id))
         }

@@ -415,15 +415,24 @@ fn track_event_request_batches(events: Vec<TrackEventRequest>) -> Vec<Vec<TrackE
     let mut current_batch = Vec::new();
 
     for event in events {
+        let session_id = event.session_id();
         if event.should_send_in_isolated_request() {
             if !current_batch.is_empty() {
                 batches.push(current_batch);
                 current_batch = Vec::new();
             }
             batches.push(vec![event]);
-        } else {
-            current_batch.push(event);
+            continue;
         }
+
+        if current_batch
+            .first()
+            .is_some_and(|batch_event| batch_event.session_id() != session_id)
+        {
+            batches.push(current_batch);
+            current_batch = Vec::new();
+        }
+        current_batch.push(event);
     }
 
     if !current_batch.is_empty() {
@@ -438,16 +447,22 @@ async fn send_track_events_request(auth: &CodexAuth, url: &str, events: Vec<Trac
         return;
     }
 
+    let session_id = events
+        .first()
+        .and_then(TrackEventRequest::session_id)
+        .map(str::to_string);
     let payload = TrackEventsRequest { events };
 
-    let response = create_client()
+    let mut request = create_client()
         .post(url)
         .timeout(ANALYTICS_EVENTS_TIMEOUT)
         .headers(codex_model_provider::auth_provider_from_auth(auth).to_auth_headers())
         .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await;
+        .json(&payload);
+    if let Some(session_id) = session_id {
+        request = request.header("session-id", session_id);
+    }
+    let response = request.send().await;
 
     match response {
         Ok(response) if response.status().is_success() => {}

@@ -85,6 +85,34 @@ impl TrackEventRequest {
     pub(crate) fn should_send_in_isolated_request(&self) -> bool {
         matches!(self, Self::AcceptedLineFingerprints(_))
     }
+
+    pub(crate) fn session_id(&self) -> Option<&str> {
+        match self {
+            Self::ThreadInitialized(event) => Some(event.session_id.as_str()),
+            Self::GuardianReview(event) => Some(event.session_id.as_str()),
+            Self::Compaction(event) => Some(event.session_id.as_str()),
+            Self::TurnEvent(event) => Some(event.session_id.as_str()),
+            Self::TurnSteer(event) => Some(event.session_id.as_str()),
+            Self::SkillInvocation(_)
+            | Self::AppMentioned(_)
+            | Self::AppUsed(_)
+            | Self::HookRun(_)
+            | Self::CommandExecution(_)
+            | Self::FileChange(_)
+            | Self::McpToolCall(_)
+            | Self::DynamicToolCall(_)
+            | Self::CollabAgentToolCall(_)
+            | Self::WebSearch(_)
+            | Self::ImageGeneration(_)
+            | Self::AcceptedLineFingerprints(_)
+            | Self::ReviewEvent(_)
+            | Self::PluginUsed(_)
+            | Self::PluginInstalled(_)
+            | Self::PluginUninstalled(_)
+            | Self::PluginEnabled(_)
+            | Self::PluginDisabled(_) => None,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -161,12 +189,16 @@ pub(crate) struct ThreadInitializedEventParams {
 #[derive(Serialize)]
 pub(crate) struct ThreadInitializedEvent {
     pub(crate) event_type: &'static str,
+    #[serde(skip)]
+    pub(crate) session_id: String,
     pub(crate) event_params: ThreadInitializedEventParams,
 }
 
 #[derive(Serialize)]
 pub(crate) struct GuardianReviewEventRequest {
     pub(crate) event_type: &'static str,
+    #[serde(skip)]
+    pub(crate) session_id: String,
     pub(crate) event_params: GuardianReviewEventPayload,
 }
 
@@ -761,6 +793,8 @@ pub(crate) struct CodexCompactionEventParams {
 #[derive(Serialize)]
 pub(crate) struct CodexCompactionEventRequest {
     pub(crate) event_type: &'static str,
+    #[serde(skip)]
+    pub(crate) session_id: String,
     pub(crate) event_params: CodexCompactionEventParams,
 }
 
@@ -815,6 +849,8 @@ pub(crate) struct CodexTurnEventParams {
 #[derive(Serialize)]
 pub(crate) struct CodexTurnEventRequest {
     pub(crate) event_type: &'static str,
+    #[serde(skip)]
+    pub(crate) session_id: String,
     pub(crate) event_params: CodexTurnEventParams,
 }
 
@@ -837,6 +873,8 @@ pub(crate) struct CodexTurnSteerEventParams {
 #[derive(Serialize)]
 pub(crate) struct CodexTurnSteerEventRequest {
     pub(crate) event_type: &'static str,
+    #[serde(skip)]
+    pub(crate) session_id: String,
     pub(crate) event_params: CodexTurnSteerEventParams,
 }
 
@@ -1046,6 +1084,7 @@ pub(crate) fn subagent_thread_started_event_request(
     };
     ThreadInitializedEvent {
         event_type: "codex_thread_initialized",
+        session_id: input.session_id,
         event_params,
     }
 }

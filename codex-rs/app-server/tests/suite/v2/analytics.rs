@@ -2,10 +2,15 @@ use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::write_chatgpt_auth;
+use codex_analytics::AnalyticsEventsClient;
+use codex_analytics::SubAgentThreadStartedInput;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_config::types::OtelExporterKind;
 use codex_config::types::OtelHttpProtocol;
 use codex_core::config::ConfigBuilder;
+use codex_login::AuthManager;
+use codex_login::CodexAuth;
+use codex_protocol::protocol::SubAgentSource;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -125,6 +130,16 @@ pub(crate) async fn wait_for_analytics_event(
     read_timeout: Duration,
     event_type: &str,
 ) -> Result<Value> {
+    let (event, _session_id) =
+        wait_for_analytics_event_and_session_id(server, read_timeout, event_type).await?;
+    Ok(event)
+}
+
+pub(crate) async fn wait_for_analytics_event_and_session_id(
+    server: &MockServer,
+    read_timeout: Duration,
+    event_type: &str,
+) -> Result<(Value, Option<String>)> {
     timeout(read_timeout, async {
         loop {
             let Some(requests) = server.received_requests().await else {
@@ -146,7 +161,15 @@ pub(crate) async fn wait_for_analytics_event(
                     .iter()
                     .find(|event| event["event_type"] == event_type)
                 {
-                    return Ok::<Value, anyhow::Error>(event.clone());
+                    let session_id = request
+                        .headers
+                        .get("session-id")
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_string);
+                    return Ok::<(Value, Option<String>), anyhow::Error>((
+                        event.clone(),
+                        session_id,
+                    ));
                 }
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -204,4 +227,45 @@ pub(crate) fn assert_basic_thread_initialized_event(
         initialization_mode
     );
     assert!(event["event_params"]["created_at"].as_u64().is_some());
+}
+
+#[tokio::test]
+async fn subagent_thread_initialization_sends_grouped_session_id_context() -> Result<()> {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/codex/analytics-events/events"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let client = AnalyticsEventsClient::new(
+        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        server.uri(),
+        /*analytics_enabled*/ Some(true),
+    );
+
+    client.track_subagent_thread_started(SubAgentThreadStartedInput {
+        session_id: "session-root".to_string(),
+        thread_id: "thread-child".to_string(),
+        parent_thread_id: Some("thread-parent".to_string()),
+        product_client_id: "codex-tui".to_string(),
+        client_name: "codex-tui".to_string(),
+        client_version: "1.0.0".to_string(),
+        model: "gpt-5".to_string(),
+        ephemeral: false,
+        subagent_source: SubAgentSource::Other("guardian".to_string()),
+        created_at: 1,
+    });
+
+    let (event, session_id) = wait_for_analytics_event_and_session_id(
+        &server,
+        Duration::from_secs(2),
+        "codex_thread_initialized",
+    )
+    .await?;
+    assert_eq!(session_id.as_deref(), Some("session-root"));
+    assert_eq!(event["event_params"]["thread_id"], "thread-child");
+    assert_eq!(event["event_params"]["parent_thread_id"], "thread-parent");
+    assert_eq!(event["event_params"].get("session_id"), None);
+
+    Ok(())
 }

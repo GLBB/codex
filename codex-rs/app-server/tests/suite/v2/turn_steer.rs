@@ -26,6 +26,7 @@ use tokio::time::timeout;
 
 use super::analytics::mount_analytics_capture;
 use super::analytics::wait_for_analytics_event;
+use super::analytics::wait_for_analytics_event_and_session_id;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -295,8 +296,13 @@ async fn turn_steer_returns_active_turn_id() -> Result<()> {
     let steer: TurnSteerResponse = to_response::<TurnSteerResponse>(steer_resp)?;
     assert_eq!(steer.turn_id, turn.id);
 
-    let event =
-        wait_for_analytics_event(&server, DEFAULT_READ_TIMEOUT, "codex_turn_steer_event").await?;
+    let (event, session_id) = wait_for_analytics_event_and_session_id(
+        &server,
+        DEFAULT_READ_TIMEOUT,
+        "codex_turn_steer_event",
+    )
+    .await?;
+    assert_eq!(session_id.as_deref(), Some(thread.session_id.as_str()));
     assert_eq!(event["event_params"]["thread_id"], thread.id);
     assert_eq!(event["event_params"]["result"], "accepted");
     assert_eq!(event["event_params"]["num_input_images"], 0);
@@ -306,6 +312,7 @@ async fn turn_steer_returns_active_turn_id() -> Result<()> {
         event["event_params"]["rejection_reason"],
         serde_json::Value::Null
     );
+    assert_eq!(event["event_params"].get("session_id"), None);
 
     mcp.interrupt_turn_and_wait_for_aborted(thread.id, steer.turn_id, DEFAULT_READ_TIMEOUT)
         .await?;
