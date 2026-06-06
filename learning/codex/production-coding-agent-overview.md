@@ -55,58 +55,105 @@ Codex CLI 是一个本地运行的 coding agent。它不是一个最小 demo，�
 
 ## 总体架构
 
+先不要把 Codex 想成“一坨 agent 代码”。更清楚的看法是：不同客户端共用同一个 agent runtime，runtime 负责把用户请求变成模型回合，再把模型要求的动作交给工具、安全、状态和扩展系统。
+
+| 层 | 作用 | 主要入口 |
+| --- | --- | --- |
+| 客户端入口 | 接收用户输入，展示模型事件、diff、审批和状态 | `codex-rs/tui`、`codex-rs/exec`、`codex-rs/app-server` |
+| 协议与 harness | 把不同入口统一成 thread/session 操作 | `codex-rs/protocol`、`codex-rs/app-server-protocol`、`codex-rs/core` |
+| Agent runtime | 维护会话，构建上下文，调用模型，处理工具调用，推进回合 | `codex-rs/core/src/session` |
+| 工具与安全 | 执行 shell、patch、MCP、动态工具，并经过审批、沙箱和网络策略 | `codex-rs/core/src/tools`、`codex-rs/tools`、`codex-rs/sandboxing`、`codex-rs/execpolicy` |
+| 状态与扩展 | 保存会话、resume、memories、多 agent、插件、skills、遥测和云端任务 | `codex-rs/thread-store`、`codex-rs/rollout`、`codex-rs/memories`、`codex-rs/plugin` |
+
 ```mermaid
-flowchart TD
-    User[User / IDE / Automation]
+graph TD
+    subgraph Clients["客户端入口"]
+        TUI["TUI"]
+        Exec["codex exec"]
+        AppServer["app-server / IDE / desktop"]
+    end
 
-    User --> TUI[codex-rs/tui]
-    User --> Exec[codex-rs/exec]
-    User --> AppServer[codex-rs/app-server]
+    subgraph Harness["协议与 harness"]
+        Protocol["protocol events"]
+        AppProtocol["app-server protocol"]
+        Core["codex-core"]
+    end
 
-    TUI --> Protocol[codex-rs/protocol]
-    Exec --> AppServerProtocol[codex-rs/app-server-protocol]
-    AppServer --> AppServerProtocol
+    subgraph Runtime["Agent runtime"]
+        ThreadManager["ThreadManager"]
+        CodexThread["CodexThread"]
+        Session["Session"]
+        Turn["run_turn"]
+        Context["model context"]
+        ModelClient["ModelClient"]
+        Model["OpenAI or OSS provider"]
+    end
 
-    Protocol --> Core[codex-rs/core]
-    AppServerProtocol --> Core
+    subgraph Tools["工具与安全"]
+        Router["ToolRouter"]
+        Registry["ToolRegistry"]
+        Orchestrator["ToolOrchestrator"]
+        Approval["approval / guardian"]
+        Sandbox["sandbox / exec policy"]
+        Builtins["bash / patch / file tools"]
+        MCP["MCP tools"]
+        Dynamic["dynamic / plugin tools"]
+    end
 
-    Core --> ConfigAuth[config / auth / models]
-    Core --> ThreadManager[ThreadManager]
-    ThreadManager --> CodexThread[CodexThread]
-    CodexThread --> Session[Session]
-    Session --> SessionTask[SessionTask]
-    SessionTask --> RunTurn[run_turn]
+    subgraph State["状态与扩展"]
+        Store["rollout / thread-store / state"]
+        Memories["memories"]
+        Agents["sub-agent threads"]
+        Telemetry["otel / diagnostics"]
+        Cloud["cloud tasks / remote env"]
+    end
 
-    RunTurn --> Context[history / AGENTS.md / skills / plugins / MCP inventory]
-    RunTurn --> ModelClient[ModelClient / provider session]
-    ModelClient --> Model[OpenAI or OSS model provider]
-    Model --> RunTurn
+    TUI --> Protocol
+    Exec --> AppProtocol
+    AppServer --> AppProtocol
+    Protocol --> Core
+    AppProtocol --> Core
 
-    RunTurn --> ToolRouter[ToolRouter]
-    ToolRouter --> ToolRegistry[ToolRegistry]
-    ToolRegistry --> Orchestrator[ToolOrchestrator]
+    Core --> ThreadManager
+    ThreadManager --> CodexThread
+    CodexThread --> Session
+    Session --> Turn
+    Turn --> Context
+    Context --> ModelClient
+    ModelClient --> Model
+    Model --> Turn
 
-    Orchestrator --> Approval[approval / hooks / guardian]
-    Orchestrator --> Sandbox[sandbox / permissions / network policy]
-    Sandbox --> NetworkProxy[managed network proxy]
-    Orchestrator --> BuiltinTools[bash / apply_patch / file tools]
-    Orchestrator --> MCPTools[MCP tools]
-    Orchestrator --> DynamicTools[dynamic / plugin tools]
+    Turn --> Router
+    Router --> Registry
+    Registry --> Orchestrator
+    Orchestrator --> Approval
+    Approval --> Sandbox
+    Sandbox --> Builtins
+    Builtins --> Turn
+    Orchestrator --> MCP
+    MCP --> Turn
+    Orchestrator --> Dynamic
+    Dynamic --> Turn
 
-    BuiltinTools --> RunTurn
-    MCPTools --> RunTurn
-    DynamicTools --> RunTurn
-
-    Session --> Rollout[rollout / thread-store / state db]
-    Rollout --> Memories[memories pipeline]
-    Session --> AgentControl[AgentControl]
-    AgentControl --> SubAgents[sub-agent threads]
-    Session --> Review[review task / guardian reviewer]
-    AppServer --> Realtime[realtime voice/text API]
-    User --> CloudTasks[codex cloud tasks]
-    CloudTasks --> CloudBackend[cloud backend / remote environments]
-    Core --> OTel[otel / rollout trace / diagnostics]
+    Session --> Store
+    Store --> Memories
+    Session --> Agents
+    Core --> Telemetry
+    AppServer --> Cloud
 ```
+
+一次普通请求可以按这条主链路读：
+
+1. 用户输入先进入 `tui`、`exec` 或 `app-server`。
+2. 入口层把用户操作转换成协议事件或 app-server RPC。
+3. `codex-core` 通过 `ThreadManager` 找到或创建 `CodexThread`。
+4. `CodexThread` 把操作交给对应 `Session`。
+5. `SessionTask` / `run_turn` 组装模型上下文：历史消息、instructions、`AGENTS.md`、skills、插件和 MCP 工具清单。
+6. `ModelClient` 调用模型；如果模型要求工具调用，`ToolRouter` 找到工具，`ToolOrchestrator` 负责执行。
+7. 工具执行前后可能经过审批、guardian、沙箱、exec policy 和网络策略。
+8. 工具结果回到 `run_turn`，继续采样，直到模型产出最终答复；同时事件被写入 rollout / thread store，客户端收到增量展示。
+
+图里其它能力不要一开始就当成主线：memories、多 agent、review、realtime、cloud tasks 和 telemetry 都是围绕这条 agent loop 增强出来的旁路系统。先读懂一次请求如何完成，再回头看这些能力如何插入主链路。
 
 ## 主链路阅读顺序
 
