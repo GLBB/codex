@@ -1,13 +1,13 @@
 # A practical guide to building agents 中文精读版
 
 原文 PDF：<https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf>  
-本地 PDF：`learning/a-practical-guide-to-building-agents.pdf`  
+本地 PDF：`../references/a-practical-guide-to-building-agents.pdf`  
 页数：34 页  
 创建时间：2025-04-07
 
 说明：本文按 OpenAI 原 PDF 的章节顺序整理为中文精读版，覆盖核心观点、判断框架、设计模式和工程建议。它不是逐页逐字翻译，也不是原 PDF 的完整中文替代版；需要核对原始措辞、代码和版式时，请以本地 PDF 或官方链接为准。
 
-![Cover image](assets/a-practical-guide-to-building-agents/image-000.jpg)
+![Cover image](../assets/a-practical-guide-to-building-agents/image-000.jpg)
 
 ## 目录
 
@@ -134,7 +134,7 @@ PDF 还建议可以使用更高级模型，从现有帮助中心文档自动生�
 
 单 Agent 可以通过逐步增加工具来处理很多任务。这样复杂度更可控，也更容易评估和维护。
 
-![单 Agent 系统图表页](assets/a-practical-guide-to-building-agents/pages/page-14.png)
+![单 Agent 系统图表页](../assets/a-practical-guide-to-building-agents/pages/page-14.png)
 
 所有编排方式都需要一个 `run` 概念，本质是一个循环：让 Agent 持续运行，直到达到退出条件。
 
@@ -180,7 +180,7 @@ PDF 还建议可以使用更高级模型，从现有帮助中心文档自动生�
 
 Manager 模式用一个中心 LLM 协调一组专门 Agent。Manager 负责判断什么时候把任务委派给哪个 Agent，并把结果整合成统一交互。
 
-![Manager pattern 图表页](assets/a-practical-guide-to-building-agents/pages/page-18.png)
+![Manager pattern 图表页](../assets/a-practical-guide-to-building-agents/pages/page-18.png)
 
 这种模式适合：
 
@@ -200,7 +200,7 @@ Agents SDK 采用更灵活的 code-first 思路：开发者可以直接用熟悉
 
 去中心化模式中，Agent 可以把工作流执行权 handoff 给另一个 Agent。Handoff 是单向转移：一旦某个 Agent 调用 handoff 函数，系统会立即启动被交接的 Agent，并把最新对话状态转过去。
 
-![Decentralized handoff 图表页](assets/a-practical-guide-to-building-agents/pages/page-21.png)
+![Decentralized handoff 图表页](../assets/a-practical-guide-to-building-agents/pages/page-21.png)
 
 这种模式适合：
 
@@ -220,7 +220,7 @@ Guardrails 是任何 LLM 部署的关键组件，但不能替代标准安全工�
 
 PDF 建议把 guardrails 看作分层防御：单个护栏通常不够，多个专门护栏组合起来才更稳健。可以把 LLM-based guardrails、基于规则的保护、Moderation API 等组合起来检查输入和输出。
 
-![Guardrails 分层图表页](assets/a-practical-guide-to-building-agents/pages/page-25.png)
+![Guardrails 分层图表页](../assets/a-practical-guide-to-building-agents/pages/page-25.png)
 
 ### Guardrails 类型
 
@@ -298,10 +298,10 @@ Agent 标志着工作流自动化进入一个新阶段：系统不仅能处理�
 
 | 文件 | 说明 |
 | --- | --- |
-| `learning/a-practical-guide-to-building-agents.pdf` | 官方 PDF 本地副本 |
-| `learning/a-practical-guide-to-building-agents.zh.md` | 中文精读版 |
-| `learning/assets/a-practical-guide-to-building-agents/` | 从 PDF 导出的图片资源 |
-| `learning/assets/a-practical-guide-to-building-agents/pages/page-14.png` | 单 Agent 系统图表页截图 |
-| `learning/assets/a-practical-guide-to-building-agents/pages/page-18.png` | Manager pattern 图表页截图 |
-| `learning/assets/a-practical-guide-to-building-agents/pages/page-21.png` | Decentralized handoff 图表页截图 |
-| `learning/assets/a-practical-guide-to-building-agents/pages/page-25.png` | Guardrails 分层图表页截图 |
+| `../references/a-practical-guide-to-building-agents.pdf` | 官方 PDF 本地副本 |
+| `./a-practical-guide-to-building-agents.zh.md` | 中文精读版 |
+| `../assets/a-practical-guide-to-building-agents/` | 从 PDF 导出的图片资源 |
+| `../assets/a-practical-guide-to-building-agents/pages/page-14.png` | 单 Agent 系统图表页截图 |
+| `../assets/a-practical-guide-to-building-agents/pages/page-18.png` | Manager pattern 图表页截图 |
+| `../assets/a-practical-guide-to-building-agents/pages/page-21.png` | Decentralized handoff 图表页截图 |
+| `../assets/a-practical-guide-to-building-agents/pages/page-25.png` | Guardrails 分层图表页截图 |

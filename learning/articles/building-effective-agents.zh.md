@@ -2,11 +2,11 @@
 
 原文：<https://www.anthropic.com/engineering/building-effective-agents>  
 发布时间：2024-12-19  
-图片目录：`learning/assets/building-effective-agents/`
+图片目录：`../assets/building-effective-agents/`
 
 说明：本文是按原文结构整理的中文精读版，用于学习和复盘，不是逐字全文翻译。原文图片已导出并嵌入在对应小节。
 
-![Building effective agents hero](assets/building-effective-agents/00-hero.svg)
+![Building effective agents hero](../assets/building-effective-agents/00-hero.svg)
 
 ## 核心结论
 
@@ -49,7 +49,7 @@ Agentic system 可以粗略分成两类：
 
 增强型 LLM 是 agentic system 的基础单元：在普通模型调用之外，加入检索、工具和记忆。
 
-![The augmented LLM](assets/building-effective-agents/01-augmented-llm.png)
+![The augmented LLM](../assets/building-effective-agents/01-augmented-llm.png)
 
 实现重点有两个：
 
@@ -62,7 +62,7 @@ Model Context Protocol 这类协议的价值也在这里：它让模型可以用
 
 Prompt chaining 把任务拆成固定顺序的多个 LLM 调用。每一步处理上一步输出，必要时在中间加入程序化检查。
 
-![The prompt chaining workflow](assets/building-effective-agents/02-prompt-chaining.png)
+![The prompt chaining workflow](../assets/building-effective-agents/02-prompt-chaining.png)
 
 适用场景：
 
@@ -79,7 +79,7 @@ Prompt chaining 把任务拆成固定顺序的多个 LLM 调用。每一步处�
 
 Routing 先判断输入类型，再把任务交给对应的下游流程、prompt 或工具。
 
-![The routing workflow](assets/building-effective-agents/03-routing.png)
+![The routing workflow](../assets/building-effective-agents/03-routing.png)
 
 它的好处是隔离关注点：不同类型的问题可以分别优化，不必让一个通用 prompt 处理所有情况。
 
@@ -101,7 +101,7 @@ Parallelization 让多个 LLM 调用并行工作，再由程序聚合结果。�
 - Sectioning：把任务拆成互相独立的子任务并行处理。
 - Voting：用多个调用处理同一任务，通过多视角或投票提高可靠性。
 
-![The parallelization workflow](assets/building-effective-agents/04-parallelization.png)
+![The parallelization workflow](../assets/building-effective-agents/04-parallelization.png)
 
 适用场景：
 
@@ -119,7 +119,7 @@ Parallelization 让多个 LLM 调用并行工作，再由程序聚合结果。�
 
 Orchestrator-workers 模式中，一个中心 LLM 根据任务动态拆分工作，分配给多个 worker LLM，再综合结果。
 
-![The orchestrator-workers workflow](assets/building-effective-agents/05-orchestrator-workers.png)
+![The orchestrator-workers workflow](../assets/building-effective-agents/05-orchestrator-workers.png)
 
 它和 parallelization 的外观相似，但关键差异是：子任务不是提前写死的，而是 orchestrator 根据输入临时决定。
 
@@ -138,7 +138,7 @@ Orchestrator-workers 模式中，一个中心 LLM 根据任务动态拆分工作
 
 Evaluator-optimizer 模式中，一个 LLM 负责生成答案，另一个 LLM 负责评价并给反馈，系统在循环中逐步改进结果。
 
-![The evaluator-optimizer workflow](assets/building-effective-agents/06-evaluator-optimizer.png)
+![The evaluator-optimizer workflow](../assets/building-effective-agents/06-evaluator-optimizer.png)
 
 适用场景：
 
@@ -155,7 +155,7 @@ Evaluator-optimizer 模式中，一个 LLM 负责生成答案，另一个 LLM �
 
 Agent 在能力成熟后才更有价值：模型需要能理解复杂输入、计划、可靠使用工具，并能从错误中恢复。
 
-![Autonomous agent](assets/building-effective-agents/07-autonomous-agent.png)
+![Autonomous agent](../assets/building-effective-agents/07-autonomous-agent.png)
 
 一个典型 agent 会从用户指令或交互澄清开始。任务明确后，它会独立规划和执行，并在关键节点或遇到阻碍时回到人类那里请求判断。
 
@@ -172,7 +172,7 @@ Agent 的风险也更高：成本增加、错误可能累积，所以需要广�
 
 ## Coding Agent 的高层流程
 
-![High-level flow of a coding agent](assets/building-effective-agents/08-coding-agent-flow.png)
+![High-level flow of a coding agent](../assets/building-effective-agents/08-coding-agent-flow.png)
 
 Coding agent 特别适合 agent 模式，因为软件开发天然提供反馈闭环：
 
@@ -255,12 +255,12 @@ Coding agent 特别适合 agent 模式，因为软件开发天然提供反馈闭
 
 | 文件 | 内容 |
 | --- | --- |
-| `assets/building-effective-agents/00-hero.svg` | 原文首图 |
-| `assets/building-effective-agents/01-augmented-llm.png` | The augmented LLM |
-| `assets/building-effective-agents/02-prompt-chaining.png` | The prompt chaining workflow |
-| `assets/building-effective-agents/03-routing.png` | The routing workflow |
-| `assets/building-effective-agents/04-parallelization.png` | The parallelization workflow |
-| `assets/building-effective-agents/05-orchestrator-workers.png` | The orchestrator-workers workflow |
-| `assets/building-effective-agents/06-evaluator-optimizer.png` | The evaluator-optimizer workflow |
-| `assets/building-effective-agents/07-autonomous-agent.png` | Autonomous agent |
-| `assets/building-effective-agents/08-coding-agent-flow.png` | High-level flow of a coding agent |
+| `../assets/building-effective-agents/00-hero.svg` | 原文首图 |
+| `../assets/building-effective-agents/01-augmented-llm.png` | The augmented LLM |
+| `../assets/building-effective-agents/02-prompt-chaining.png` | The prompt chaining workflow |
+| `../assets/building-effective-agents/03-routing.png` | The routing workflow |
+| `../assets/building-effective-agents/04-parallelization.png` | The parallelization workflow |
+| `../assets/building-effective-agents/05-orchestrator-workers.png` | The orchestrator-workers workflow |
+| `../assets/building-effective-agents/06-evaluator-optimizer.png` | The evaluator-optimizer workflow |
+| `../assets/building-effective-agents/07-autonomous-agent.png` | Autonomous agent |
+| `../assets/building-effective-agents/08-coding-agent-flow.png` | High-level flow of a coding agent |

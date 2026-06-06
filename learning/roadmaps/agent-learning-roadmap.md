@@ -48,11 +48,11 @@
   https://huggingface.co/learn/agents-course/en/unit0/introduction
 - Anthropic: Building effective agents  
   https://www.anthropic.com/engineering/building-effective-agents
-  - 中文精读版：`learning/building-effective-agents.zh.md`
+  - 中文精读版：`../articles/building-effective-agents.zh.md`
 - OpenAI: A practical guide to building agents  
   https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
-  - 本地 PDF：`learning/a-practical-guide-to-building-agents.pdf`
-  - 中文精读版：`learning/a-practical-guide-to-building-agents.zh.md`
+  - 本地 PDF：`../references/a-practical-guide-to-building-agents.pdf`
+  - 中文精读版：`../articles/a-practical-guide-to-building-agents.zh.md`
 - Datawhale Agent-Learning-Hub  
   https://github.com/datawhalechina/Agent-Learning-Hub
 
