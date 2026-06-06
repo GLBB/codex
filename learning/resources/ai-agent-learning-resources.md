@@ -58,7 +58,7 @@
   - Codex 官方产品和使用文档。
   - 重点：Codex CLI、IDE、认证、配置、使用方式。
 
-- [Codex 生产级 Coding Agent 学习总览](./production-coding-agent-overview.md)
+- [Codex 生产级 Coding Agent 学习总览](../codex/production-coding-agent-overview.md)
   - 本仓库沉淀的源码学习地图。
   - 重点：Codex 主链路、工具系统、安全执行、MCP、多 agent、TUI/app-server。
 
@@ -76,7 +76,7 @@
 2. 学 OpenAI prompting 文档，练习任务拆解和结果校验。
 3. 读 Anthropic 的 `Building Effective Agents`，建立 agent 工程观。
 4. 做 Hugging Face Agents Course，动手理解工具调用循环。
-5. 回到本仓库，按 `production-coding-agent-overview.md` 阅读 Codex 主链路。
+5. 回到本仓库，按 `../codex/production-coding-agent-overview.md` 阅读 Codex 主链路。
 6. 学 MCP、权限、沙箱和多 agent，进入生产级 agent 的核心问题。
 
 ## 对照学习建议
