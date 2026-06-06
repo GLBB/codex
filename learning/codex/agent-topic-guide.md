@@ -1,5 +1,7 @@
 # Agent 开发主题学习指南
 
+如果你想按顺序学习，请先走 [Agent 开发系列教程](agent-course/README.md)。本文是主题地图，适合在课程中途回查某个主题的设计要点、资料和源码入口。
+
 本文把 Agent 开发拆成一组可单独学习、也能组合成生产系统的主题。每个主题都回答四个问题：
 
 1. 这个主题解决什么工程问题？
@@ -22,13 +24,32 @@
 | Tool System | 工具如何声明、暴露给模型、路由、执行、返回结果 | `codex-rs/core/src/tools`、`codex-rs/tools` |
 | Context / Prompt | 模型到底看到了什么，如何注入规则、历史、技能和环境变化 | `codex-rs/core/src/context`、`codex-rs/core/src/context_manager` |
 | Memory / RAG | 短期上下文、长期记忆、检索增强如何避免污染和幻觉 | `codex-rs/memories`、`codex-rs/memories/read`、`codex-rs/memories/write` |
-| Sandbox / Permission | 为什么不能裸跑 shell，如何做文件、网络、命令权限控制 | `codex-rs/sandboxing`、`codex-rs/linux-sandbox`、`codex-rs/execpolicy` |
+| Sandbox / Permission | 为什么不能裸跑 shell，如何做文件、网络、命令权限控制 | `codex-rs/sandboxing`、`codex-rs/linux-sandbox`、`codex-rs/execpolicy-legacy` |
 | MCP | 如何用标准协议接入外部工具、资源和 elicitation | `codex-rs/codex-mcp`、`codex-rs/core/src/mcp_tool_call.rs` |
 | Skills / Plugins | 如何把可复用能力、说明、资源和工具依赖打包 | `codex-rs/skills`、`codex-rs/plugin`、`codex-rs/core/src/skills.rs` |
 | Multi-Agent | 子 agent 如何 spawn、fork 历史、通信、等待和回收 | `codex-rs/core/src/agent` |
 | Review / Guardian | 如何让 Agent 审查代码或审查危险动作 | `codex-rs/core/src/tasks/review.rs`、`codex-rs/core/src/guardian` |
 | App Server / Protocol | 如何把 agent runtime 暴露给 IDE、桌面端和自动化客户端 | `codex-rs/app-server`、`codex-rs/app-server-protocol` |
 | Observability / Eval | 如何调试模型请求、工具调用、日志、trace、测试和回放 | `codex-rs/otel`、`codex-rs/rollout-trace`、`codex-rs/core/tests/suite` |
+
+## 学习产出矩阵
+
+这张表把每个主题落到一个可以提交、演示或复盘的小产出。学习时不要只读源码，最好每个主题都留下一个能运行、能解释、能被别人 review 的证据。
+
+| 阶段 | 主题 | 最小实践产出 | Codex 对照点 | 验收证据 |
+| --- | --- | --- | --- | --- |
+| 1 | Agent Loop | 一个支持多轮 tool call 的 `mini-agent` | `codex-rs/core/src/session/turn.rs` | 日志能看到 model request、tool call、tool result、final answer |
+| 1 | Session / Thread / Turn | 一份状态机图，标出 thread、session、turn 的生命周期 | `codex-rs/core/src/thread_manager.rs`、`codex-rs/core/src/session` | 能解释新建、resume、fork、完成和取消分别改了什么状态 |
+| 2 | Tool System | 一个 typed tool registry，支持声明 schema、执行和返回结构化结果 | `codex-rs/core/src/tools`、`codex-rs/core/src/tools/registry.rs` | 给模型的工具定义和实际执行入口能一一对应 |
+| 2 | Context / Prompt | 一个上下文构建器，能合并 system、developer、history、environment 和 tool outputs | `codex-rs/core/src/context`、`codex-rs/core/src/context_manager` | 能打印最终模型输入，并证明每类注入都有上限 |
+| 3 | Memory / RAG | 一个小型检索记忆模块，支持写入、检索、引用来源和过期策略 | `codex-rs/memories` | 回答中能显示引用片段，且无关记忆不会被注入 |
+| 3 | Sandbox / Permission | 一个命令审批器，按命令、目录、网络策略决定 allow / ask / deny | `codex-rs/sandboxing`、`codex-rs/execpolicy-legacy` | 危险命令会被拦截，允许命令能产生日志和退出码 |
+| 4 | MCP | 一个 MCP 工具客户端 demo，列出 tools/resources 并调用一个工具 | `codex-rs/codex-mcp`、`codex-rs/core/src/mcp_tool_call.rs` | 能区分本地工具和 MCP 工具的发现、调用、失败路径 |
+| 4 | Skills / Plugins | 一个技能包，包含 `SKILL.md`、参考资料和一个可复用工作流 | `codex-rs/skills`、`codex-rs/plugin`、`codex-rs/core/src/skills.rs` | 触发词能找到技能，技能说明能进入上下文且大小受控 |
+| 5 | Multi-Agent | 一个父 agent 派生子 agent 的实验，子任务完成后汇总结果 | `codex-rs/core/src/agent` | 能说明子 agent 继承了什么上下文、隔离了什么状态 |
+| 5 | Review / Guardian | 一个 review/guardrail 检查器，对代码改动或危险动作给出结构化意见 | `codex-rs/core/src/tasks/review.rs`、`codex-rs/core/src/guardian` | 输出包含发现、严重级别、证据和建议动作 |
+| 6 | App Server / Protocol | 一个客户端脚本，通过协议创建 thread、发送 query、读取事件 | `codex-rs/app-server`、`codex-rs/app-server-protocol` | 能记录请求、响应和事件流，并解释字段语义 |
+| 6 | Observability / Eval | 一组回放样例和评分表，覆盖成功、工具失败、权限拒绝和上下文过长 | `codex-rs/otel`、`codex-rs/rollout-trace`、`codex-rs/core/tests/suite` | 每个样例有日志、期望行为和失败定位方法 |
 
 ## 1. Agent Loop
 
@@ -282,8 +303,8 @@ Coding agent 能读写文件、执行 shell、访问网络，所以安全边界�
 - `codex-rs/sandboxing/src/landlock.rs`
 - `codex-rs/sandboxing/src/seatbelt.rs`
 - `codex-rs/linux-sandbox/src/linux_run_main.rs`
-- `codex-rs/execpolicy/src/policy.rs`
-- `codex-rs/execpolicy/src/decision.rs`
+- `codex-rs/execpolicy-legacy/src/policy.rs`
+- `codex-rs/execpolicy-legacy/src/valid_exec.rs`
 
 Codex 的典型路径是：工具执行前先判断审批需求，再选择 sandbox attempt；如果被 sandbox 或网络策略拒绝，根据策略和用户批准情况决定是否重试或升级。
 
@@ -326,7 +347,8 @@ MCP 的价值是把外部工具、资源和提示模板标准化，让 Agent 不
 - `codex-rs/codex-mcp/src/tools.rs`
 - `codex-rs/codex-mcp/src/elicitation.rs`
 - `codex-rs/core/src/mcp_tool_call.rs`
-- `codex-rs/core/src/mcp_connection_manager.rs`
+- `codex-rs/codex-mcp/src/connection_manager.rs`
+- `codex-rs/core/src/state/service.rs`
 - `codex-rs/app-server/src/mcp_refresh.rs`
 
 Codex 会通过 MCP connection manager 管理 server 和工具清单；模型触发 MCP tool call 后，core 会处理权限、调用、结果转换和污染判断。
@@ -398,7 +420,8 @@ Skill 是可复用工作流知识：什么时候触发、要读哪些参考、�
 
 - `codex-rs/core/src/agent/control.rs`
 - `codex-rs/core/src/agent/registry.rs`
-- `codex-rs/core/src/agent/mailbox.rs`
+- `codex-rs/core/src/state/turn.rs`
+- `codex-rs/core/src/session/input_queue.rs`
 - `codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs`
 - `codex-rs/core/src/tools/handlers/multi_agents_v2/wait.rs`
 - `codex-rs/core/src/tools/handlers/multi_agents/send_input.rs`
@@ -436,7 +459,8 @@ Codex 的子 agent 本质上是新的 thread/session，可以 fork 父历史，�
 
 - `codex-rs/core/src/session/review.rs`
 - `codex-rs/core/src/tasks/review.rs`
-- `codex-rs/core/src/review_prompts.rs`
+- `codex-rs/core/src/review_format.rs`
+- `codex-rs/core/src/guardian/prompt.rs`
 - `codex-rs/core/src/guardian`
 - `codex-rs/ext/guardian`
 
@@ -513,7 +537,8 @@ Agent debug 难在三层不一致：模型看到了什么、工具实际做了�
 - `codex-rs/core/src/tools/tool_dispatch_trace.rs`
 - `codex-rs/core/tests/suite`
 - `codex-rs/app-server/tests`
-- `codex-rs/tui/src/*_tests.rs`
+- `codex-rs/tui/src/markdown_render_tests.rs`
+- `codex-rs/tui/src/app/history_ui_tests.rs`
 
 Codex 的集成测试会 mock 模型 SSE 事件，验证 agent loop、工具输出、审批、协议和 UI snapshot。学习时不要只看实现，也要看测试怎么构造模型事件。
 
