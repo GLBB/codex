@@ -6,7 +6,8 @@
 
 1. [Agent 开发学习路线](roadmaps/agent-learning-roadmap.md)
 2. [AI 素养与 Agent 学习资源](resources/ai-agent-learning-resources.md)
-3. [Codex 生产级 Coding Agent 学习总览](codex/production-coding-agent-overview.md)
+3. [Agent 开发主题学习指南](codex/agent-topic-guide.md)
+4. [Codex 生产级 Coding Agent 学习总览](codex/production-coding-agent-overview.md)
 
 ## 目录结构
 
@@ -25,5 +26,7 @@
 | --- | --- |
 | [Building effective agents 中文精读版](articles/building-effective-agents.zh.md) | 建立 workflow / agent 的工程边界 |
 | [A practical guide to building agents 中文精读版](articles/a-practical-guide-to-building-agents.zh.md) | 学习 Agent 设计、编排和 guardrails |
+| [Agent 开发主题学习指南](codex/agent-topic-guide.md) | 按工具、Session、记忆、RAG、沙箱、MCP、Skills 等主题对照 Codex 源码 |
 | [Codex 生产级 Coding Agent 学习总览](codex/production-coding-agent-overview.md) | 按主链路阅读 Codex 源码 |
+| [Codex Query 处理流程](codex/query-processing-flow.md) | 跟踪一条用户 query 从入口到模型、工具、日志和持久化的执行过程 |
 | [AI 素养与 Agent 学习资源](resources/ai-agent-learning-resources.md) | 补齐外部课程和官方文档 |
