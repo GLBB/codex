@@ -1,6 +1,6 @@
 # Agent 开发主题学习指南
 
-如果你想按顺序学习，请先走 [Agent 开发系列教程](agent-course/README.md)。本文是主题地图，适合在课程中途回查某个主题的设计要点、资料和源码入口。
+如果你想按顺序学习，请先走 [Agent 开发系列教程](agent-course/README.md)。如果想确认课程是否覆盖常见面试追问，可以配合 [Agent 常见追问覆盖矩阵](agent-course/interview-coverage-matrix.md) 自测。本文是主题地图，适合在课程中途回查某个主题的设计要点、资料和源码入口。
 
 本文把 Agent 开发拆成一组可单独学习、也能组合成生产系统的主题。每个主题都回答四个问题：
 
