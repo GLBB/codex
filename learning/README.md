@@ -27,7 +27,7 @@
 | --- | --- |
 | [Building effective agents 中文精读版](articles/building-effective-agents.zh.md) | 建立 workflow / agent 的工程边界 |
 | [A practical guide to building agents 中文精读版](articles/a-practical-guide-to-building-agents.zh.md) | 学习 Agent 设计、编排和 guardrails |
-| [Agent 开发系列教程](codex/agent-course/README.md) | 从运行项目开始，按 8 课一步一步学习 Agent 运行、状态、工具、记忆、安全和扩展 |
+| [Agent 开发系列教程](codex/agent-course/README.md) | 从运行项目开始，按 13 课一步一步学习 Agent 工程，并覆盖常见 Agent 面试追问 |
 | [Agent 开发主题学习指南](codex/agent-topic-guide.md) | 按工具、Session、记忆、RAG、沙箱、MCP、Skills 等主题对照 Codex 源码 |
 | [Codex 生产级 Coding Agent 学习总览](codex/production-coding-agent-overview.md) | 按主链路阅读 Codex 源码 |
 | [Codex Query 处理流程](codex/query-processing-flow.md) | 跟踪一条用户 query 从入口到模型、工具、日志和持久化的执行过程 |
