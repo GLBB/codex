@@ -1,0 +1,3 @@
+[submodule "learning/rust-book-learning"]
+	path = learning/rust-book-learning
+	url = https://github.com/GLBB/rust-book-learning.git
