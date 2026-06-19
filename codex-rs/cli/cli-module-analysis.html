@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>codex-rs/cli 模块梳理</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.68; max-width: 1120px; margin: 40px auto; padding: 0 24px; color: #1f2937; background: #ffffff; }
+    h1, h2, h3, h4 { color: #111827; line-height: 1.25; }
+    h1 { border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; }
+    h2 { margin-top: 38px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+    h3 { margin-top: 26px; }
+    code { background: #f3f4f6; padding: 0.12em 0.32em; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.94em; }
+    pre { background: #111827; color: #f9fafb; padding: 16px; overflow: auto; border-radius: 8px; line-height: 1.45; }
+    pre code { background: transparent; padding: 0; color: inherit; }
+    li { margin: 5px 0; }
+    p { margin: 10px 0; }
+    .indent { margin-left: 24px; color: #4b5563; }
+  </style>
+</head>
+<body>
+<h1>codex-rs/cli 模块梳理</h1>
+<h2>1. 模块定位</h2>
+<p><code>codex-rs/cli</code> 是整个 Codex Rust workspace 的统一命令行入口 crate。它产出二进制 <code>codex</code>，同时提供一个较小的库接口 <code>codex_cli</code> 给同 workspace 的调试/沙箱入口复用。</p>
+<p>这个模块本身不是 agent 核心业务。它更像产品入口层和命令调度层：</p>
+<ul>
+<li>接收用户命令行参数。</li>
+<li>用 <code>clap</code> 解析 root options、feature toggles 和 subcommand。</li>
+<li>将配置覆盖项、profile、远程 TUI 参数等整理成各下游 crate 可理解的结构。</li>
+<li>按命令分派到 <code>codex-tui</code>、<code>codex-exec</code>、<code>codex-app-server</code>、<code>codex-mcp-server</code>、<code>codex-login</code>、<code>codex-core-plugins</code>、<code>codex-exec-server</code> 等模块。</li>
+<li>对少数 CLI 专属场景提供本地实现，例如 <code>doctor</code>、sandbox debug wrapper、plugin/marketplace 命令、remote-control wrapper、desktop app launcher。</li>
+</ul>
+<p>它解决的问题是：Codex 有多个产品入口和维护工具，如果每个 crate 都暴露独立 binary，用户和安装包都会很复杂。<code>cli</code> 把它们统一到一个 <code>codex [OPTIONS] [COMMAND]</code> 入口下。</p>
+<p>它和其他模块的关系：</p>
+<pre><code>用户 / shell / VS Code extension / npm shim
+  |
+  v
+codex-rs/cli  二进制 codex
+  |
+  +--&gt; codex-tui                 交互式 TUI
+  +--&gt; codex-exec                非交互执行 / review
+  +--&gt; codex-app-server          VS Code / app-server JSON-RPC
+  +--&gt; codex-app-server-daemon   后台 daemon 生命周期
+  +--&gt; codex-mcp-server          MCP server 模式
+  +--&gt; codex-core/config/login   配置、认证、模型、状态等基础能力
+  +--&gt; codex-core-plugins        plugin / marketplace 管理
+  +--&gt; codex-exec-server         远程/本地 exec-server</code></pre>
+<h2>2. 目录结构</h2>
+<p>重要文件如下：</p>
+<pre><code>codex-rs/cli/
+  Cargo.toml
+  build.rs
+  src/
+    main.rs
+    lib.rs
+    login.rs
+    doctor.rs
+    doctor/
+      background.rs
+      git.rs
+      output.rs
+      output/detail.rs
+      progress.rs
+      runtime.rs
+      system.rs
+      thread_inventory.rs
+      title.rs
+      updates.rs
+    mcp_cmd.rs
+    plugin_cmd.rs
+    marketplace_cmd.rs
+    remote_control_cmd.rs
+    debug_sandbox.rs
+    debug_sandbox/
+      pid_tracker.rs
+      seatbelt.rs
+    app_cmd.rs
+    desktop_app/
+      mod.rs
+      mac.rs
+      windows.rs
+    exec_server_telemetry.rs
+    exit_status.rs
+    sandbox_setup.rs
+    state_db_recovery.rs
+    wsl_paths.rs
+  tests/</code></pre>
+<h2>3. 核心文件说明</h2>
+<h3><code>codex-rs/cli/Cargo.toml</code></h3>
+<ul>
+<li>职责：定义 crate <code>codex-cli</code>，binary <code>codex</code>，library <code>codex_cli</code>，以及 CLI 需要聚合的大量 workspace 依赖。</li>
+<li>关键内容：</li>
+<p class="indent">- <code>[[bin]] name = &quot;codex&quot;, path = &quot;src/main.rs&quot;</code></p>
+<p class="indent">- <code>[lib] name = &quot;codex_cli&quot;, path = &quot;src/lib.rs&quot;</code></p>
+<li>被谁调用：Cargo/Bazel 构建系统。</li>
+<li>调用了谁：依赖 <code>codex-app-server</code>、<code>codex-exec</code>、<code>codex-tui</code>、<code>codex-core</code>、<code>codex-login</code>、<code>codex-core-plugins</code> 等。</li>
+</ul>
+<h3><code>codex-rs/cli/build.rs</code></h3>
+<ul>
+<li>职责：macOS 构建时加 <code>-ObjC</code> 链接参数。</li>
+<li>关键函数：<code>main()</code></li>
+<li>被谁调用：Cargo build script。</li>
+<li>调用了谁：标准库 <code>std::env</code>。</li>
+</ul>
+<h3><code>codex-rs/cli/src/main.rs</code></h3>
+<ul>
+<li>职责：<code>codex</code> binary 的主入口和命令总路由。</li>
+<li>关键类型：</li>
+<p class="indent">- <code>MultitoolCli</code>：root CLI，包含全局 config override、feature toggle、remote TUI 参数、interactive TUI 参数、subcommand。</p>
+<p class="indent">- <code>Subcommand</code>：所有一级子命令，如 <code>Exec</code>、<code>Review</code>、<code>AppServer</code>、<code>RemoteControl</code>、<code>Doctor</code>、<code>Sandbox</code>、<code>Plugin</code>。</p>
+<p class="indent">- <code>AppServerCommand</code> / <code>AppServerSubcommand</code></p>
+<p class="indent">- <code>ExecServerCommand</code></p>
+<p class="indent">- <code>LoginCommand</code></p>
+<p class="indent">- <code>FeatureToggles</code></p>
+<li>关键函数：</li>
+<p class="indent">- <code>main() -&gt; anyhow::Result&lt;()&gt;</code></p>
+<p class="indent">- <code>cli_main(arg0_paths, remote_control_disabled) -&gt; anyhow::Result&lt;()&gt;</code></p>
+<p class="indent">- <code>run_interactive_tui(...) -&gt; std::io::Result&lt;AppExitInfo&gt;</code></p>
+<p class="indent">- <code>run_exec_server_command(...)</code></p>
+<p class="indent">- <code>loader_overrides_for_profile(...)</code></p>
+<p class="indent">- <code>reject_remote_mode_for_subcommand(...)</code></p>
+<p class="indent">- <code>reject_root_strict_config_for_subcommand(...)</code></p>
+<li>被谁调用：最终用户运行 <code>codex</code>；npm shim <code>codex-cli/bin/codex.js</code> 会找到 native <code>codex</code> 再 spawn 它。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_tui::run_main</code></p>
+<p class="indent">- <code>codex_exec::run_main</code></p>
+<p class="indent">- <code>codex_app_server::run_main_with_transport_options</code></p>
+<p class="indent">- <code>codex_mcp_server::run_main</code></p>
+<p class="indent">- <code>doctor::run_doctor</code></p>
+<p class="indent">- <code>plugin_cmd::*</code></p>
+<p class="indent">- <code>marketplace_cmd::MarketplaceCli::run</code></p>
+<p class="indent">- <code>remote_control_cmd::run</code></p>
+<p class="indent">- <code>codex_exec_server::run_main</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/lib.rs</code></h3>
+<ul>
+<li>职责：给 crate 内外复用的 CLI 库面，主要导出 sandbox debug 命令结构和 login 相关函数。</li>
+<li>关键导出：</li>
+<p class="indent">- <code>SeatbeltCommand</code></p>
+<p class="indent">- <code>LandlockCommand</code></p>
+<p class="indent">- <code>WindowsCommand</code></p>
+<p class="indent">- <code>run_command_under_seatbelt</code></p>
+<p class="indent">- <code>run_command_under_landlock</code></p>
+<p class="indent">- <code>run_command_under_windows_sandbox</code></p>
+<p class="indent">- <code>run_login_*</code></p>
+<p class="indent">- <code>run_logout</code></p>
+<li>被谁调用：</li>
+<p class="indent">- <code>src/main.rs</code> 的 <code>Sandbox</code>、<code>Login</code>、<code>Logout</code> 分支。</p>
+<p class="indent">- workspace 内可能直接依赖 <code>codex_cli</code> 的测试/工具。</p>
+<li>调用了谁：</li>
+<p class="indent">- <code>debug_sandbox</code></p>
+<p class="indent">- <code>login</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/login.rs</code></h3>
+<ul>
+<li>职责：直接 <code>codex login/logout/status</code> 流程，不走 TUI 的完整 tracing 栈。</li>
+<li>关键函数：</li>
+<p class="indent">- <code>run_login_with_chatgpt(...) -&gt; !</code></p>
+<p class="indent">- <code>run_login_with_api_key(...) -&gt; !</code></p>
+<p class="indent">- <code>run_login_with_access_token(...) -&gt; !</code></p>
+<p class="indent">- <code>run_login_with_device_code(...) -&gt; !</code></p>
+<p class="indent">- <code>run_login_status(...) -&gt; !</code></p>
+<p class="indent">- <code>run_logout(...) -&gt; !</code></p>
+<p class="indent">- <code>read_api_key_from_stdin()</code></p>
+<p class="indent">- <code>read_access_token_from_stdin()</code></p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::Login</code> / <code>Subcommand::Logout</code> 分支。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_login::run_login_server</code></p>
+<p class="indent">- <code>codex_login::run_device_code_login</code></p>
+<p class="indent">- <code>codex_login::login_with_api_key</code></p>
+<p class="indent">- <code>codex_login::login_with_access_token</code></p>
+<p class="indent">- <code>codex_login::logout_with_revoke</code></p>
+<p class="indent">- <code>codex_core::config::Config</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/doctor.rs</code> 与 <code>src/doctor/*</code></h3>
+<ul>
+<li>职责：实现 <code>codex doctor</code> 诊断报告。它是 read-mostly 命令，检查环境、安装、配置、认证、终端、Git、状态库、app-server daemon、网络连通性等。</li>
+<li>关键函数：</li>
+<p class="indent">- <code>run_doctor(command, root_config_overrides, interactive, arg0_paths)</code></p>
+<p class="indent">- <code>build_report(...) -&gt; DoctorReport</code></p>
+<p class="indent">- <code>load_config(...) -&gt; anyhow::Result&lt;Config&gt;</code></p>
+<p class="indent">- <code>run_sync_check(...)</code></p>
+<p class="indent">- <code>run_async_check(...)</code></p>
+<li>子文件职责：</li>
+<p class="indent">- <code>doctor/background.rs</code>：读取 app-server daemon 状态和控制 socket。</p>
+<p class="indent">- <code>doctor/git.rs</code>：检查 git 可执行文件、版本、repo root、branch、fsmonitor。</p>
+<p class="indent">- <code>doctor/output.rs</code>：human report 渲染。</p>
+<p class="indent">- <code>doctor/output/detail.rs</code>：detail 行的人类友好化、折叠、截断。</p>
+<p class="indent">- <code>doctor/progress.rs</code>：stderr 进度条，JSON 模式保持静默。</p>
+<p class="indent">- <code>doctor/runtime.rs</code>：当前 binary、安装上下文、rg/search 命令。</p>
+<p class="indent">- <code>doctor/system.rs</code>：OS、locale、editor、pager 环境。</p>
+<p class="indent">- <code>doctor/thread_inventory.rs</code>：rollout 文件和 SQLite thread inventory 对账。</p>
+<p class="indent">- <code>doctor/title.rs</code>：TUI terminal title 配置检查。</p>
+<p class="indent">- <code>doctor/updates.rs</code>：更新路径、npm root、缓存版本信息检查。</p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::Doctor</code> 分支。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_core::config::ConfigBuilder</code></p>
+<p class="indent">- <code>codex_login::AuthManager</code></p>
+<p class="indent">- <code>codex_api::ResponsesWebsocketClient</code></p>
+<p class="indent">- <code>codex_app_server::app_server_control_socket_path</code></p>
+<p class="indent">- <code>codex_rollout</code></p>
+<p class="indent">- <code>codex_state</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/mcp_cmd.rs</code></h3>
+<ul>
+<li>职责：实现 <code>codex mcp</code> 命令，管理 MCP server 配置和 OAuth 登录。</li>
+<li>关键类型：</li>
+<p class="indent">- <code>McpCli</code></p>
+<p class="indent">- <code>McpSubcommand</code></p>
+<p class="indent">- <code>AddArgs</code></p>
+<p class="indent">- <code>LoginArgs</code></p>
+<li>关键函数：</li>
+<p class="indent">- <code>McpCli::run(loader_overrides)</code></p>
+<p class="indent">- <code>run_add(...)</code></p>
+<p class="indent">- <code>run_remove(...)</code></p>
+<p class="indent">- <code>run_login(...)</code></p>
+<p class="indent">- <code>run_logout(...)</code></p>
+<p class="indent">- <code>run_list(...)</code></p>
+<p class="indent">- <code>run_get(...)</code></p>
+<p class="indent">- <code>perform_oauth_login_retry_without_scopes(...)</code></p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::Mcp</code> 分支。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_core::config::ConfigBuilder</code></p>
+<p class="indent">- <code>codex_core::config::edit::ConfigEditsBuilder</code></p>
+<p class="indent">- <code>codex_core::config::load_global_mcp_servers</code></p>
+<p class="indent">- <code>codex_mcp::*</code></p>
+<p class="indent">- <code>codex_rmcp_client::*</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/plugin_cmd.rs</code></h3>
+<ul>
+<li>职责：实现 <code>codex plugin add/list/remove</code>，并把 marketplace 子命令交给 <code>marketplace_cmd</code>。</li>
+<li>关键类型：</li>
+<p class="indent">- <code>PluginCli</code></p>
+<p class="indent">- <code>PluginSubcommand</code></p>
+<p class="indent">- <code>AddPluginArgs</code></p>
+<p class="indent">- <code>ListPluginsArgs</code></p>
+<p class="indent">- <code>RemovePluginArgs</code></p>
+<li>关键函数：</li>
+<p class="indent">- <code>run_plugin_add(...)</code></p>
+<p class="indent">- <code>run_plugin_list(...)</code></p>
+<p class="indent">- <code>run_plugin_remove(...)</code></p>
+<p class="indent">- <code>load_plugin_command_context(...)</code></p>
+<p class="indent">- <code>parse_plugin_selection(...)</code></p>
+<p class="indent">- <code>find_marketplace_for_plugin(...)</code></p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::Plugin</code> 分支。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_core_plugins::PluginsManager</code></p>
+<p class="indent">- <code>codex_core_plugins::installed_marketplaces::*</code></p>
+<p class="indent">- <code>codex_plugin::PluginId</code></p>
+<p class="indent">- <code>codex_login</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/marketplace_cmd.rs</code></h3>
+<ul>
+<li>职责：实现 <code>codex plugin marketplace add/list/upgrade/remove</code>。</li>
+<li>关键类型：</li>
+<p class="indent">- <code>MarketplaceCli</code></p>
+<p class="indent">- <code>MarketplaceSubcommand</code></p>
+<p class="indent">- <code>AddMarketplaceArgs</code></p>
+<p class="indent">- <code>UpgradeMarketplaceArgs</code></p>
+<li>关键函数：</li>
+<p class="indent">- <code>MarketplaceCli::run()</code></p>
+<p class="indent">- <code>run_add(...)</code></p>
+<p class="indent">- <code>run_list(...)</code></p>
+<p class="indent">- <code>run_upgrade(...)</code></p>
+<p class="indent">- <code>run_remove(...)</code></p>
+<li>被谁调用：</li>
+<p class="indent">- <code>main.rs</code> 经 <code>PluginSubcommand::Marketplace</code> 调用。</p>
+<p class="indent">- <code>plugin_cmd.rs</code> 引用其类型。</p>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_core_plugins::marketplace_add::add_marketplace</code></p>
+<p class="indent">- <code>codex_core_plugins::marketplace_remove::remove_marketplace</code></p>
+<p class="indent">- <code>codex_core_plugins::PluginsManager</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/remote_control_cmd.rs</code></h3>
+<ul>
+<li>职责：实现 <code>codex remote-control</code>，包含 foreground remote-control 和 daemon start/stop。</li>
+<li>关键类型：</li>
+<p class="indent">- <code>RemoteControlCommand</code></p>
+<p class="indent">- <code>RemoteControlSubcommand</code></p>
+<li>关键函数：</li>
+<p class="indent">- <code>run(...)</code></p>
+<p class="indent">- <code>run_foreground_remote_control(...)</code></p>
+<p class="indent">- <code>wait_for_foreground_remote_control_start(...)</code></p>
+<p class="indent">- <code>wait_for_foreground_app_server(...)</code></p>
+<p class="indent">- <code>wait_for_foreground_remote_control_ready(...)</code></p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::RemoteControl</code> 分支。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_app_server::run_main_with_transport_options</code></p>
+<p class="indent">- <code>codex_app_server_daemon::ensure_remote_control_ready</code></p>
+<p class="indent">- <code>codex_app_server_daemon::run</code></p>
+<p class="indent">- <code>tokio::signal::ctrl_c</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/debug_sandbox.rs</code></h3>
+<ul>
+<li>职责：实现 <code>codex sandbox ...</code> 对平台 sandbox 的调试包装。</li>
+<li>关键函数：</li>
+<p class="indent">- <code>run_command_under_seatbelt(...)</code></p>
+<p class="indent">- <code>run_command_under_landlock(...)</code></p>
+<p class="indent">- <code>run_command_under_windows_sandbox(...)</code></p>
+<p class="indent">- <code>run_command_under_sandbox(...)</code></p>
+<p class="indent">- <code>load_debug_sandbox_config(...)</code></p>
+<p class="indent">- <code>spawn_debug_sandbox_child(...)</code></p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::Sandbox</code> 分支，经 <code>codex_cli::*</code> re-export。</li>
+<li>调用了谁：</li>
+<p class="indent">- <code>codex_sandboxing::seatbelt</code></p>
+<p class="indent">- <code>codex_sandboxing::landlock</code></p>
+<p class="indent">- <code>codex_core::config::ConfigBuilder</code></p>
+<p class="indent">- <code>tokio::process::Command</code></p>
+</ul>
+<h3><code>codex-rs/cli/src/app_cmd.rs</code> 与 <code>desktop_app/*</code></h3>
+<ul>
+<li>职责：<code>codex app</code> 在 macOS/Windows 上打开或安装 Codex Desktop。</li>
+<li>关键函数：</li>
+<p class="indent">- <code>run_app(...)</code></p>
+<p class="indent">- <code>desktop_app::run_app_open_or_install(...)</code></p>
+<p class="indent">- <code>mac::run_mac_app_open_or_install(...)</code></p>
+<p class="indent">- <code>windows::run_windows_app_open_or_install(...)</code></p>
+<li>被谁调用：<code>main.rs</code> 的 <code>Subcommand::App</code> 分支，仅 macOS/Windows 编译。</li>
+<li>调用了谁：系统命令如 macOS <code>open</code>、<code>hdiutil</code>，Windows URL open 逻辑。</li>
+</ul>
+<h3><code>codex-rs/cli/src/state_db_recovery.rs</code></h3>
+<ul>
+<li>职责：TUI 启动时遇到本地 SQLite state db 损坏/锁定时，打印指导、自动备份损坏文件并重试。</li>
+<li>关键函数：</li>
+<p class="indent">- <code>startup_error(...)</code></p>
+<p class="indent">- <code>is_locked(...)</code></p>
+<p class="indent">- <code>is_auto_backup_recoverable(...)</code></p>
+<p class="indent">- <code>backup_files_for_fresh_start(...)</code></p>
+<p class="indent">- <code>confirm_fresh_start_rebuild(...)</code></p>
+<li>被谁调用：<code>main.rs::run_interactive_tui</code>。</li>
+<li>调用了谁：<code>codex_state</code>、<code>codex_tui::LocalStateDbStartupError</code>。</li>
+</ul>
+<h3><code>codex-rs/cli/src/exec_server_telemetry.rs</code></h3>
+<ul>
+<li>职责：exec-server 子命令启动前初始化简化 telemetry/tracing。</li>
+<li>关键函数：<code>init(...)</code></li>
+<li>被谁调用：<code>main.rs::run_exec_server_command</code>。</li>
+<li>调用了谁：<code>tracing_subscriber</code>、OTEL 相关 provider。</li>
+</ul>
+<h3><code>codex-rs/cli/src/exit_status.rs</code></h3>
+<ul>
+<li>职责：把子进程 <code>ExitStatus</code> 转换成当前进程 exit code，Unix 保留 signal 语义。</li>
+<li>关键函数：<code>handle_exit_status(...) -&gt; !</code></li>
+<li>被谁调用：<code>debug_sandbox.rs</code>。</li>
+</ul>
+<h3><code>codex-rs/cli/src/sandbox_setup.rs</code></h3>
+<ul>
+<li>职责：Windows sandbox setup 子命令解析和提权安装逻辑。</li>
+<li>关键函数：</li>
+<p class="indent">- <code>parse_setup_command(...)</code></p>
+<p class="indent">- <code>run(...)</code></p>
+<p class="indent">- <code>run_elevated(...)</code></p>
+<li>被谁调用：<code>main.rs</code> 的 Windows <code>Subcommand::Sandbox</code> 特殊分支。</li>
+</ul>
+<h3><code>codex-rs/cli/src/wsl_paths.rs</code></h3>
+<ul>
+<li>职责：非 Windows 下的 WSL 路径辅助逻辑。</li>
+<li>被谁调用：主要用于平台路径/remote 场景的 CLI 辅助代码。</li>
+</ul>
+<h2>4. 外部入口</h2>
+<h3>Binary 入口</h3>
+<p>主入口在 <code>codex-rs/cli/src/main.rs</code>：</p>
+<pre><code>fn main() -&gt; anyhow::Result&lt;()&gt; {
+    let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
+    arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+        cli_main(arg0_paths, remote_control_disabled).await?;
+        Ok(())
+    })
+}</code></pre>
+<p>入口参数来自：</p>
+<ul>
+<li><code>std::env::args()</code>，由 <code>clap::Parser</code> 在 <code>MultitoolCli::parse()</code> 中读取。</li>
+<li>当前 executable/arg0 派生出的 <code>Arg0DispatchPaths</code>。</li>
+<li>环境变量，包括 remote-control disabled 标记、auth 环境变量、config 相关环境变量等。</li>
+</ul>
+<p>返回结果：</p>
+<ul>
+<li><code>anyhow::Result&lt;()&gt;</code>。</li>
+<li>多数普通错误通过 <code>?</code> 向上传递，最终成为非零退出。</li>
+<li>部分命令直接 <code>std::process::exit(...)</code>，例如 login、doctor fail、update、TUI exit handling。</li>
+</ul>
+<h3>Library 入口</h3>
+<p><code>codex-rs/cli/src/lib.rs</code> 导出：</p>
+<pre><code>run_command_under_seatbelt
+run_command_under_landlock
+run_command_under_windows_sandbox
+run_login_with_chatgpt
+run_login_with_api_key
+run_login_with_access_token
+run_login_with_device_code
+run_login_status
+run_logout</code></pre>
+<p>这些用于将 CLI 子功能复用到同 crate binary 或测试中。</p>
+<h2>5. 主调用链</h2>
+<p>最核心主流程是：用户运行 <code>codex</code> 后进入 TUI，或者运行子命令后分发到对应模块。</p>
+<pre><code>shell / npm shim / VS Code
+  |
+  v
+codex binary
+  |
+  v
+main()
+  |
+  v
+codex_arg0::arg0_dispatch_or_else(...)
+  |
+  v
+cli_main(...)
+  |
+  +-- no subcommand ------------------&gt; run_interactive_tui(...) --&gt; codex_tui::run_main(...)
+  |
+  +-- exec/review ---------------------&gt; codex_exec::run_main(...)
+  |
+  +-- app-server ----------------------&gt; codex_app_server::run_main_with_transport_options(...)
+  |
+  +-- mcp-server ----------------------&gt; codex_mcp_server::run_main(...)
+  |
+  +-- mcp -----------------------------&gt; McpCli::run(...)
+  |
+  +-- plugin --------------------------&gt; plugin_cmd / marketplace_cmd
+  |
+  +-- doctor --------------------------&gt; doctor::run_doctor(...)
+  |
+  +-- sandbox -------------------------&gt; debug_sandbox platform runner
+  |
+  +-- remote-control ------------------&gt; remote_control_cmd::run(...)</code></pre>
+<h3>主流程按真实代码追踪</h3>
+<ol>
+<li><code>codex-rs/cli/src/main.rs</code></li>
+<p class="indent">- 函数：<code>main()</code></p>
+<p class="indent">- 作用：读取 remote-control disabled 状态，进入 <code>arg0_dispatch_or_else</code>。</p>
+<p class="indent">- 调用：<code>cli_main(arg0_paths, remote_control_disabled)</code></p>
+</ol>
+<ol>
+<li><code>codex-rs/arg0/src/lib.rs</code></li>
+<p class="indent">- 函数：<code>arg0_dispatch_or_else(...)</code></p>
+<p class="indent">- 作用：根据 arg0/安装布局做特殊分发；否则执行传入闭包。</p>
+<p class="indent">- 调用：闭包中的 <code>cli_main(...)</code></p>
+</ol>
+<ol>
+<li><code>codex-rs/cli/src/main.rs</code></li>
+<p class="indent">- 函数：<code>cli_main(...)</code></p>
+<p class="indent">- 作用：<code>MultitoolCli::parse()</code> 解析 CLI；合并 feature toggles 到 config overrides；校验 root <code>--strict-config</code> 和 profile 使用范围；按 <code>Subcommand</code> 分发。</p>
+<p class="indent">- 调用：不同下游模块。</p>
+</ol>
+<ol>
+<li><code>codex-rs/cli/src/main.rs</code></li>
+<p class="indent">- 函数：<code>run_interactive_tui(...)</code></p>
+<p class="indent">- 作用：无子命令时启动交互 TUI；处理 <code>TERM=dumb</code>、remote endpoint、state db 损坏恢复。</p>
+<p class="indent">- 调用：<code>codex_tui::run_main(...)</code></p>
+</ol>
+<ol>
+<li><code>codex-rs/tui</code></li>
+<p class="indent">- 函数：<code>codex_tui::run_main(...)</code></p>
+<p class="indent">- 作用：真正进入 TUI app runtime。</p>
+<p class="indent">- 返回：<code>AppExitInfo</code></p>
+</ol>
+<ol>
+<li><code>codex-rs/cli/src/main.rs</code></li>
+<p class="indent">- 函数：<code>handle_app_exit(...)</code></p>
+<p class="indent">- 作用：把 TUI 退出信息转成用户提示和进程退出码。</p>
+<p class="indent">- 返回：成功或进程退出。</p>
+</ol>
+<h3>VS Code / app-server 相关调用链</h3>
+<pre><code>VS Code extension
+  |
+  | spawn
+  v
+codex app-server --listen stdio://
+  |
+  v
+main.rs::cli_main
+  |
+  v
+Subcommand::AppServer(None)
+  |
+  v
+codex_app_server::run_main_with_transport_options(
+  transport = AppServerTransport::Stdio,
+  session_source = SessionSource::VSCode,
+)
+  |
+  v
+codex-rs/app-server runtime</code></pre>
+<p>对应代码：</p>
+<ol>
+<li><code>codex-rs/cli/src/main.rs</code></li>
+<p class="indent">- 函数：<code>cli_main(...)</code></p>
+<p class="indent">- 分支：<code>Some(Subcommand::AppServer(app_server_cli))</code></p>
+<p class="indent">- 作用：解析 <code>--listen</code> / <code>--stdio</code> / auth / remote-control。</p>
+<p class="indent">- 调用：<code>codex_app_server::run_main_with_transport_options(...)</code></p>
+</ol>
+<ol>
+<li><code>codex-rs/app-server/src/lib.rs</code></li>
+<p class="indent">- 函数：<code>run_main_with_transport_options(...)</code></p>
+<p class="indent">- 作用：加载配置、启动 transport、remote control、processor loop、outbound loop。</p>
+<p class="indent">- 返回：<code>std::io::Result&lt;()&gt;</code></p>
+</ol>
+<h2>6. 数据流</h2>
+<h3>输入数据</h3>
+<p>输入主要来自：</p>
+<ul>
+<li>命令行参数：<code>clap</code> 解析为 <code>MultitoolCli</code> 和各子命令参数。</li>
+<li>环境变量：</li>
+<p class="indent">- auth：<code>CODEX_API_KEY</code>、<code>OPENAI_API_KEY</code>、<code>CODEX_ACCESS_TOKEN</code> 等。</p>
+<p class="indent">- terminal：<code>TERM</code>、locale、pager/editor、颜色相关变量。</p>
+<p class="indent">- npm/bun shim：<code>CODEX_MANAGED_BY_NPM</code>、<code>CODEX_MANAGED_PACKAGE_ROOT</code> 等。</p>
+<p class="indent">- remote auth token env：由 <code>--remote-auth-token-env</code> 指定。</p>
+<li>文件系统：</li>
+<p class="indent">- <code>CODEX_HOME</code> / <code>~/.codex</code></p>
+<p class="indent">- <code>config.toml</code></p>
+<p class="indent">- auth 文件/keyring</p>
+<p class="indent">- plugin marketplace cache</p>
+<p class="indent">- sqlite state db</p>
+<p class="indent">- rollout session files</p>
+<li>stdio：</li>
+<p class="indent">- login API key/access token 从 stdin 读取。</p>
+<p class="indent">- app-server stdio 模式从 stdin/stdout 通信。</p>
+</ul>
+<h3>转换过程</h3>
+<pre><code>argv/env/files
+  |
+  v
+clap structs: MultitoolCli / Subcommand / args
+  |
+  v
+CliConfigOverrides raw strings
+  |
+  v
+parse_overrides() -&gt; Vec&lt;(String, toml::Value)&gt;
+  |
+  v
+ConfigBuilder / downstream command structs
+  |
+  v
+downstream runtime: TUI, exec, app-server, mcp, plugin manager, doctor</code></pre>
+<h3>中间状态</h3>
+<ul>
+<li>CLI 参数状态主要保存在局部变量中，不长期持久化。</li>
+<li>配置变更类命令会写入 <code>config.toml</code>：</li>
+<p class="indent">- <code>features enable/disable</code></p>
+<p class="indent">- <code>mcp add/remove</code></p>
+<p class="indent">- plugin/marketplace 配置更新</p>
+<li>app-server daemon/remote-control 会读写 daemon state。</li>
+<li>login 会更新 auth 存储，并可能写 <code>codex-login.log</code>。</li>
+<li>doctor 构造内存中的 <code>DoctorReport</code>，最后渲染为 JSON 或 human report。</li>
+</ul>
+<h3>输出</h3>
+<ul>
+<li>stdout：</li>
+<p class="indent">- 常规命令结果、JSON 输出、completion、doctor report。</p>
+<li>stderr：</li>
+<p class="indent">- 警告、login 浏览器提示、TUI 前置确认、doctor progress。</p>
+<li>exit code：</li>
+<p class="indent">- TUI exit info、doctor fail、update command、sandbox child status 等会影响进程码。</p>
+<li>文件副作用：</li>
+<p class="indent">- auth credentials</p>
+<p class="indent">- config edits</p>
+<p class="indent">- marketplace/plugin cache</p>
+<p class="indent">- login log</p>
+<p class="indent">- debug trace-reduce 输出文件</p>
+<p class="indent">- state db 损坏恢复备份</p>
+<li>网络副作用：</li>
+<p class="indent">- login OAuth/device flow</p>
+<p class="indent">- plugin marketplace Git/HTTP</p>
+<p class="indent">- doctor reachability probes</p>
+<p class="indent">- exec-server remote registration</p>
+<p class="indent">- app installer download</p>
+</ul>
+<h2>7. 配置与依赖</h2>
+<h3>配置来源</h3>
+<ul>
+<li>root <code>-c key=value</code> / <code>--config key=value</code>，类型是 <code>CliConfigOverrides</code>。</li>
+<li>root <code>--enable FEATURE</code> / <code>--disable FEATURE</code>，会被折叠成 config overrides。</li>
+<li>TUI shared flags，例如 model、sandbox、approval、cwd、profile、web search。</li>
+<li><code>$CODEX_HOME/config.toml</code>。</li>
+<li>profile v2：<code>loader_overrides_for_profile(...)</code> 将 <code>--profile</code> 解析成 profile config path。</li>
+<li>managed config / requirements，由下游 <code>ConfigBuilder</code> 和 config loader 处理。</li>
+</ul>
+<h3>外部库</h3>
+<p>主要外部库：</p>
+<ul>
+<li><code>clap</code> / <code>clap_complete</code>：CLI 参数解析和 completion。</li>
+<li><code>anyhow</code>：错误聚合和上下文。</li>
+<li><code>tokio</code>：async runtime、process、signal、join、timeout。</li>
+<li><code>serde</code> / <code>serde_json</code> / <code>toml</code>：JSON/TOML 序列化。</li>
+<li><code>tracing</code> / <code>tracing-subscriber</code> / <code>tracing-appender</code>：日志。</li>
+<li><code>owo-colors</code> / <code>supports-color</code>：terminal human output。</li>
+<li><code>which</code>、<code>os_info</code>、<code>sys-locale</code>、<code>url</code>、<code>tempfile</code> 等系统辅助。</li>
+</ul>
+<h3>项目内依赖</h3>
+<p><code>cli</code> 是高度聚合 crate，依赖很多内部模块：</p>
+<ul>
+<li><code>codex-arg0</code>：arg0 分发和 runtime executable paths。</li>
+<li><code>codex-utils-cli</code>：CLI config overrides、shared CLI options。</li>
+<li><code>codex-config</code> / <code>codex-core</code>：配置加载和核心类型。</li>
+<li><code>codex-tui</code>：交互式主界面。</li>
+<li><code>codex-exec</code>：非交互执行。</li>
+<li><code>codex-app-server</code> / <code>codex-app-server-daemon</code> / <code>codex-app-server-protocol</code>：IDE/app server。</li>
+<li><code>codex-login</code>：认证。</li>
+<li><code>codex-core-plugins</code> / <code>codex-plugin</code>：plugin/marketplace。</li>
+<li><code>codex-mcp</code> / <code>codex-mcp-server</code> / <code>codex-rmcp-client</code>：MCP 管理和 server。</li>
+<li><code>codex-exec-server</code>：exec-server。</li>
+<li><code>codex-sandboxing</code>：平台 sandbox。</li>
+<li><code>codex-state</code> / <code>codex-rollout</code>：本地状态和 rollout。</li>
+</ul>
+<h3>隐式依赖</h3>
+<ul>
+<li>当前工作目录：影响 TUI、profile、Git、sandbox cwd。</li>
+<li><code>PATH</code>：影响 <code>git</code>、<code>rg</code>、npm、系统命令、app installer 命令。</li>
+<li>terminal 能力：<code>TERM=dumb</code> 会触发保护逻辑。</li>
+<li>OS 编译条件：macOS/Windows 才有 <code>codex app</code>；macOS/ Linux/Windows sandbox 分支不同。</li>
+<li>npm/bun shim 设置的环境变量影响 update 和 doctor 判断。</li>
+</ul>
+<h2>8. 异常处理</h2>
+<h3>常见异常场景</h3>
+<ul>
+<li>CLI 参数不合法：由 <code>clap</code> 或后置校验报错。</li>
+<li><code>--remote</code> 被用于非 TUI 子命令：<code>reject_remote_mode_for_subcommand</code> 返回错误。</li>
+<li>root <code>--strict-config</code> 用于不支持的子命令：<code>reject_root_strict_config_for_subcommand</code> 返回错误。</li>
+<li>config override 解析失败：<code>parse_overrides().map_err(anyhow::Error::msg)?</code>。</li>
+<li>配置加载失败：多数命令向上传递；doctor 会降级生成 config fail report 并继续跑部分检查。</li>
+<li>TUI state db 损坏：<code>run_interactive_tui</code> 通过 <code>state_db_recovery</code> 自动备份后重试。</li>
+<li>TUI state db 被锁：打印指导，返回 fatal <code>AppExitInfo</code>。</li>
+<li>login 被 forced login method 禁用：打印错误并 <code>exit(1)</code>。</li>
+<li>app-server remote-control 不可用：下游 <code>codex-app-server</code> 返回错误。</li>
+<li>plugin/marketplace 找不到或 snapshot 加载失败：<code>bail!</code>。</li>
+<li>MCP OAuth 不支持：<code>bail!</code>；部分 OAuth scope 错误会 retry without scopes。</li>
+<li>sandbox 平台不支持：<code>bail!</code>。</li>
+<li>exec-server 远程注册认证不满足：<code>bail!</code> 或向上传递。</li>
+</ul>
+<h3>捕获和兜底</h3>
+<ul>
+<li><code>main()</code> 顶层返回 <code>anyhow::Result&lt;()&gt;</code>，普通错误交给 runtime 打印。</li>
+<li><code>run_interactive_tui</code> 对 state db 损坏做自动恢复。</li>
+<li><code>doctor::build_report</code> 对 config 加载失败有降级路径。</li>
+<li><code>remote_control_cmd</code> foreground 模式会监听 Ctrl-C，并 abort app-server task。</li>
+<li><code>login</code> 初始化文件日志失败只发 warning，不阻断登录。</li>
+<li><code>exec_server_telemetry::init</code> 失败只打印 <code>Could not create otel exporter</code>，不阻断 exec-server。</li>
+</ul>
+<h3>会向上传递的错误</h3>
+<ul>
+<li>大多数 <code>anyhow::Result</code> 分支使用 <code>?</code> 直接返回。</li>
+<li>下游 crate 的 <code>run_main</code> 错误会传回 <code>cli_main</code>。</li>
+<li>IO、JSON/TOML、配置、网络、子进程错误通常都向上传递，除非命令有明确降级策略。</li>
+</ul>
+<h2>9. 扩展点</h2>
+<h3>新增一级子命令</h3>
+<p>通常需要改：</p>
+<ol>
+<li><code>codex-rs/cli/src/main.rs</code></li>
+<p class="indent">- 给 <code>Subcommand</code> 添加 variant。</p>
+<p class="indent">- 定义对应 <code>struct XxxCommand</code>。</p>
+<p class="indent">- 在 <code>cli_main</code> 的 <code>match subcommand</code> 添加分支。</p>
+<p class="indent">- 根据需要更新 <code>unsupported_subcommand_name_for_strict_config</code>、<code>profile_v2_for_subcommand</code>、remote mode 校验。</p>
+<li>如逻辑较多，新增 <code>src/xxx_cmd.rs</code>，并在 <code>main.rs</code> <code>mod xxx_cmd;</code>。</li>
+<li>添加 <code>codex-rs/cli/tests/*.rs</code> 覆盖 clap 解析或行为。</li>
+</ol>
+<h3>新增 app-server 子命令</h3>
+<p>需要改：</p>
+<ul>
+<li><code>AppServerSubcommand</code></li>
+<li><code>app_server_subcommand_name</code></li>
+<li><code>cli_main</code> 的 <code>Subcommand::AppServer</code> 分支</li>
+<li>strict config / remote mode 校验</li>
+</ul>
+<h3>新增 doctor 检查</h3>
+<p>建议：</p>
+<ul>
+<li>小检查可以放在 <code>doctor.rs</code>。</li>
+<li>独立领域检查放到 <code>src/doctor/&lt;name&gt;.rs</code>。</li>
+<li>在 <code>build_report</code> 中加入 <code>run_sync_check</code> 或 <code>run_async_check</code>。</li>
+<li>给 human output 分组时更新 <code>doctor/output.rs</code> 的 <code>GROUPS</code>。</li>
+<li>如果 detail 需要定制展示，更新 <code>doctor/output/detail.rs</code>。</li>
+<li>增加 snapshot 或 unit test。</li>
+</ul>
+<h3>新增配置编辑命令</h3>
+<p>优先使用：</p>
+<ul>
+<li><code>codex_core::config::edit::ConfigEditsBuilder</code></li>
+<li><code>CliConfigOverrides::parse_overrides</code></li>
+<li><code>find_codex_home</code></li>
+</ul>
+<p>不建议直接手写 TOML 字符串修改。</p>
+<h3>不建议直接修改的地方</h3>
+<ul>
+<li><code>cli_main</code> 已经很长，新增大逻辑不要继续堆在 <code>main.rs</code>，应该拆 <code>*_cmd.rs</code>。</li>
+<li>不要让 <code>doctor</code> 做修复动作；它的设计是 read-mostly。</li>
+<li>不要绕过 <code>ConfigBuilder</code> 自己拼配置。</li>
+<li>不要在普通子命令里误用 <code>--remote</code>，当前设计只支持 interactive TUI commands。</li>
+<li>平台 sandbox 相关逻辑不要跨平台硬编码，保持 <code>cfg(target_os = &quot;...&quot;)</code> 分支。</li>
+</ul>
+<h2>10. 问题与改进建议</h2>
+<h3>职责</h3>
+<p>总体职责清晰：<code>cli</code> 是入口层和命令路由层。但 <code>main.rs</code> 同时承担命令定义、分派、TUI wrapper、app-server wrapper、exec-server wrapper、features 管理、debug 命令等职责，文件过大。</p>
+<h3>文件大小</h3>
+<p><code>src/main.rs</code> 已经明显是高耦合、高触达文件。新增功能应优先拆到新模块，例如：</p>
+<ul>
+<li><code>app_server_cmd.rs</code></li>
+<li><code>features_cmd.rs</code></li>
+<li><code>exec_server_cmd.rs</code></li>
+<li><code>session_cmd.rs</code></li>
+<li><code>debug_cmd.rs</code></li>
+</ul>
+<h3>调用链</h3>
+<p>主调用链清晰，但 <code>cli_main</code> 的 <code>match</code> 分支过长，新人阅读时容易迷失。可以考虑给每个大分支提取 <code>run_xxx_subcommand(...)</code>，但要避免只调用一次的小 helper 泛滥；更好的方式是按领域拆文件。</p>
+<h3>重复逻辑</h3>
+<p>有一些重复模式：</p>
+<ul>
+<li><code>reject_remote_mode_for_subcommand(...)</code></li>
+<li><code>prepend_config_flags(...)</code></li>
+<li><code>parse_overrides()</code></li>
+<li><code>ConfigBuilder::default().cli_overrides(...)</code></li>
+</ul>
+<p>这些重复目前是可接受的，因为它们让每个子命令的配置边界比较显式。若继续增长，可抽象为小的 command context。</p>
+<h3>测试</h3>
+<p><code>codex-rs/cli/tests/</code> 覆盖了 app-server、login、plugin、marketplace、mcp、execpolicy、features、update、sandbox 等命令。新增子命令应至少覆盖：</p>
+<ul>
+<li>clap 参数解析。</li>
+<li>成功路径输出。</li>
+<li>关键错误路径。</li>
+<li>JSON 输出稳定性。</li>
+</ul>
+<p>Doctor 已有 snapshot 测试，改 human output 时需要更新 snapshot。</p>
+<h3>注释和文档</h3>
+<p>已有若干高质量注释，例如 <code>doctor.rs</code>、<code>login.rs</code>、<code>doctor/output.rs</code>。建议补充：</p>
+<ul>
+<li><code>cli_main</code> 顶部的命令分派总览注释。</li>
+<li>app-server 分支说明 VS Code/plugin 常用 <code>codex app-server --listen stdio://</code>。</li>
+<li>新人导览文档链接到 <code>codex-rs/cli/src/main.rs</code> 和关键子模块。</li>
+</ul>
+<h2>11. 新人阅读建议</h2>
+<p>建议按目标路径阅读，不要从 <code>main.rs</code> 第一行一路读到底。</p>
+<h3>路线 A：理解 <code>codex</code> 默认启动</h3>
+<pre><code>src/main.rs::main
+  -&gt; cli_main
+  -&gt; Subcommand::None
+  -&gt; run_interactive_tui
+  -&gt; codex_tui::run_main</code></pre>
+<p>重点看：</p>
+<ul>
+<li><code>MultitoolCli</code></li>
+<li><code>cli_main</code></li>
+<li><code>run_interactive_tui</code></li>
+<li><code>state_db_recovery</code></li>
+</ul>
+<h3>路线 B：理解 VS Code/app-server 启动</h3>
+<pre><code>codex app-server --listen stdio://
+  -&gt; cli_main
+  -&gt; Subcommand::AppServer(None)
+  -&gt; codex_app_server::run_main_with_transport_options</code></pre>
+<p>重点看：</p>
+<ul>
+<li><code>AppServerCommand</code></li>
+<li><code>AppServerSubcommand</code></li>
+<li><code>Subcommand::AppServer</code> 分支</li>
+<li><code>codex-rs/app-server/src/lib.rs::run_main_with_transport_options</code></li>
+</ul>
+<h3>路线 C：理解非交互执行</h3>
+<pre><code>codex exec &quot;...&quot;
+  -&gt; cli_main
+  -&gt; Subcommand::Exec
+  -&gt; codex_exec::run_main</code></pre>
+<p>重点看：</p>
+<ul>
+<li><code>Subcommand::Exec</code></li>
+<li>root config overrides 如何 prepend 到 exec CLI。</li>
+</ul>
+<h3>路线 D：理解诊断系统</h3>
+<pre><code>codex doctor
+  -&gt; doctor::run_doctor
+  -&gt; build_report
+  -&gt; run_sync_check / run_async_check
+  -&gt; render_human_report 或 JSON</code></pre>
+<p>重点看：</p>
+<ul>
+<li><code>doctor.rs</code></li>
+<li><code>doctor/output.rs</code></li>
+<li><code>doctor/background.rs</code></li>
+<li><code>doctor/runtime.rs</code></li>
+</ul>
+<h3>路线 E：理解扩展管理</h3>
+<pre><code>codex plugin ...
+  -&gt; plugin_cmd.rs
+  -&gt; PluginsManager
+
+codex plugin marketplace ...
+  -&gt; marketplace_cmd.rs
+  -&gt; codex_core_plugins</code></pre>
+<p>重点看：</p>
+<ul>
+<li><code>plugin_cmd::load_plugin_command_context</code></li>
+<li><code>plugin_cmd::find_marketplace_for_plugin</code></li>
+<li><code>marketplace_cmd::MarketplaceCli::run</code></li>
+</ul>
+</body>
+</html>
