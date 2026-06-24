@@ -1,3 +1,7 @@
 [submodule "learning/rust-book-learning"]
 	path = learning/rust-book-learning
 	url = https://github.com/GLBB/rust-book-learning.git
+[submodule "learning/codex/codex-source-analysis"]
+	path = learning/codex/codex-source-analysis
+	url = https://github.com/GLBB/codex-source-analysis.git
+	branch = master
