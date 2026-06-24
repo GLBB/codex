@@ -9,6 +9,8 @@
 3. [Agent 开发系列教程](codex/agent-course/README.md)
 4. [Agent 开发主题学习指南](codex/agent-topic-guide.md)
 5. [Codex 生产级 Coding Agent 学习总览](codex/production-coding-agent-overview.md)
+6. [codex-rs 深度研究专题](codex/deep-research/README.md)
+7. [Codex 源码分析专库](codex/codex-source-analysis/README.md)
 
 ## 目录结构
 
@@ -30,5 +32,9 @@
 | [Agent 开发系列教程](codex/agent-course/README.md) | 从运行项目开始，按 13 课一步一步学习 Agent 工程，并覆盖常见 Agent 面试追问 |
 | [Agent 开发主题学习指南](codex/agent-topic-guide.md) | 按工具、Session、记忆、RAG、沙箱、MCP、Skills 等主题对照 Codex 源码 |
 | [Codex 生产级 Coding Agent 学习总览](codex/production-coding-agent-overview.md) | 按主链路阅读 Codex 源码 |
+| [codex-rs 深度研究专题](codex/deep-research/README.md) | 12 篇专题报告，系统研究架构、主循环、上下文、工具、安全、app-server、TUI、扩展、状态、多 agent 和测试观测 |
+| [codex-rs 项目演进史](codex/codex-rs-evolution-history.md) | 从 Git 历史梳理 Rust 版 Codex 的阶段、架构和功能演进 |
+| [codex-rs 深度研究覆盖矩阵](codex/codex-rs-deep-research-coverage.md) | 对照深度研究主题检查 `learning/` 的覆盖范围和缺口 |
+| [Codex 源码分析专库](codex/codex-source-analysis/README.md) | 独立维护的 25 章源码分析、专题附录与最新源码研究材料 |
 | [Codex Query 处理流程](codex/query-processing-flow.md) | 跟踪一条用户 query 从入口到模型、工具、日志和持久化的执行过程 |
 | [AI 素养与 Agent 学习资源](resources/ai-agent-learning-resources.md) | 补齐外部课程和官方文档 |
