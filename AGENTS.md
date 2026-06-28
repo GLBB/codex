@@ -61,6 +61,10 @@ In the codex-rs folder where the rust code lives:
     trivial; prefer new modules/files and keep `chatwidget.rs` focused on orchestration.
 - When running Rust commands (e.g. `just fix` or `just test`) be patient with the command and never try to kill them using the PID. Rust lock can make the execution slow, this is expected.
 
+## Source-reading learning docs
+
+For human-facing source-reading documents under `learning/`, write the navigation as prose for a reader with the source open. Do not make `rg` or other shell commands the main way to follow the document. Prefer naming the file, the functions or types to inspect, the relationship between them, and the point at which the reader should stop before following side paths.
+
 Run `just fmt` (in the `codex-rs` directory) automatically after you have finished making code changes anywhere in this repository; do not ask for approval to run it. Additionally, run the tests:
 
 1. Do not run `cargo test` directly. Use `just test` so test execution follows the repo defaults.
