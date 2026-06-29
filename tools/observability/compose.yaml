@@ -1,0 +1,14 @@
+services:
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: codex-otel-lgtm
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards:ro
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
