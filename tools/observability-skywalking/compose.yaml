@@ -1,0 +1,86 @@
+services:
+  banyandb:
+    image: ${SKYWALKING_BANYANDB_IMAGE:-apache/skywalking-banyandb:0.8.0}
+    container_name: codex-skywalking-banyandb
+    command:
+      - --node-host-provider
+      - flag
+      - --node-host
+      - banyandb
+      - standalone
+      - --grpc-host
+      - 0.0.0.0
+      - --http-host
+      - 0.0.0.0
+      - --stream-root-path
+      - /data/stream
+      - --measure-root-path
+      - /data/measure
+      - --metadata-root-path
+      - /data/metadata
+      - --property-root-path
+      - /data/property
+    ports:
+      - "17913:17913"
+    volumes:
+      - banyandb-data:/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -nz 127.0.0.1 17912"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+
+  oap:
+    image: ${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:10.2.0}
+    container_name: codex-skywalking-oap
+    depends_on:
+      banyandb:
+        condition: service_healthy
+    environment:
+      SW_STORAGE: banyandb
+      SW_STORAGE_BANYANDB_TARGETS: banyandb:17912
+      SW_HEALTH_CHECKER: default
+      SW_OTEL_RECEIVER: default
+      SW_OTEL_RECEIVER_ENABLED_HANDLERS: otlp-traces,otlp-metrics,otlp-logs
+      SW_RECEIVER_ZIPKIN: default
+      SW_QUERY_ZIPKIN: default
+      SW_TELEMETRY: prometheus
+      JAVA_OPTS: -Xms1024m -Xmx1024m
+    ports:
+      - "11800:11800"
+      - "12800:12800"
+      - "9412:9412"
+      - "17128:17128"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/12800"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.127.0
+    container_name: codex-skywalking-otel-collector
+    depends_on:
+      oap:
+        condition: service_healthy
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "14317:4317"
+      - "14318:4318"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+  ui:
+    image: ${SKYWALKING_UI_IMAGE:-apache/skywalking-ui:10.2.0}
+    container_name: codex-skywalking-ui
+    depends_on:
+      oap:
+        condition: service_healthy
+    ports:
+      - "8088:8080"
+    environment:
+      SW_OAP_ADDRESS: http://oap:12800
+
+volumes:
+  banyandb-data:
