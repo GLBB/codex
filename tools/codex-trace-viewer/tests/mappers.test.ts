@@ -48,9 +48,12 @@ describe("trace mappers", () => {
   it("builds a time ordered business timeline", () => {
     const timeline = buildTimeline(sampleTrace());
     expect(timeline.map((node) => `${node.type}:${node.id}`)).toEqual([
+      "session:trace-1",
+      "thread:thread-root",
       "turn:turn1",
       "conversation:item-user",
       "inference:inf1",
+      "thread:thread-child",
       "tool:tool1",
       "terminal:term1",
       "code_cell:cell1",
@@ -72,7 +75,7 @@ describe("trace mappers", () => {
   });
 
   it("filters timeline by thread and searches model-visible ids", () => {
-    expect(buildTimeline(sampleTrace(), "thread-child").map((node) => node.id)).toEqual(["edge1"]);
+    expect(buildTimeline(sampleTrace(), "thread-child").map((node) => node.id)).toEqual(["thread-child", "edge1"]);
     expect(searchTrace(sampleTrace(), "call_search").map((node) => node.id)).toEqual(["tool1"]);
   });
 
