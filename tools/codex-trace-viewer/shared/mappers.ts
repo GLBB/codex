@@ -2,6 +2,7 @@ import type {
   AgentGraph,
   AgentGraphEdge,
   AgentThread,
+  ConversationItem,
   DurationSummary,
   RolloutTrace,
   StatsSummary,
@@ -233,10 +234,11 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
     if (threadId && item.thread_id !== threadId) {
       continue;
     }
+    const type = conversationTimelineType(item);
     nodes.push({
       id,
-      type: "conversation",
-      label: `${item.role ?? "conversation"}: ${item.kind ?? "item"}`,
+      type,
+      label: conversationTimelineLabel(item, type),
       threadId: item.thread_id,
       turnId: item.codex_turn_id,
       startedAtUnixMs: item.first_seen_at_unix_ms,
@@ -550,17 +552,36 @@ function timelineSortRank(node: TimelineNode): number {
   if (node.type === "conversation" && !node.label.startsWith("assistant:")) {
     return 3;
   }
-  if (node.type === "inference") {
+  if (node.type === "reasoning") {
     return 4;
   }
-  if (node.type === "tool" || node.type === "code_cell" || node.type === "terminal") {
+  if (node.type === "inference") {
     return 5;
   }
-  if (node.type === "conversation") {
+  if (node.type === "tool" || node.type === "code_cell" || node.type === "terminal") {
     return 6;
   }
-  if (node.type === "compaction") {
+  if (node.type === "conversation") {
     return 7;
   }
-  return 8;
+  if (node.type === "compaction") {
+    return 8;
+  }
+  return 9;
+}
+
+function conversationTimelineType(item: ConversationItem): TimelineNode["type"] {
+  const kind = item.kind?.toLowerCase() ?? "";
+  const channel = item.channel?.toLowerCase() ?? "";
+  if (kind.includes("reasoning") || kind.includes("summary") || channel === "analysis") {
+    return "reasoning";
+  }
+  return "conversation";
+}
+
+function conversationTimelineLabel(item: ConversationItem, type: TimelineNode["type"]): string {
+  if (type === "reasoning") {
+    return `Reasoning: ${item.kind ?? item.channel ?? "item"}`;
+  }
+  return `${item.role ?? "conversation"}: ${item.kind ?? "item"}`;
 }
