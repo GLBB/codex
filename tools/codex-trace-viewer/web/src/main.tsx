@@ -17,7 +17,7 @@ import "./styles.css";
 
 type Tab = "timeline" | "prompt" | "agent" | "payload" | "stats";
 
-interface TimelineFilters {
+export interface TimelineFilters {
   types: Set<TimelineNode["type"]>;
   status: string;
   model: string;
@@ -42,7 +42,7 @@ interface BundlesUpdatedEvent {
   added?: string[];
 }
 
-function defaultFilters(): TimelineFilters {
+export function defaultFilters(): TimelineFilters {
   return {
     types: new Set(timelineTypes),
     status: "",
@@ -87,7 +87,7 @@ function isFailedStatus(status?: string): boolean {
   return status === "failed" || status === "error" || status === "aborted" || status === "cancelled";
 }
 
-function filterTimeline(nodes: TimelineNode[], filters: TimelineFilters): TimelineNode[] {
+export function filterTimeline(nodes: TimelineNode[], filters: TimelineFilters): TimelineNode[] {
   const status = filters.status.trim().toLowerCase();
   const model = filters.model.trim().toLowerCase();
   const tool = filters.tool.trim().toLowerCase();
@@ -400,7 +400,7 @@ function Details({
   );
 }
 
-function PromptInspector({ prompt }: { prompt?: PromptView }) {
+export function PromptInspector({ prompt }: { prompt?: PromptView }) {
   const [promptQuery, setPromptQuery] = useState("");
   const [copyState, setCopyState] = useState("");
   if (!prompt) {
@@ -465,7 +465,7 @@ function RawPayload({ payload }: { payload?: unknown }) {
   return <pre className="payload">{JSON.stringify(payload, null, 2)}</pre>;
 }
 
-function AgentGraphView({
+export function AgentGraphView({
   graph,
   onSelectEdge
 }: {
@@ -819,4 +819,7 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+const root = document.getElementById("root");
+if (root) {
+  createRoot(root).render(<App />);
+}
