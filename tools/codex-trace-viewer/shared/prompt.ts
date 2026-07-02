@@ -29,7 +29,8 @@ function section(
   content: unknown,
   role?: string,
   rawPayloadRef?: string,
-  relatedTimelineNodeId?: string
+  relatedTimelineNodeId?: string,
+  relatedToolName?: string
 ): PromptSection {
   const text = stringifyContent(content);
   return {
@@ -43,7 +44,8 @@ function section(
     estimatedTokens: estimatedTokens(text),
     included: text.length > 0,
     rawPayloadRef,
-    relatedTimelineNodeId
+    relatedTimelineNodeId,
+    relatedToolName
   };
 }
 
@@ -101,6 +103,23 @@ function inputItemTimelineId(item: unknown): string | undefined {
   const record = item as Record<string, unknown>;
   const id = record.item_id ?? record.id;
   return typeof id === "string" ? id : undefined;
+}
+
+function toolDefinitionName(tool: unknown): string | undefined {
+  if (!tool || typeof tool !== "object") {
+    return undefined;
+  }
+  const record = tool as Record<string, unknown>;
+  const name = record.name;
+  if (typeof name === "string") {
+    return name;
+  }
+  const functionDefinition = record.function;
+  if (functionDefinition && typeof functionDefinition === "object") {
+    const functionName = (functionDefinition as Record<string, unknown>).name;
+    return typeof functionName === "string" ? functionName : undefined;
+  }
+  return undefined;
 }
 
 export function buildPromptView(
@@ -175,17 +194,22 @@ export function buildPromptView(
   });
 
   if (Array.isArray(request.tools)) {
-    sections.push(
-      section(
-        "model_visible_tools",
-        "tool_definition",
-        "Model-visible Tool Definitions",
-        "tool_registry",
-        request.tools,
-        undefined,
-        rawRequestPayloadId
-      )
-    );
+    request.tools.forEach((tool, index) => {
+      const name = toolDefinitionName(tool);
+      sections.push(
+        section(
+          `model_visible_tool_${index}`,
+          "tool_definition",
+          name ? `Tool Definition: ${name}` : `Tool Definition ${index + 1}`,
+          "tool_registry",
+          tool,
+          undefined,
+          rawRequestPayloadId,
+          undefined,
+          name
+        )
+      );
+    });
   }
 
   if ("text" in request) {

@@ -442,10 +442,12 @@ function Details({
 
 export function PromptInspector({
   prompt,
-  onOpenTimelineNode
+  onOpenTimelineNode,
+  onOpenToolCalls
 }: {
   prompt?: PromptView;
   onOpenTimelineNode?: (timelineNodeId: string) => void;
+  onOpenToolCalls?: (toolName: string) => void;
 }) {
   const [promptQuery, setPromptQuery] = useState("");
   const [copyState, setCopyState] = useState("");
@@ -496,6 +498,7 @@ export function PromptInspector({
               {section.relatedTimelineNodeId ? (
                 <button onClick={() => onOpenTimelineNode?.(section.relatedTimelineNodeId!)}>Show timeline item</button>
               ) : null}
+              {section.relatedToolName ? <button onClick={() => onOpenToolCalls?.(section.relatedToolName!)}>Show tool calls</button> : null}
               {section.rawPayloadRef ? <span className="mono">{section.rawPayloadRef}</span> : null}
             </div>
             <pre>{section.content}</pre>
@@ -899,6 +902,11 @@ function App() {
     }
   };
 
+  const showToolCalls = (toolName: string) => {
+    setFilters({ ...defaultFilters(), tool: toolName });
+    setTab("timeline");
+  };
+
   return (
     <main>
       <header>
@@ -942,7 +950,9 @@ function App() {
         {tab === "timeline" ? (
           <Timeline nodes={filteredTimeline} freshNodeKeys={freshNodeKeys} selectedNode={selectedNode} onSelect={setSelectedNode} />
         ) : null}
-        {tab === "prompt" ? <PromptInspector prompt={prompt} onOpenTimelineNode={selectTimelineNodeById} /> : null}
+        {tab === "prompt" ? (
+          <PromptInspector prompt={prompt} onOpenTimelineNode={selectTimelineNodeById} onOpenToolCalls={showToolCalls} />
+        ) : null}
         {tab === "agent" ? <AgentGraphView graph={agentGraph} onSelectEdge={selectAgentEdge} /> : null}
         {tab === "payload" ? <RawPayload payload={payload} error={payloadError} /> : null}
         {tab === "stats" ? <Stats summary={summary} stats={stats} /> : null}
