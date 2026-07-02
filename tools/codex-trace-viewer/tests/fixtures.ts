@@ -58,6 +58,7 @@ export function sampleTrace(): RolloutTrace {
         codex_turn_id: "turn1",
         model: "gpt-5",
         provider_name: "openai",
+        request_item_ids: ["history-user", "history-assistant", "history-tool", "item-user"],
         usage: { input_tokens: 120, output_tokens: 40 },
         raw_request_payload_id: "payload-request",
         raw_response_payload_id: "payload-response",

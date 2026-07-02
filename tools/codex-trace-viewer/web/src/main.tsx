@@ -438,7 +438,13 @@ function Details({
   );
 }
 
-export function PromptInspector({ prompt }: { prompt?: PromptView }) {
+export function PromptInspector({
+  prompt,
+  onOpenTimelineNode
+}: {
+  prompt?: PromptView;
+  onOpenTimelineNode?: (timelineNodeId: string) => void;
+}) {
   const [promptQuery, setPromptQuery] = useState("");
   const [copyState, setCopyState] = useState("");
   if (!prompt) {
@@ -485,6 +491,9 @@ export function PromptInspector({ prompt }: { prompt?: PromptView }) {
             </summary>
             <div className="sectionActions">
               <button onClick={() => copyText(section.content)}>Copy section</button>
+              {section.relatedTimelineNodeId ? (
+                <button onClick={() => onOpenTimelineNode?.(section.relatedTimelineNodeId!)}>Show timeline item</button>
+              ) : null}
               {section.rawPayloadRef ? <span className="mono">{section.rawPayloadRef}</span> : null}
             </div>
             <pre>{section.content}</pre>
@@ -835,6 +844,14 @@ function App() {
     }
   };
 
+  const selectTimelineNodeById = (nodeId: string) => {
+    const node = timeline.find((item) => item.id === nodeId);
+    if (node) {
+      setSelectedNode(node);
+      setTab("timeline");
+    }
+  };
+
   return (
     <main>
       <header>
@@ -878,7 +895,7 @@ function App() {
         {tab === "timeline" ? (
           <Timeline nodes={filteredTimeline} freshNodeKeys={freshNodeKeys} selectedNode={selectedNode} onSelect={setSelectedNode} />
         ) : null}
-        {tab === "prompt" ? <PromptInspector prompt={prompt} /> : null}
+        {tab === "prompt" ? <PromptInspector prompt={prompt} onOpenTimelineNode={selectTimelineNodeById} /> : null}
         {tab === "agent" ? <AgentGraphView graph={agentGraph} onSelectEdge={selectAgentEdge} /> : null}
         {tab === "payload" ? <RawPayload payload={payload} error={payloadError} /> : null}
         {tab === "stats" ? <Stats summary={summary} stats={stats} /> : null}

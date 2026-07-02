@@ -28,7 +28,8 @@ function section(
   source: string,
   content: unknown,
   role?: string,
-  rawPayloadRef?: string
+  rawPayloadRef?: string,
+  relatedTimelineNodeId?: string
 ): PromptSection {
   const text = stringifyContent(content);
   return {
@@ -41,7 +42,8 @@ function section(
     charCount: charCount(text),
     estimatedTokens: estimatedTokens(text),
     included: text.length > 0,
-    rawPayloadRef
+    rawPayloadRef,
+    relatedTimelineNodeId
   };
 }
 
@@ -92,6 +94,15 @@ function classifyInputSource(item: unknown, index: number, inputCount: number): 
   return "conversation_history";
 }
 
+function inputItemTimelineId(item: unknown): string | undefined {
+  if (!item || typeof item !== "object") {
+    return undefined;
+  }
+  const record = item as Record<string, unknown>;
+  const id = record.item_id ?? record.id;
+  return typeof id === "string" ? id : undefined;
+}
+
 export function buildPromptView(
   inference: InferenceCall,
   wireRequestJson: unknown
@@ -138,6 +149,10 @@ export function buildPromptView(
   }
 
   const input = Array.isArray(request.input) ? request.input : [];
+  const requestItemIds =
+    Array.isArray(inference.request_item_ids) && inference.request_item_ids.length === input.length
+      ? inference.request_item_ids
+      : [];
   input.forEach((item, index) => {
     const role = inputItemRole(item);
     const source = classifyInputSource(item, index, input.length);
@@ -153,7 +168,8 @@ export function buildPromptView(
         source,
         item,
         role,
-        rawRequestPayloadId
+        rawRequestPayloadId,
+        inputItemTimelineId(item) ?? requestItemIds[index]
       )
     );
   });

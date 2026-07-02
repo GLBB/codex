@@ -45,7 +45,8 @@ describe("viewer UI", () => {
     if (!inference) {
       throw new Error("missing fixture inference");
     }
-    render(<PromptInspector prompt={buildPromptView(inference, sampleWireRequest())} />);
+    const onOpenTimelineNode = vi.fn();
+    render(<PromptInspector prompt={buildPromptView(inference, sampleWireRequest())} onOpenTimelineNode={onOpenTimelineNode} />);
 
     fireEvent.change(screen.getByPlaceholderText("在当前 Prompt 中搜索"), { target: { value: "当前问题" } });
     expect(screen.getByText("Current User Query")).toBeInTheDocument();
@@ -53,6 +54,9 @@ describe("viewer UI", () => {
 
     fireEvent.click(screen.getByText("Copy request JSON"));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("\"当前问题\""));
+
+    fireEvent.click(screen.getByText("Show timeline item"));
+    expect(onOpenTimelineNode).toHaveBeenCalledWith("item-user");
   });
 
   it("selects agent graph interaction edges", () => {
