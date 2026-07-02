@@ -156,6 +156,31 @@ export function filterTimeline(nodes: TimelineNode[], filters: TimelineFilters):
   });
 }
 
+export function highlightedText(text: string, query: string): React.ReactNode {
+  const needle = query.trim();
+  if (!needle) {
+    return text;
+  }
+  const lowerText = text.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = lowerText.indexOf(lowerNeedle);
+  while (matchIndex !== -1) {
+    if (matchIndex > cursor) {
+      parts.push(text.slice(cursor, matchIndex));
+    }
+    const end = matchIndex + needle.length;
+    parts.push(<mark key={`${matchIndex}:${end}`}>{text.slice(matchIndex, end)}</mark>);
+    cursor = end;
+    matchIndex = lowerText.indexOf(lowerNeedle, cursor);
+  }
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+  return parts.length ? parts : text;
+}
+
 function ThreadTree({
   nodes,
   selectedThread,
@@ -274,11 +299,13 @@ function Timeline({
   nodes,
   freshNodeKeys,
   selectedNode,
+  highlightQuery,
   onSelect
 }: {
   nodes: TimelineNode[];
   freshNodeKeys: Set<string>;
   selectedNode?: TimelineNode;
+  highlightQuery: string;
   onSelect: (node: TimelineNode) => void;
 }) {
   return (
@@ -297,10 +324,10 @@ function Timeline({
         >
           <div className="nodeHeader">
             <span className={`pill ${node.type}`}>{node.type}</span>
-            <strong>{node.label}</strong>
+            <strong>{highlightedText(node.label, highlightQuery)}</strong>
             <span>{formatTime(node.startedAtUnixMs)}</span>
           </div>
-          {node.summary ? <p>{node.summary}</p> : null}
+          {node.summary ? <p>{highlightedText(node.summary, highlightQuery)}</p> : null}
           <div className="nodeMeta">
             {node.status ? <span>{node.status}</span> : null}
             {node.turnId ? <span>turn {node.turnId}</span> : null}
@@ -973,7 +1000,13 @@ function App() {
           ))}
         </nav>
         {tab === "timeline" ? (
-          <Timeline nodes={filteredTimeline} freshNodeKeys={freshNodeKeys} selectedNode={selectedNode} onSelect={setSelectedNode} />
+          <Timeline
+            nodes={filteredTimeline}
+            freshNodeKeys={freshNodeKeys}
+            selectedNode={selectedNode}
+            highlightQuery={query}
+            onSelect={setSelectedNode}
+          />
         ) : null}
         {tab === "prompt" ? (
           <PromptInspector prompt={prompt} onOpenTimelineNode={selectTimelineNodeById} onOpenToolCalls={showToolCalls} />
