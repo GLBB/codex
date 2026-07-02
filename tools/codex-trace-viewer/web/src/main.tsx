@@ -16,6 +16,11 @@ interface TimelineFilters {
 
 const timelineTypes: TimelineNode["type"][] = ["turn", "conversation", "inference", "tool", "terminal", "compaction", "agent_edge"];
 
+interface BundlesUpdatedEvent {
+  bundles?: BundleSummary[];
+  added?: string[];
+}
+
 function defaultFilters(): TimelineFilters {
   return {
     types: new Set(timelineTypes),
@@ -524,8 +529,20 @@ function App() {
       setLiveState("live");
       load().catch((error) => setLiveState(`error: ${error.message}`));
     });
-    events.addEventListener("bundles_updated", () => {
+    events.addEventListener("bundles_updated", (event) => {
       setLiveState("live");
+      const data = JSON.parse((event as MessageEvent).data) as BundlesUpdatedEvent;
+      const latest = data.bundles?.[0];
+      if (followLatest && latest && !latest.active) {
+        setSelectedThread(undefined);
+        setSelectedNode(undefined);
+        setPrompt(undefined);
+        setPayload(undefined);
+        getJson(`/api/bundles/select?id=${encodeURIComponent(latest.id)}`)
+          .then(() => load(undefined))
+          .catch((error) => setLiveState(`error: ${error.message}`));
+        return;
+      }
       load().catch((error) => setLiveState(`error: ${error.message}`));
     });
     events.addEventListener("bundle_selected", () => {
