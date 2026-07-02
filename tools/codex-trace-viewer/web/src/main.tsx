@@ -95,6 +95,26 @@ function isFailedStatus(status?: string): boolean {
   return status === "failed" || status === "error" || status === "aborted" || status === "cancelled";
 }
 
+export function errorSummary(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["error", "message", "stderr", "exit_code", "exitCode", "status"]) {
+    const item = record[key];
+    if (typeof item === "string" || typeof item === "number") {
+      return `${key}: ${item}`;
+    }
+  }
+  for (const item of Object.values(record)) {
+    const nested = errorSummary(item);
+    if (nested) {
+      return nested;
+    }
+  }
+  return undefined;
+}
+
 export function filterTimeline(nodes: TimelineNode[], filters: TimelineFilters): TimelineNode[] {
   const status = filters.status.trim().toLowerCase();
   const thread = filters.thread.trim().toLowerCase();
@@ -310,9 +330,13 @@ function Details({
   if (!node) {
     return <div className="empty">选择一个 timeline 节点查看详情。</div>;
   }
+  const failureSummary =
+    isFailedStatus(node.status) &&
+    (errorSummary(tool?.summary) ?? errorSummary(tool) ?? errorSummary(codeCell?.result) ?? errorSummary(terminal?.result) ?? node.summary);
   return (
     <div className="details">
       <h2>{node.label}</h2>
+      {failureSummary ? <div className="errorBox">Failure: {failureSummary}</div> : null}
       <dl>
         <dt>类型</dt>
         <dd>{node.type}</dd>
