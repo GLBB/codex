@@ -118,7 +118,18 @@
     }
   },
   "terminal_operations": {},
-  "compactions": {},
+  "compactions": {
+    "compaction-1": {
+      "compaction_id": "compaction-1",
+      "thread_id": "thread-root",
+      "codex_turn_id": "turn-1",
+      "installed_at_unix_ms": 1762012818000,
+      "marker_item_id": "item-assistant-1",
+      "request_ids": [
+        "inference-1"
+      ]
+    }
+  },
   "interaction_edges": {
     "edge-1": {
       "edge_id": "edge-1",
