@@ -277,6 +277,7 @@ export interface PromptSection {
   estimatedTokens?: number;
   included: boolean;
   rawPayloadRef?: string;
+  relatedTimelineNodeId?: string;
 }
 
 export interface PromptView {

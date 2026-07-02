@@ -20,6 +20,9 @@ describe("prompt view", () => {
       "request.text"
     ]);
     expect(buildPromptView(inference, sampleWireRequest()).sections[0].estimatedTokens).toBeGreaterThan(0);
+    expect(buildPromptView(inference, sampleWireRequest()).sections.find((section) => section.source === "current_query")).toMatchObject({
+      relatedTimelineNodeId: "item-user"
+    });
   });
 
   it("classifies developer diagnostics sources when present in request input", () => {
