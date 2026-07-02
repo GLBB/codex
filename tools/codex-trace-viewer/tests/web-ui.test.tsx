@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AgentGraphView, defaultFilters, filterTimeline, PromptInspector } from "../web/src/main";
+import { AgentGraphView, defaultFilters, filterTimeline, PromptInspector, RawPayload } from "../web/src/main";
 import { buildAgentGraph, buildTimeline } from "../shared/mappers";
 import { buildPromptView } from "../shared/prompt";
 import { sampleTrace, sampleWireRequest } from "./fixtures";
@@ -41,5 +41,19 @@ describe("viewer UI", () => {
 
     fireEvent.click(screen.getByText("edge1").closest("button")!);
     expect(onSelectEdge).toHaveBeenCalledWith("edge1");
+  });
+
+  it("copies raw payloads and renders payload errors in place", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: { writeText }
+    });
+    const { rerender } = render(<RawPayload payload={{ ok: true }} />);
+
+    fireEvent.click(screen.getByText("Copy payload JSON"));
+    expect(writeText).toHaveBeenCalledWith("{\n  \"ok\": true\n}");
+
+    rerender(<RawPayload error="payload not found: missing" />);
+    expect(screen.getByText("payload not found: missing")).toBeInTheDocument();
   });
 });
