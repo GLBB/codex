@@ -16,6 +16,26 @@ describe("viewer UI", () => {
     expect(filterTimeline(buildTimeline(sampleTrace()), filters)).toEqual([]);
   });
 
+  it("filters timeline nodes by thread, turn, and agent edge type", () => {
+    const filters = defaultFilters();
+    filters.thread = "thread-root";
+    filters.turn = "turn1";
+    expect(filterTimeline(buildTimeline(sampleTrace()), filters).map((node) => node.id)).toEqual([
+      "turn1",
+      "item-user",
+      "inf1",
+      "tool1",
+      "term1",
+      "cell1",
+      "item-assistant"
+    ]);
+
+    const edgeFilters = defaultFilters();
+    edgeFilters.types = new Set(["agent_edge"]);
+    edgeFilters.agentEdge = "delegates";
+    expect(filterTimeline(buildTimeline(sampleTrace()), edgeFilters).map((node) => node.id)).toEqual(["edge1"]);
+  });
+
   it("searches and copies prompt sections", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {

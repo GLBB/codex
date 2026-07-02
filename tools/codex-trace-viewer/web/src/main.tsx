@@ -19,9 +19,12 @@ type Tab = "timeline" | "prompt" | "agent" | "payload" | "stats";
 
 export interface TimelineFilters {
   types: Set<TimelineNode["type"]>;
+  thread: string;
+  turn: string;
   status: string;
   model: string;
   tool: string;
+  agentEdge: string;
   failedOnly: boolean;
   slowMs: string;
 }
@@ -45,9 +48,12 @@ interface BundlesUpdatedEvent {
 export function defaultFilters(): TimelineFilters {
   return {
     types: new Set(timelineTypes),
+    thread: "",
+    turn: "",
     status: "",
     model: "",
     tool: "",
+    agentEdge: "",
     failedOnly: false,
     slowMs: ""
   };
@@ -89,14 +95,23 @@ function isFailedStatus(status?: string): boolean {
 
 export function filterTimeline(nodes: TimelineNode[], filters: TimelineFilters): TimelineNode[] {
   const status = filters.status.trim().toLowerCase();
+  const thread = filters.thread.trim().toLowerCase();
+  const turn = filters.turn.trim().toLowerCase();
   const model = filters.model.trim().toLowerCase();
   const tool = filters.tool.trim().toLowerCase();
+  const agentEdge = filters.agentEdge.trim().toLowerCase();
   const slowMs = Number(filters.slowMs);
   return nodes.filter((node) => {
     if (!filters.types.has(node.type)) {
       return false;
     }
     if (filters.failedOnly && !isFailedStatus(node.status)) {
+      return false;
+    }
+    if (thread && !(node.threadId ?? "").toLowerCase().includes(thread)) {
+      return false;
+    }
+    if (turn && !(node.turnId ?? "").toLowerCase().includes(turn)) {
       return false;
     }
     if (status && !(node.status ?? "").toLowerCase().includes(status)) {
@@ -106,6 +121,9 @@ export function filterTimeline(nodes: TimelineNode[], filters: TimelineFilters):
       return false;
     }
     if (tool && !(node.toolName ?? node.agentEdgeType ?? "").toLowerCase().includes(tool)) {
+      return false;
+    }
+    if (agentEdge && !(node.agentEdgeType ?? "").toLowerCase().includes(agentEdge)) {
       return false;
     }
     if (Number.isFinite(slowMs) && slowMs > 0 && (node.durationMs ?? 0) < slowMs) {
@@ -193,6 +211,14 @@ function TimelineFilterPanel({
         ))}
       </div>
       <label>
+        Thread
+        <input value={filters.thread} onChange={(event) => onChange({ ...filters, thread: event.currentTarget.value })} />
+      </label>
+      <label>
+        Turn
+        <input value={filters.turn} onChange={(event) => onChange({ ...filters, turn: event.currentTarget.value })} />
+      </label>
+      <label>
         Status
         <input value={filters.status} onChange={(event) => onChange({ ...filters, status: event.currentTarget.value })} />
       </label>
@@ -203,6 +229,10 @@ function TimelineFilterPanel({
       <label>
         Tool / edge
         <input value={filters.tool} onChange={(event) => onChange({ ...filters, tool: event.currentTarget.value })} />
+      </label>
+      <label>
+        Agent edge
+        <input value={filters.agentEdge} onChange={(event) => onChange({ ...filters, agentEdge: event.currentTarget.value })} />
       </label>
       <label>
         Slow &gt;= ms
