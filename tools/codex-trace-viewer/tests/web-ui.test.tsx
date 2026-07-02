@@ -59,6 +59,19 @@ describe("viewer UI", () => {
     expect(onOpenTimelineNode).toHaveBeenCalledWith("item-user");
   });
 
+  it("links prompt tool definitions to tool call filtering", () => {
+    const inference = sampleTrace().inference_calls?.inf1;
+    if (!inference) {
+      throw new Error("missing fixture inference");
+    }
+    const onOpenToolCalls = vi.fn();
+    render(<PromptInspector prompt={buildPromptView(inference, sampleWireRequest())} onOpenToolCalls={onOpenToolCalls} />);
+
+    fireEvent.change(screen.getByPlaceholderText("在当前 Prompt 中搜索"), { target: { value: "shell" } });
+    fireEvent.click(screen.getByText("Show tool calls"));
+    expect(onOpenToolCalls).toHaveBeenCalledWith("shell");
+  });
+
   it("selects agent graph interaction edges", () => {
     const onSelectEdge = vi.fn();
     render(<AgentGraphView graph={buildAgentGraph(sampleTrace())} onSelectEdge={onSelectEdge} />);

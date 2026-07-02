@@ -15,10 +15,10 @@ test("opens demo bundle and inspects core trace surfaces", async ({ page }) => {
   await page.getByRole("button", { name: "查看完整 Prompt" }).click();
   await expect(page.getByRole("heading", { name: "Wire Request" })).toBeVisible();
   await expect(page.getByText("Current User Query")).toBeVisible();
-  await expect(page.getByText("Model-visible Tool Definitions")).toBeVisible();
+  await expect(page.getByText("Tool Definition: shell")).toBeVisible();
 
   await page.getByPlaceholder("在当前 Prompt 中搜索").fill("shell");
-  await expect(page.getByText("Model-visible Tool Definitions")).toBeVisible();
+  await expect(page.getByText("Tool Definition: shell")).toBeVisible();
 
   await page.getByRole("button", { name: "timeline" }).click();
   await page.getByPlaceholder("搜索 call_id / 文本").fill("call_github_search");
