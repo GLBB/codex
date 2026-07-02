@@ -154,6 +154,32 @@ export interface TraceSummary {
   };
 }
 
+export interface DurationSummary {
+  count: number;
+  totalMs: number;
+  maxMs: number;
+}
+
+export interface TokenSummary {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+export interface StatsSummary {
+  totalDurationMs?: number;
+  turns: DurationSummary;
+  inferences: DurationSummary;
+  tools: DurationSummary;
+  terminalOperations: DurationSummary;
+  tokens: TokenSummary;
+  failedToolCalls: number;
+  retryCount: number;
+  compactions: number;
+  childThreads: number;
+}
+
 export interface BundleSummary {
   id: string;
   path: string;
@@ -191,6 +217,36 @@ export interface TimelineNode {
   summary?: string;
   rawPayloadRefs?: string[];
   relatedIds?: string[];
+  model?: string;
+  toolName?: string;
+  agentEdgeType?: string;
+  durationMs?: number;
+}
+
+export interface AgentGraphNode {
+  id: string;
+  label: string;
+  parentId?: string;
+  model?: string | null;
+  status?: string;
+  startedAtUnixMs?: number;
+  endedAtUnixMs?: number | null;
+}
+
+export interface AgentGraphEdge {
+  id: string;
+  edgeType: string;
+  sourceThreadId?: string;
+  targetThreadId?: string;
+  label: string;
+  relatedTimelineNodeId?: string;
+  rawPayloadRefs?: string[];
+}
+
+export interface AgentGraph {
+  rootThreadId?: string;
+  nodes: AgentGraphNode[];
+  edges: AgentGraphEdge[];
 }
 
 export interface PromptSection {
@@ -201,6 +257,7 @@ export interface PromptSection {
   role?: string;
   content: string;
   charCount: number;
+  estimatedTokens?: number;
   included: boolean;
   rawPayloadRef?: string;
 }
