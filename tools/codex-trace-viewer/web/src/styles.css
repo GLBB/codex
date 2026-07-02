@@ -84,6 +84,12 @@ aside {
   margin-bottom: 12px;
 }
 
+mark {
+  background: #ffe08a;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
 .filters {
   display: grid;
   gap: 8px;
