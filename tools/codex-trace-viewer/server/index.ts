@@ -268,6 +268,14 @@ async function main(): Promise<void> {
         sendJson(res, store.tool(decodeURIComponent(pathName.split("/")[3] ?? "")));
         return;
       }
+      if (pathName.startsWith("/api/code-cells/")) {
+        sendJson(res, store.codeCell(decodeURIComponent(pathName.split("/")[3] ?? "")));
+        return;
+      }
+      if (pathName.startsWith("/api/terminals/")) {
+        sendJson(res, store.terminal(decodeURIComponent(pathName.split("/")[3] ?? "")));
+        return;
+      }
       if (pathName.startsWith("/api/payloads/")) {
         sendJson(res, await store.payload(decodeURIComponent(pathName.split("/")[3] ?? "")));
         return;
