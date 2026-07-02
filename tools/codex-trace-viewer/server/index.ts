@@ -9,6 +9,7 @@ import type { BundleSummary } from "../shared/types.js";
 interface CliOptions {
   bundlePath?: string;
   traceRoot?: string;
+  host: string;
   port: number;
   autoReduce: boolean;
 }
@@ -16,6 +17,7 @@ interface CliOptions {
 function parseArgs(argv: string[]): CliOptions {
   let bundlePath: string | undefined;
   let traceRoot: string | undefined;
+  let host = "127.0.0.1";
   let port = 0;
   let autoReduce = false;
   for (let i = 0; i < argv.length; i += 1) {
@@ -24,6 +26,8 @@ function parseArgs(argv: string[]): CliOptions {
       bundlePath = argv[++i] ?? "";
     } else if (arg === "--trace-root") {
       traceRoot = argv[++i] ?? "";
+    } else if (arg === "--host") {
+      host = argv[++i] ?? "";
     } else if (arg === "--port") {
       port = Number(argv[++i] ?? "0");
     } else if (arg === "--auto-reduce") {
@@ -31,9 +35,9 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
   if (!bundlePath && !traceRoot) {
-    throw new Error("Usage: npm run serve -- --bundle <trace-bundle> | --trace-root <root> [--port 0] [--auto-reduce]");
+    throw new Error("Usage: npm run serve -- --bundle <trace-bundle> | --trace-root <root> [--host 127.0.0.1] [--port 0] [--auto-reduce]");
   }
-  return { bundlePath, traceRoot, port, autoReduce };
+  return { bundlePath, traceRoot, host, port, autoReduce };
 }
 
 function sendJson(res: ServerResponse, value: unknown, status = 200): void {
@@ -292,10 +296,11 @@ async function main(): Promise<void> {
     }
   });
 
-  server.listen(options.port, "127.0.0.1", () => {
+  server.listen(options.port, options.host, () => {
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : options.port;
-    console.log(`Codex Trace Viewer: http://127.0.0.1:${port}`);
+    const displayHost = options.host === "0.0.0.0" ? "127.0.0.1" : options.host;
+    console.log(`Codex Trace Viewer: http://${displayHost}:${port}`);
   });
 }
 
