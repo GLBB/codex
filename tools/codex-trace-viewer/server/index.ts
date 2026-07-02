@@ -234,6 +234,14 @@ async function main(): Promise<void> {
         sendJson(res, store.threads());
         return;
       }
+      if (pathName === "/api/agent-graph") {
+        sendJson(res, store.agentGraph());
+        return;
+      }
+      if (pathName === "/api/stats") {
+        sendJson(res, store.stats());
+        return;
+      }
       if (pathName.startsWith("/api/threads/") && pathName.endsWith("/timeline")) {
         const threadId = decodeURIComponent(pathName.split("/")[3] ?? "");
         sendJson(res, store.timeline(threadId));
@@ -265,7 +273,7 @@ async function main(): Promise<void> {
         return;
       }
       if (pathName === "/api/search") {
-        sendJson(res, store.search(query(req, "q") ?? ""));
+        sendJson(res, await store.search(query(req, "q") ?? ""));
         return;
       }
       if (!serveStatic(req, res)) {

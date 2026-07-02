@@ -1,6 +1,10 @@
 import type {
+  AgentGraph,
+  AgentGraphEdge,
   AgentThread,
+  DurationSummary,
   RolloutTrace,
+  StatsSummary,
   ThreadTreeNode,
   TimelineNode,
   TraceSummary
@@ -20,6 +24,15 @@ function executionEnd(value: { execution?: { ended_at_unix_ms?: number | null } 
 
 function executionStatus(value: { execution?: { status?: string } }): string | undefined {
   return value.execution?.status;
+}
+
+function durationMs(value: { execution?: { started_at_unix_ms?: number; ended_at_unix_ms?: number | null } }): number | undefined {
+  const start = value.execution?.started_at_unix_ms;
+  const end = value.execution?.ended_at_unix_ms;
+  if (start === undefined || end === undefined || end === null) {
+    return undefined;
+  }
+  return Math.max(0, end - start);
 }
 
 function toolKindLabel(kind: unknown): string {
@@ -97,6 +110,43 @@ function parentThreadId(thread: AgentThread): string | undefined {
   return typeof record.parent_thread_id === "string" ? record.parent_thread_id : undefined;
 }
 
+function threadRef(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["thread_id", "threadId", "parent_thread_id", "child_thread_id", "target_thread_id", "source_thread_id"]) {
+    if (typeof record[key] === "string") {
+      return record[key];
+    }
+  }
+  return undefined;
+}
+
+function rawRefsFromValue(value: unknown): string[] {
+  const refs = new Set<string>();
+  function visit(item: unknown): void {
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+    if (!item || typeof item !== "object") {
+      return;
+    }
+    for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
+      if (key.includes("raw") && key.includes("payload") && typeof child === "string") {
+        refs.add(child);
+      }
+      visit(child);
+    }
+  }
+  visit(value);
+  return [...refs];
+}
+
 export function buildThreadTree(trace: RolloutTrace): ThreadTreeNode[] {
   const nodes = new Map<string, ThreadTreeNode>();
   for (const [id, thread] of entries(trace.threads)) {
@@ -145,7 +195,8 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
       startedAtUnixMs: executionStart(turn),
       endedAtUnixMs: executionEnd(turn),
       status: executionStatus(turn),
-      summary: `${turn.input_item_ids?.length ?? 0} input items`
+      summary: `${turn.input_item_ids?.length ?? 0} input items`,
+      durationMs: durationMs(turn)
     });
   }
 
@@ -180,7 +231,9 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
       endedAtUnixMs: executionEnd(inference),
       status: executionStatus(inference),
       summary: `${inference.provider_name ?? "provider unknown"} · input ${inference.usage?.input_tokens ?? "?"} / output ${inference.usage?.output_tokens ?? "?"}`,
-      rawPayloadRefs: [inference.raw_request_payload_id, inference.raw_response_payload_id].filter(Boolean) as string[]
+      rawPayloadRefs: [inference.raw_request_payload_id, inference.raw_response_payload_id].filter(Boolean) as string[],
+      model: inference.model,
+      durationMs: durationMs(inference)
     });
   }
 
@@ -202,7 +255,9 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
         tool.raw_invocation_payload_id,
         tool.raw_result_payload_id,
         ...(tool.raw_runtime_payload_ids ?? [])
-      ].filter(Boolean) as string[]
+      ].filter(Boolean) as string[],
+      toolName: toolKindLabel(tool.kind),
+      durationMs: durationMs(tool)
     });
   }
 
@@ -221,7 +276,8 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
       endedAtUnixMs: executionEnd(op),
       status: executionStatus(op),
       summary: JSON.stringify(op.request ?? {}),
-      rawPayloadRefs: op.raw_payload_ids
+      rawPayloadRefs: op.raw_payload_ids,
+      durationMs: durationMs(op)
     });
   }
 
@@ -250,7 +306,11 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
       type: "agent_edge",
       label: `Agent Edge: ${edge.edge_type ?? id}`,
       status: "completed",
-      summary: JSON.stringify(edge).slice(0, 200)
+      summary: JSON.stringify(edge).slice(0, 200),
+      threadId: threadRef(edge.source),
+      relatedIds: [threadRef(edge.source), threadRef(edge.target)].filter(Boolean) as string[],
+      rawPayloadRefs: rawRefsFromValue(edge),
+      agentEdgeType: edge.edge_type
     });
   }
 
@@ -267,6 +327,117 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
     }
     return a.id.localeCompare(b.id);
   });
+}
+
+export function buildAgentGraph(trace: RolloutTrace): AgentGraph {
+  const nodes = entries(trace.threads).map(([id, thread]) => ({
+    id,
+    label: thread.nickname ?? thread.agent_path ?? id,
+    parentId: parentThreadId(thread),
+    model: thread.default_model,
+    status: executionStatus(thread),
+    startedAtUnixMs: executionStart(thread),
+    endedAtUnixMs: executionEnd(thread)
+  }));
+  const edges: AgentGraphEdge[] = [];
+
+  for (const node of nodes) {
+    if (node.parentId) {
+      edges.push({
+        id: `origin:${node.parentId}:${node.id}`,
+        edgeType: "spawn",
+        sourceThreadId: node.parentId,
+        targetThreadId: node.id,
+        label: "spawn"
+      });
+    }
+  }
+
+  for (const [id, edge] of entries(trace.interaction_edges)) {
+    const sourceThreadId = threadRef(edge.source);
+    const targetThreadId = threadRef(edge.target);
+    edges.push({
+      id,
+      edgeType: edge.edge_type ?? "interaction",
+      sourceThreadId,
+      targetThreadId,
+      label: edge.edge_type ?? id,
+      relatedTimelineNodeId: id,
+      rawPayloadRefs: rawRefsFromValue(edge)
+    });
+  }
+
+  return {
+    rootThreadId: trace.root_thread_id,
+    nodes,
+    edges
+  };
+}
+
+function emptyDurationSummary(): DurationSummary {
+  return { count: 0, totalMs: 0, maxMs: 0 };
+}
+
+function addDuration(summary: DurationSummary, value: number | undefined): void {
+  summary.count += 1;
+  if (value === undefined) {
+    return;
+  }
+  summary.totalMs += value;
+  summary.maxMs = Math.max(summary.maxMs, value);
+}
+
+export function buildStatsSummary(trace: RolloutTrace): StatsSummary {
+  const turns = emptyDurationSummary();
+  const inferences = emptyDurationSummary();
+  const tools = emptyDurationSummary();
+  const terminalOperations = emptyDurationSummary();
+
+  for (const [, turn] of entries(trace.codex_turns)) {
+    addDuration(turns, durationMs(turn));
+  }
+  const tokens = {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0
+  };
+  for (const [, inference] of entries(trace.inference_calls)) {
+    addDuration(inferences, durationMs(inference));
+    tokens.inputTokens += inference.usage?.input_tokens ?? 0;
+    tokens.cachedInputTokens += inference.usage?.cached_input_tokens ?? 0;
+    tokens.outputTokens += inference.usage?.output_tokens ?? 0;
+    tokens.reasoningOutputTokens += inference.usage?.reasoning_output_tokens ?? 0;
+  }
+  let failedToolCalls = 0;
+  for (const [, tool] of entries(trace.tool_calls)) {
+    addDuration(tools, durationMs(tool));
+    const status = executionStatus(tool);
+    if (status === "failed" || status === "error") {
+      failedToolCalls += 1;
+    }
+  }
+  for (const [, operation] of entries(trace.terminal_operations)) {
+    addDuration(terminalOperations, durationMs(operation));
+  }
+
+  const totalDurationMs =
+    trace.started_at_unix_ms !== undefined && trace.ended_at_unix_ms !== undefined && trace.ended_at_unix_ms !== null
+      ? Math.max(0, trace.ended_at_unix_ms - trace.started_at_unix_ms)
+      : undefined;
+
+  return {
+    totalDurationMs,
+    turns,
+    inferences,
+    tools,
+    terminalOperations,
+    tokens,
+    failedToolCalls,
+    retryCount: Math.max(0, entries(trace.inference_calls).length - entries(trace.codex_turns).length),
+    compactions: entries(trace.compactions).length,
+    childThreads: entries(trace.threads).filter(([, thread]) => Boolean(parentThreadId(thread))).length
+  };
 }
 
 export function searchTrace(trace: RolloutTrace, query: string): TimelineNode[] {

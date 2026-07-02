@@ -14,6 +14,13 @@ function charCount(content: string): number {
   return Array.from(content).length;
 }
 
+function estimatedTokens(content: string): number {
+  if (!content) {
+    return 0;
+  }
+  return Math.ceil(content.length / 4);
+}
+
 function section(
   id: string,
   kind: string,
@@ -32,6 +39,7 @@ function section(
     role,
     content: text,
     charCount: charCount(text),
+    estimatedTokens: estimatedTokens(text),
     included: text.length > 0,
     rawPayloadRef
   };
@@ -56,11 +64,21 @@ function inputItemType(item: unknown): string | undefined {
 function classifyInputSource(item: unknown, index: number, inputCount: number): string {
   const type = inputItemType(item);
   const role = inputItemRole(item);
+  const text = stringifyContent(item).toLowerCase();
   if (type?.includes("tool") || role === "tool") {
     return "conversation_history.tool";
   }
   if (role === "user" && index === inputCount - 1) {
     return "current_query";
+  }
+  if (role === "developer" && text.includes("agents.md")) {
+    return "AGENTS.md";
+  }
+  if (role === "developer" && (text.includes("sandbox") || text.includes("permission"))) {
+    return "permissions";
+  }
+  if (role === "developer" && text.includes("skill")) {
+    return "skills";
   }
   if (role === "user") {
     return "conversation_history.user";
@@ -69,7 +87,7 @@ function classifyInputSource(item: unknown, index: number, inputCount: number): 
     return "conversation_history.assistant";
   }
   if (role === "developer" || role === "system") {
-    return "conversation_history.instructions";
+    return role === "developer" ? "developer_instructions" : "base_instructions";
   }
   return "conversation_history";
 }
@@ -111,7 +129,7 @@ export function buildPromptView(
         "system_base_instructions",
         "system",
         "System / Base Instructions",
-        "instructions",
+        "base_instructions",
         request.instructions,
         "system",
         rawRequestPayloadId

@@ -84,6 +84,53 @@ aside {
   margin-bottom: 12px;
 }
 
+.filters {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #d8d5cc;
+  padding-bottom: 12px;
+}
+
+.filters h3,
+.bundleList h3,
+.smallList h3,
+.graphEdges h3,
+.durationTable h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.filters label {
+  display: grid;
+  gap: 4px;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.filters input {
+  padding: 6px;
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.typeGrid label,
+.inlineToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.typeGrid input,
+.inlineToggle input {
+  width: auto;
+}
+
 .bundleList {
   margin-bottom: 16px;
 }
@@ -182,6 +229,7 @@ nav {
 
 .nodeMeta {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   color: #6b7280;
   font-size: 12px;
@@ -205,6 +253,10 @@ nav {
 
 .pill.conversation {
   background: #e3f1df;
+}
+
+.pill.agent_edge {
+  background: #f8e6d9;
 }
 
 .details dl {
@@ -277,6 +329,35 @@ summary span {
   margin-bottom: 16px;
 }
 
+.privacyNote {
+  padding: 10px 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  color: #7c2d12;
+}
+
+.promptToolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sectionActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.sectionActions button {
+  padding: 5px 8px;
+}
+
 .warning {
   padding: 8px 10px;
   background: #fff7ed;
@@ -304,6 +385,68 @@ summary span {
 
 .stat span {
   color: #6b7280;
+}
+
+.durationTable {
+  margin-top: 14px;
+  background: #fff;
+  border: 1px solid #d8d5cc;
+  border-radius: 6px;
+  padding: 14px;
+}
+
+.durationTable div {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid #ece7dc;
+}
+
+.durationTable div:first-of-type {
+  border-top: 0;
+}
+
+.agentGraph {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.2fr);
+  gap: 14px;
+}
+
+.graphNodes,
+.graphEdges {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.graphNode,
+.edgeButton {
+  background: #fff;
+  border: 1px solid #d8d5cc;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.graphNode {
+  display: grid;
+  gap: 5px;
+}
+
+.graphNode.root {
+  border-color: #2f6f8f;
+  background: #eaf5f8;
+}
+
+.graphNode span,
+.edgeButton span {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.edgeButton {
+  width: 100%;
+  display: grid;
+  gap: 6px;
 }
 
 .smallList {
