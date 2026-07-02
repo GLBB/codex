@@ -1,11 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AgentGraphView, defaultFilters, filterTimeline, PromptInspector, RawPayload } from "../web/src/main";
+import { AgentGraphView, defaultFilters, errorSummary, filterTimeline, PromptInspector, RawPayload } from "../web/src/main";
 import { buildAgentGraph, buildTimeline } from "../shared/mappers";
 import { buildPromptView } from "../shared/prompt";
 import { sampleTrace, sampleWireRequest } from "./fixtures";
 
 describe("viewer UI", () => {
+  it("extracts readable failure summaries from nested runtime details", () => {
+    expect(errorSummary({ result: { stderr: "command failed" } })).toEqual("stderr: command failed");
+    expect(errorSummary({ exit_code: 1 })).toEqual("exit_code: 1");
+  });
+
   it("filters timeline nodes by type, model, and failed status", () => {
     const filters = defaultFilters();
     filters.types = new Set(["inference"]);
