@@ -86,6 +86,7 @@ test("live updates active bundles and discovers new trace bundles", async ({ pag
 
     await appendLiveConversation(bundleA);
     await expect(page.getByText("live assistant update from e2e")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".timelineNode.fresh").filter({ hasText: "live assistant update from e2e" })).toBeVisible();
 
     await copyDemoBundle(bundleB);
     await expect(page.getByRole("button", { name: /bundle-b/ })).toBeVisible({ timeout: 6_000 });

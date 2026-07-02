@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   AgentGraph,
@@ -219,10 +219,12 @@ function TimelineFilterPanel({
 
 function Timeline({
   nodes,
+  freshNodeKeys,
   selectedNode,
   onSelect
 }: {
   nodes: TimelineNode[];
+  freshNodeKeys: Set<string>;
   selectedNode?: TimelineNode;
   onSelect: (node: TimelineNode) => void;
 }) {
@@ -231,7 +233,13 @@ function Timeline({
       {nodes.map((node) => (
         <button
           key={`${node.type}:${node.id}`}
-          className={selectedNode?.id === node.id && selectedNode.type === node.type ? "timelineNode selected" : "timelineNode"}
+          className={[
+            "timelineNode",
+            selectedNode?.id === node.id && selectedNode.type === node.type ? "selected" : "",
+            freshNodeKeys.has(`${node.type}:${node.id}`) ? "fresh" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onClick={() => onSelect(node)}
         >
           <div className="nodeHeader">
@@ -626,6 +634,8 @@ function App() {
   const [agentGraph, setAgentGraph] = useState<AgentGraph>();
   const [threads, setThreads] = useState<ThreadTreeNode[]>([]);
   const [timeline, setTimeline] = useState<TimelineNode[]>([]);
+  const timelineRef = useRef<TimelineNode[]>([]);
+  const [freshNodeKeys, setFreshNodeKeys] = useState<Set<string>>(() => new Set());
   const [selectedThread, setSelectedThread] = useState<string>();
   const [selectedNode, setSelectedNode] = useState<TimelineNode>();
   const [selectedInference, setSelectedInference] = useState<InferenceCall>();
@@ -643,7 +653,7 @@ function App() {
   const flatThreads = useMemo(() => flattenThreads(threads), [threads]);
   const filteredTimeline = useMemo(() => filterTimeline(timeline, filters), [timeline, filters]);
 
-  const load = async (threadId = selectedThread) => {
+  const load = async (threadId = selectedThread, options: { markNew?: boolean } = {}) => {
     const [bundleList, traceSummary, tree, nodes, graph, statsSummary] = await Promise.all([
       getJson<BundleSummary[]>("/api/bundles"),
       getJson<TraceSummary & { bundlePath?: string }>("/api/trace"),
@@ -655,6 +665,13 @@ function App() {
     setBundles(bundleList);
     setSummary(traceSummary);
     setThreads(tree);
+    if (options.markNew) {
+      const previous = new Set(timelineRef.current.map((node) => `${node.type}:${node.id}`));
+      setFreshNodeKeys(new Set(nodes.map((node) => `${node.type}:${node.id}`).filter((key) => !previous.has(key))));
+    } else {
+      setFreshNodeKeys(new Set());
+    }
+    timelineRef.current = nodes;
     setTimeline(nodes);
     setAgentGraph(graph);
     setStats(statsSummary);
@@ -672,7 +689,7 @@ function App() {
     events.addEventListener("connected", () => setLiveState("live"));
     events.addEventListener("trace_updated", () => {
       setLiveState("live");
-      load().catch((error) => setLiveState(`error: ${error.message}`));
+      load(selectedThread, { markNew: true }).catch((error) => setLiveState(`error: ${error.message}`));
     });
     events.addEventListener("bundles_updated", (event) => {
       setLiveState("live");
@@ -684,11 +701,11 @@ function App() {
         setPrompt(undefined);
         setPayload(undefined);
         getJson(`/api/bundles/select?id=${encodeURIComponent(latest.id)}`)
-          .then(() => load(undefined))
+          .then(() => load(undefined, { markNew: true }))
           .catch((error) => setLiveState(`error: ${error.message}`));
         return;
       }
-      load().catch((error) => setLiveState(`error: ${error.message}`));
+      load(selectedThread, { markNew: true }).catch((error) => setLiveState(`error: ${error.message}`));
     });
     events.addEventListener("bundle_selected", () => {
       setLiveState("live");
@@ -734,6 +751,7 @@ function App() {
   const selectThread = (threadId?: string) => {
     setSelectedThread(threadId);
     setSelectedNode(undefined);
+    timelineRef.current = [];
     load(threadId).catch((error) => setLiveState(`error: ${error.message}`));
   };
 
@@ -751,6 +769,7 @@ function App() {
     setStats(undefined);
     setTab("timeline");
     await getJson(`/api/bundles/select?id=${encodeURIComponent(bundleId)}`);
+    timelineRef.current = [];
     await load(undefined);
   };
 
@@ -826,7 +845,9 @@ function App() {
             </button>
           ))}
         </nav>
-        {tab === "timeline" ? <Timeline nodes={filteredTimeline} selectedNode={selectedNode} onSelect={setSelectedNode} /> : null}
+        {tab === "timeline" ? (
+          <Timeline nodes={filteredTimeline} freshNodeKeys={freshNodeKeys} selectedNode={selectedNode} onSelect={setSelectedNode} />
+        ) : null}
         {tab === "prompt" ? <PromptInspector prompt={prompt} /> : null}
         {tab === "agent" ? <AgentGraphView graph={agentGraph} onSelectEdge={selectAgentEdge} /> : null}
         {tab === "payload" ? <RawPayload payload={payload} error={payloadError} /> : null}
