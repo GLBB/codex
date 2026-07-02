@@ -455,6 +455,36 @@ summary span {
   border-top: 0;
 }
 
+.tokenTables {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.tokenTable {
+  background: #fff;
+  border: 1px solid #d8d5cc;
+  border-radius: 6px;
+  padding: 14px;
+}
+
+.tokenTable table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tokenTable th,
+.tokenTable td {
+  border-top: 1px solid #ece7dc;
+  padding: 8px;
+  text-align: left;
+}
+
+.tokenTable th {
+  color: #6b7280;
+  font-weight: 600;
+}
+
 .agentGraph {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.2fr);

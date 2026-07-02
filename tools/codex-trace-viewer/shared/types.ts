@@ -182,6 +182,12 @@ export interface TokenSummary {
   reasoningOutputTokens: number;
 }
 
+export interface TokenUsageRow extends TokenSummary {
+  id: string;
+  turnId?: string;
+  model?: string;
+}
+
 export interface StatsSummary {
   totalDurationMs?: number;
   turns: DurationSummary;
@@ -190,6 +196,8 @@ export interface StatsSummary {
   codeCells: DurationSummary;
   terminalOperations: DurationSummary;
   tokens: TokenSummary;
+  tokenUsageByInference: TokenUsageRow[];
+  tokenUsageByTurn: TokenUsageRow[];
   failedToolCalls: number;
   retryCount: number;
   compactions: number;

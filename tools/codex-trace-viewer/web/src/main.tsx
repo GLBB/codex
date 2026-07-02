@@ -641,7 +641,52 @@ function Stats({ summary, stats }: { summary?: TraceSummary; stats?: StatsSummar
           ))}
         </div>
       ) : null}
+      {stats ? (
+        <div className="tokenTables">
+          <TokenUsageTable title="Tokens By Inference" rows={stats.tokenUsageByInference} />
+          <TokenUsageTable title="Tokens By Turn" rows={stats.tokenUsageByTurn} />
+        </div>
+      ) : null}
     </>
+  );
+}
+
+function TokenUsageTable({
+  title,
+  rows
+}: {
+  title: string;
+  rows: StatsSummary["tokenUsageByInference"];
+}) {
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <div className="tokenTable">
+      <h3>{title}</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Input</th>
+            <th>Cached</th>
+            <th>Output</th>
+            <th>Reasoning</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td className="mono">{row.id}</td>
+              <td>{row.inputTokens}</td>
+              <td>{row.cachedInputTokens}</td>
+              <td>{row.outputTokens}</td>
+              <td>{row.reasoningOutputTokens}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

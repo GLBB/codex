@@ -38,6 +38,8 @@ test("opens demo bundle and inspects core trace surfaces", async ({ page }) => {
   await page.getByRole("button", { name: "stats", exact: true }).click();
   await expect(page.getByText("input tokens")).toBeVisible();
   await expect(page.getByText("child threads")).toBeVisible();
+  await expect(page.getByText("Tokens By Inference")).toBeVisible();
+  await expect(page.getByText("Tokens By Turn")).toBeVisible();
 
   const nonLocalRequests = requests.filter((url) => !url.startsWith("http://127.0.0.1:4174"));
   expect(nonLocalRequests).toEqual([]);
