@@ -16,6 +16,33 @@ async function makeBundle(trace: RolloutTrace): Promise<string> {
   return dir;
 }
 
+async function makeRawBundle(): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "codex-trace-viewer-test-"));
+  tempDirs.push(dir);
+  await mkdir(path.join(dir, "payloads"), { recursive: true });
+  await writeFile(path.join(dir, "manifest.json"), JSON.stringify({ trace_id: "trace-raw" }), "utf8");
+  await writeFile(path.join(dir, "trace.jsonl"), "", "utf8");
+  return dir;
+}
+
+async function makeFakeCodex(trace: RolloutTrace): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "codex-trace-viewer-codex-"));
+  tempDirs.push(dir);
+  const script = path.join(dir, "fake-codex.mjs");
+  await writeFile(
+    script,
+    [
+      'import { writeFile } from "node:fs/promises";',
+      'import path from "node:path";',
+      'const bundle = process.argv.at(-1);',
+      'if (!bundle) throw new Error("missing bundle");',
+      `await writeFile(path.join(bundle, "state.json"), ${JSON.stringify(JSON.stringify(trace))}, "utf8");`
+    ].join("\n"),
+    "utf8"
+  );
+  return script;
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
@@ -46,5 +73,24 @@ describe("BundleStore", () => {
     await store.load();
 
     await expect(store.payload("bad")).rejects.toThrow("payload path escapes bundle root");
+  });
+
+  it("runs trace-reduce fallback when state.json is missing", async () => {
+    const bundle = await makeRawBundle();
+    const fakeCodex = await makeFakeCodex(sampleTrace());
+    const store = new BundleStore({
+      bundlePath: bundle,
+      autoReduce: true,
+      codexCommand: process.execPath,
+      codexArgsPrefix: [fakeCodex]
+    });
+
+    await store.load();
+
+    expect(store.summary().counts).toMatchObject({
+      threads: 2,
+      turns: 1,
+      inferences: 1
+    });
   });
 });
