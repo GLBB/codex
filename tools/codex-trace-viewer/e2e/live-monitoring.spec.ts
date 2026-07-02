@@ -31,7 +31,7 @@ async function makeFailureAndLargePromptBundle(bundle: string): Promise<void> {
   const statePath = path.join(bundle, "state.json");
   const state = JSON.parse(await readFile(statePath, "utf8")) as {
     codex_turns: Record<string, { execution?: { status?: string } }>;
-    tool_calls: Record<string, { execution?: { status?: string } }>;
+    tool_calls: Record<string, { execution?: { status?: string }; summary?: unknown }>;
   };
   state.codex_turns["turn-1"].execution = {
     ...state.codex_turns["turn-1"].execution,
@@ -40,6 +40,9 @@ async function makeFailureAndLargePromptBundle(bundle: string): Promise<void> {
   state.tool_calls["tool-1"].execution = {
     ...state.tool_calls["tool-1"].execution,
     status: "failed"
+  };
+  state.tool_calls["tool-1"].summary = {
+    error: "simulated tool failure"
   };
   await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
 
@@ -127,7 +130,8 @@ test("renders failed operations and keeps large prompt sections collapsed", asyn
 
   try {
     await page.goto(url);
-    await expect(page.getByText("failed").first()).toBeVisible();
+    await page.getByText("Tool: mcp:github/search").click();
+    await expect(page.getByText("Failure: error: simulated tool failure")).toBeVisible();
 
     await page.getByText("Model Call: gpt-5").click();
     await page.getByRole("button", { name: "查看完整 Prompt" }).click();
