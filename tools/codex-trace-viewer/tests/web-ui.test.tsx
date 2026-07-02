@@ -90,7 +90,7 @@ describe("viewer UI", () => {
     render(<AgentGraphView graph={buildAgentGraph(sampleTrace())} onSelectEdge={onSelectEdge} />);
 
     fireEvent.click(screen.getByText("edge1").closest("button")!);
-    expect(onSelectEdge).toHaveBeenCalledWith("edge1");
+    expect(onSelectEdge).toHaveBeenCalledWith("thread-child");
   });
 
   it("copies raw payloads and renders payload errors in place", () => {

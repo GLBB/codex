@@ -115,7 +115,8 @@ describe("trace mappers", () => {
           edgeType: "spawn",
           sourceThreadId: "thread-root",
           targetThreadId: "thread-child",
-          label: "spawn"
+          label: "spawn",
+          relatedTimelineNodeId: "thread-child"
         },
         {
           id: "edge1",
@@ -123,7 +124,7 @@ describe("trace mappers", () => {
           sourceThreadId: "thread-root",
           targetThreadId: "thread-child",
           label: "delegates",
-          relatedTimelineNodeId: "edge1",
+          relatedTimelineNodeId: "thread-child",
           rawPayloadRefs: []
         }
       ]

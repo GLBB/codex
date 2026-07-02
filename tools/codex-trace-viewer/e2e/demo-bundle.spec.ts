@@ -35,6 +35,8 @@ test("opens demo bundle and inspects core trace surfaces", async ({ page }) => {
   const agentGraph = page.locator(".agentGraph");
   await expect(agentGraph.getByText("research-agent").first()).toBeVisible();
   await expect(agentGraph.getByText("spawn_agent")).toBeVisible();
+  await agentGraph.getByText("edge-1").click();
+  await expect(page.getByRole("heading", { name: "Thread: research-agent" })).toBeVisible();
 
   await page.getByRole("button", { name: "stats", exact: true }).click();
   await expect(page.getByText("input tokens")).toBeVisible();
