@@ -35,6 +35,15 @@ npm test
 npm run build
 ```
 
+端到端验证：
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+如果本机缺少浏览器系统依赖，先按 Playwright 提示安装依赖后重试。
+
 打开单条 bundle：
 
 ```bash
