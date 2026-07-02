@@ -8,17 +8,23 @@ import { buildAgentGraph, buildStatsSummary, buildThreadTree, buildTimeline, bui
 export interface BundleStoreOptions {
   bundlePath: string;
   autoReduce: boolean;
+  codexCommand?: string;
+  codexArgsPrefix?: string[];
 }
 
 export class BundleStore {
   readonly bundlePath: string;
   readonly autoReduce: boolean;
+  readonly codexCommand: string;
+  readonly codexArgsPrefix: string[];
   private trace: RolloutTrace | null = null;
   private stateMtimeMs = 0;
 
   constructor(options: BundleStoreOptions) {
     this.bundlePath = path.resolve(options.bundlePath);
     this.autoReduce = options.autoReduce;
+    this.codexCommand = options.codexCommand ?? "codex";
+    this.codexArgsPrefix = options.codexArgsPrefix ?? [];
   }
 
   statePath(): string {
@@ -204,13 +210,13 @@ export class BundleStore {
     if (!this.autoReduce) {
       throw new Error(`state.json not found in ${this.bundlePath}`);
     }
-    await runTraceReduce(this.bundlePath);
+    await runTraceReduce(this.codexCommand, this.codexArgsPrefix, this.bundlePath);
   }
 }
 
-async function runTraceReduce(bundlePath: string): Promise<void> {
+async function runTraceReduce(codexCommand: string, codexArgsPrefix: string[], bundlePath: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("codex", ["debug", "trace-reduce", bundlePath], {
+    const child = spawn(codexCommand, [...codexArgsPrefix, "debug", "trace-reduce", bundlePath], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stderr = "";
@@ -222,7 +228,7 @@ async function runTraceReduce(bundlePath: string): Promise<void> {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`codex debug trace-reduce failed with code ${code}: ${stderr}`));
+        reject(new Error(`${codexCommand} debug trace-reduce failed with code ${code}: ${stderr}`));
       }
     });
   });
