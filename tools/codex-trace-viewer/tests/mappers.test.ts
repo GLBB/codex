@@ -138,6 +138,26 @@ describe("trace mappers", () => {
         outputTokens: 40,
         reasoningOutputTokens: 0
       },
+      tokenUsageByInference: [
+        {
+          id: "inf1",
+          turnId: "turn1",
+          model: "gpt-5",
+          inputTokens: 120,
+          cachedInputTokens: 0,
+          outputTokens: 40,
+          reasoningOutputTokens: 0
+        }
+      ],
+      tokenUsageByTurn: [
+        {
+          id: "turn1",
+          inputTokens: 120,
+          cachedInputTokens: 0,
+          outputTokens: 40,
+          reasoningOutputTokens: 0
+        }
+      ],
       failedToolCalls: 0,
       retryCount: 0,
       compactions: 0,

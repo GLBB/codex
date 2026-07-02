@@ -452,12 +452,45 @@ export function buildStatsSummary(trace: RolloutTrace): StatsSummary {
     outputTokens: 0,
     reasoningOutputTokens: 0
   };
+  const tokenUsageByInference = [];
+  const tokenUsageByTurn = new Map<
+    string,
+    {
+      id: string;
+      inputTokens: number;
+      cachedInputTokens: number;
+      outputTokens: number;
+      reasoningOutputTokens: number;
+    }
+  >();
   for (const [, inference] of entries(trace.inference_calls)) {
     addDuration(inferences, durationMs(inference));
-    tokens.inputTokens += inference.usage?.input_tokens ?? 0;
-    tokens.cachedInputTokens += inference.usage?.cached_input_tokens ?? 0;
-    tokens.outputTokens += inference.usage?.output_tokens ?? 0;
-    tokens.reasoningOutputTokens += inference.usage?.reasoning_output_tokens ?? 0;
+    const row = {
+      id: inference.inference_call_id,
+      turnId: inference.codex_turn_id,
+      model: inference.model,
+      inputTokens: inference.usage?.input_tokens ?? 0,
+      cachedInputTokens: inference.usage?.cached_input_tokens ?? 0,
+      outputTokens: inference.usage?.output_tokens ?? 0,
+      reasoningOutputTokens: inference.usage?.reasoning_output_tokens ?? 0
+    };
+    tokenUsageByInference.push(row);
+    tokens.inputTokens += row.inputTokens;
+    tokens.cachedInputTokens += row.cachedInputTokens;
+    tokens.outputTokens += row.outputTokens;
+    tokens.reasoningOutputTokens += row.reasoningOutputTokens;
+    const turnRow = tokenUsageByTurn.get(inference.codex_turn_id) ?? {
+      id: inference.codex_turn_id,
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0
+    };
+    turnRow.inputTokens += row.inputTokens;
+    turnRow.cachedInputTokens += row.cachedInputTokens;
+    turnRow.outputTokens += row.outputTokens;
+    turnRow.reasoningOutputTokens += row.reasoningOutputTokens;
+    tokenUsageByTurn.set(inference.codex_turn_id, turnRow);
   }
   let failedToolCalls = 0;
   for (const [, tool] of entries(trace.tool_calls)) {
@@ -487,6 +520,8 @@ export function buildStatsSummary(trace: RolloutTrace): StatsSummary {
     codeCells,
     terminalOperations,
     tokens,
+    tokenUsageByInference,
+    tokenUsageByTurn: [...tokenUsageByTurn.values()],
     failedToolCalls,
     retryCount: Math.max(0, entries(trace.inference_calls).length - entries(trace.codex_turns).length),
     compactions: entries(trace.compactions).length,
