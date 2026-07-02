@@ -19,7 +19,7 @@ describe("trace mappers", () => {
         toolCalls: 1,
         codeCells: 1,
         terminalOperations: 1,
-        compactions: 0,
+        compactions: 1,
         interactionEdges: 1
       }
     });
@@ -58,6 +58,7 @@ describe("trace mappers", () => {
       "terminal:term1",
       "code_cell:cell1",
       "conversation:item-assistant",
+      "compaction:compaction1",
       "agent_edge:edge1"
     ]);
     expect(timeline.find((node) => node.id === "inf1")).toMatchObject({
@@ -160,7 +161,7 @@ describe("trace mappers", () => {
       ],
       failedToolCalls: 0,
       retryCount: 0,
-      compactions: 0,
+      compactions: 1,
       childThreads: 1
     });
   });
