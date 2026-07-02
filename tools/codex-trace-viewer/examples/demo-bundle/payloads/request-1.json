@@ -1,0 +1,73 @@
+{
+  "model": "gpt-5",
+  "instructions": "你是 Codex，负责理解代码仓库、执行工具调用，并用中文解释业务流程。",
+  "input": [
+    {
+      "role": "system",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "遵守仓库 AGENTS.md，保护用户未提交改动。"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "需要一个能直观看 Codex 业务流程的 trace viewer。"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "我会拆解 thread、turn、prompt、tool call 和 assistant message。"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "已读取 rollout trace state。"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "要能看到完整 prompt，以及 prompt 各个段。"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "description": "Run a shell command in the workspace."
+    },
+    {
+      "type": "function",
+      "name": "apply_patch",
+      "description": "Apply a patch to project files."
+    }
+  ],
+  "reasoning": {
+    "effort": "medium"
+  },
+  "parallel_tool_calls": true,
+  "tool_choice": "auto",
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  }
+}
