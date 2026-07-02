@@ -213,6 +213,8 @@ export interface ThreadTreeNode {
 }
 
 export type TimelineNodeType =
+  | "session"
+  | "thread"
   | "turn"
   | "conversation"
   | "inference"

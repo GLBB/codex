@@ -183,6 +183,34 @@ export function buildThreadTree(trace: RolloutTrace): ThreadTreeNode[] {
 export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineNode[] {
   const nodes: TimelineNode[] = [];
 
+  if (!threadId) {
+    nodes.push({
+      id: trace.trace_id ?? "session",
+      type: "session",
+      label: `Session: ${trace.rollout_id ?? trace.trace_id ?? "unknown"}`,
+      startedAtUnixMs: trace.started_at_unix_ms,
+      endedAtUnixMs: trace.ended_at_unix_ms,
+      status: trace.status,
+      summary: `root ${trace.root_thread_id ?? "unknown"}`
+    });
+  }
+
+  for (const [id, thread] of entries(trace.threads)) {
+    if (threadId && id !== threadId) {
+      continue;
+    }
+    nodes.push({
+      id,
+      type: "thread",
+      label: `Thread: ${thread.nickname ?? thread.agent_path ?? id}`,
+      threadId: id,
+      startedAtUnixMs: executionStart(thread),
+      endedAtUnixMs: executionEnd(thread),
+      status: executionStatus(thread),
+      summary: thread.default_model ?? undefined
+    });
+  }
+
   for (const [id, turn] of entries(trace.codex_turns)) {
     if (threadId && turn.thread_id !== threadId) {
       continue;
@@ -475,23 +503,29 @@ export function searchTrace(trace: RolloutTrace, query: string): TimelineNode[] 
 }
 
 function timelineSortRank(node: TimelineNode): number {
-  if (node.type === "turn") {
+  if (node.type === "session") {
     return 0;
   }
-  if (node.type === "conversation" && !node.label.startsWith("assistant:")) {
+  if (node.type === "thread") {
     return 1;
   }
-  if (node.type === "inference") {
+  if (node.type === "turn") {
     return 2;
   }
-  if (node.type === "tool" || node.type === "code_cell" || node.type === "terminal") {
+  if (node.type === "conversation" && !node.label.startsWith("assistant:")) {
     return 3;
   }
-  if (node.type === "conversation") {
+  if (node.type === "inference") {
     return 4;
   }
-  if (node.type === "compaction") {
+  if (node.type === "tool" || node.type === "code_cell" || node.type === "terminal") {
     return 5;
   }
-  return 6;
+  if (node.type === "conversation") {
+    return 6;
+  }
+  if (node.type === "compaction") {
+    return 7;
+  }
+  return 8;
 }
