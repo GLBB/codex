@@ -27,7 +27,8 @@ describe("viewer UI", () => {
       "tool1",
       "term1",
       "cell1",
-      "item-assistant"
+      "item-assistant",
+      "compaction1"
     ]);
 
     const edgeFilters = defaultFilters();

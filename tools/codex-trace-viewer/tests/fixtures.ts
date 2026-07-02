@@ -103,7 +103,16 @@ export function sampleTrace(): RolloutTrace {
         execution: { status: "completed", started_at_unix_ms: 1605, ended_at_unix_ms: 1695 }
       }
     },
-    compactions: {},
+    compactions: {
+      compaction1: {
+        compaction_id: "compaction1",
+        thread_id: "thread-root",
+        codex_turn_id: "turn1",
+        installed_at_unix_ms: 2300,
+        marker_item_id: "item-assistant",
+        request_ids: ["inf1"]
+      }
+    },
     interaction_edges: {
       edge1: { edge_id: "edge1", edge_type: "delegates", source: "thread-root", target: "thread-child" }
     },

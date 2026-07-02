@@ -10,6 +10,7 @@ test("opens demo bundle and inspects core trace surfaces", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Codex Trace Viewer" })).toBeVisible();
   await expect(page.getByText("thread-root").first()).toBeVisible();
   await expect(page.getByText("Tool: mcp:github/search")).toBeVisible();
+  await expect(page.getByRole("button", { name: /compaction Compaction/ })).toBeVisible();
 
   await page.getByText("Model Call: gpt-5").click();
   await page.getByRole("button", { name: "查看完整 Prompt" }).click();
@@ -40,6 +41,7 @@ test("opens demo bundle and inspects core trace surfaces", async ({ page }) => {
   await expect(page.getByText("child threads")).toBeVisible();
   await expect(page.getByText("Tokens By Inference")).toBeVisible();
   await expect(page.getByText("Tokens By Turn")).toBeVisible();
+  await expect(page.getByText("compactions")).toBeVisible();
 
   const nonLocalRequests = requests.filter((url) => !url.startsWith("http://127.0.0.1:4174"));
   expect(nonLocalRequests).toEqual([]);
