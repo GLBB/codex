@@ -35,7 +35,11 @@ describe("prompt view", () => {
       input: [
         { role: "developer", content: "AGENTS.md says run just fmt" },
         { role: "developer", content: "Permission and sandbox instructions" },
+        { role: "developer", content: "<environment_context><cwd>/repo</cwd></environment_context>" },
+        { role: "developer", content: "<collaboration_mode>Default</collaboration_mode>" },
+        { role: "developer", content: "Install a requested plugin or connector only when asked" },
         { role: "developer", content: "Skill instructions" },
+        { role: "developer", content: "Tools are grouped by namespace" },
         { role: "user", content: "当前问题" }
       ]
     });
@@ -43,7 +47,11 @@ describe("prompt view", () => {
       "request",
       "AGENTS.md",
       "permissions",
+      "environment_context",
+      "collaboration_mode",
+      "plugins",
       "skills",
+      "tool_runtime",
       "current_query"
     ]);
   });
