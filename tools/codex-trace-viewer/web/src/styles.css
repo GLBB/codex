@@ -251,6 +251,14 @@ nav {
   background: #e7e1f5;
 }
 
+.pill.code_cell {
+  background: #f4e8c8;
+}
+
+.pill.terminal {
+  background: #e5e7eb;
+}
+
 .pill.conversation {
   background: #e3f1df;
 }

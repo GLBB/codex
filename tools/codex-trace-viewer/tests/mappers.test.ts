@@ -17,7 +17,8 @@ describe("trace mappers", () => {
         conversationItems: 2,
         inferences: 1,
         toolCalls: 1,
-        terminalOperations: 0,
+        codeCells: 1,
+        terminalOperations: 1,
         compactions: 0,
         interactionEdges: 1
       }
@@ -51,6 +52,8 @@ describe("trace mappers", () => {
       "conversation:item-user",
       "inference:inf1",
       "tool:tool1",
+      "terminal:term1",
+      "code_cell:cell1",
       "conversation:item-assistant",
       "agent_edge:edge1"
     ]);
@@ -61,6 +64,10 @@ describe("trace mappers", () => {
     expect(timeline.find((node) => node.id === "tool1")).toMatchObject({
       durationMs: 100,
       toolName: "mcp:github/search"
+    });
+    expect(timeline.find((node) => node.id === "cell1")).toMatchObject({
+      durationMs: 100,
+      relatedIds: ["term1"]
     });
   });
 
@@ -120,7 +127,8 @@ describe("trace mappers", () => {
       turns: { count: 1, totalMs: 1000, maxMs: 1000 },
       inferences: { count: 1, totalMs: 600, maxMs: 600 },
       tools: { count: 1, totalMs: 100, maxMs: 100 },
-      terminalOperations: { count: 0, totalMs: 0, maxMs: 0 },
+      codeCells: { count: 1, totalMs: 100, maxMs: 100 },
+      terminalOperations: { count: 1, totalMs: 90, maxMs: 90 },
       tokens: {
         inputTokens: 120,
         cachedInputTokens: 0,

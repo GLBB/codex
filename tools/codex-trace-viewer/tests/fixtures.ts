@@ -71,12 +71,37 @@ export function sampleTrace(): RolloutTrace {
         started_by_codex_turn_id: "turn1",
         model_visible_call_id: "call_search",
         kind: { type: "mcp", server: "github", tool: "search" },
+        terminal_operation_id: "term1",
         raw_invocation_payload_id: "payload-tool-invoke",
         raw_result_payload_id: "payload-tool-result",
         execution: { status: "completed", started_at_unix_ms: 1600, ended_at_unix_ms: 1700 }
       }
     },
-    terminal_operations: {},
+    code_cells: {
+      cell1: {
+        code_cell_id: "cell1",
+        thread_id: "thread-root",
+        codex_turn_id: "turn1",
+        language: "python",
+        source: "print('trace')",
+        result: { stdout: "trace\n" },
+        terminal_operation_ids: ["term1"],
+        raw_payload_ids: ["payload-code-cell"],
+        execution: { status: "completed", started_at_unix_ms: 1650, ended_at_unix_ms: 1750 }
+      }
+    },
+    terminal_operations: {
+      term1: {
+        operation_id: "term1",
+        terminal_id: "terminal-1",
+        tool_call_id: "tool1",
+        kind: "exec",
+        request: { cmd: "python cell.py" },
+        result: { exit_code: 0, stdout: "trace\n" },
+        raw_payload_ids: ["payload-terminal"],
+        execution: { status: "completed", started_at_unix_ms: 1605, ended_at_unix_ms: 1695 }
+      }
+    },
     compactions: {},
     interaction_edges: {
       edge1: { edge_id: "edge1", edge_type: "delegates", source: "thread-root", target: "thread-child" }
@@ -85,7 +110,9 @@ export function sampleTrace(): RolloutTrace {
       "payload-request": { raw_payload_id: "payload-request", path: "payloads/request.json" },
       "payload-response": { raw_payload_id: "payload-response", path: "payloads/response.json" },
       "payload-tool-invoke": { raw_payload_id: "payload-tool-invoke", path: "payloads/tool-invoke.json" },
-      "payload-tool-result": { raw_payload_id: "payload-tool-result", path: "payloads/tool-result.json" }
+      "payload-tool-result": { raw_payload_id: "payload-tool-result", path: "payloads/tool-result.json" },
+      "payload-terminal": { raw_payload_id: "payload-terminal", path: "payloads/terminal.json" },
+      "payload-code-cell": { raw_payload_id: "payload-code-cell", path: "payloads/code-cell.json" }
     }
   };
 }
