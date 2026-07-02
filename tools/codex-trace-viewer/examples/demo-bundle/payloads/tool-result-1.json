@@ -1,0 +1,10 @@
+{
+  "call_id": "call_github_search",
+  "status": "completed",
+  "content": [
+    {
+      "type": "text",
+      "text": "找到 trace viewer 相关方案，建议优先实现本地 TypeScript viewer。"
+    }
+  ]
+}

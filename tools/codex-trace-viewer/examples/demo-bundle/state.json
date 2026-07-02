@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "trace_id": "demo-trace",
+  "rollout_id": "demo-rollout",
+  "root_thread_id": "thread-root",
+  "status": "running",
+  "started_at_unix_ms": 1762012800000,
+  "threads": {
+    "thread-root": {
+      "thread_id": "thread-root",
+      "nickname": "main",
+      "default_model": "gpt-5",
+      "execution": {
+        "status": "running",
+        "started_at_unix_ms": 1762012800000
+      }
+    },
+    "thread-research": {
+      "thread_id": "thread-research",
+      "nickname": "research-agent",
+      "origin": {
+        "parent_thread_id": "thread-root"
+      },
+      "default_model": "gpt-5-mini",
+      "execution": {
+        "status": "completed",
+        "started_at_unix_ms": 1762012803000,
+        "ended_at_unix_ms": 1762012815000
+      }
+    }
+  },
+  "codex_turns": {
+    "turn-1": {
+      "codex_turn_id": "turn-1",
+      "thread_id": "thread-root",
+      "input_item_ids": ["item-user-1"],
+      "execution": {
+        "status": "completed",
+        "started_at_unix_ms": 1762012801000,
+        "ended_at_unix_ms": 1762012820000
+      }
+    }
+  },
+  "conversation_items": {
+    "item-user-1": {
+      "item_id": "item-user-1",
+      "thread_id": "thread-root",
+      "codex_turn_id": "turn-1",
+      "first_seen_at_unix_ms": 1762012801000,
+      "role": "user",
+      "kind": "message",
+      "body": {
+        "parts": [
+          {
+            "type": "input_text",
+            "text": "查看 Codex trace，解释 thread/session/query/prompt/tool call/assistant message 的业务流程。"
+          }
+        ]
+      }
+    },
+    "item-assistant-1": {
+      "item_id": "item-assistant-1",
+      "thread_id": "thread-root",
+      "codex_turn_id": "turn-1",
+      "first_seen_at_unix_ms": 1762012819000,
+      "role": "assistant",
+      "kind": "message",
+      "body": {
+        "parts": [
+          {
+            "type": "output_text",
+            "text": "我会先读取 trace，再拆解 prompt 和 tool call。"
+          }
+        ]
+      }
+    }
+  },
+  "inference_calls": {
+    "inference-1": {
+      "inference_call_id": "inference-1",
+      "thread_id": "thread-root",
+      "codex_turn_id": "turn-1",
+      "model": "gpt-5",
+      "provider_name": "openai",
+      "usage": {
+        "input_tokens": 2048,
+        "cached_input_tokens": 512,
+        "output_tokens": 320,
+        "reasoning_output_tokens": 96
+      },
+      "raw_request_payload_id": "payload-request-1",
+      "raw_response_payload_id": "payload-response-1",
+      "execution": {
+        "status": "completed",
+        "started_at_unix_ms": 1762012802000,
+        "ended_at_unix_ms": 1762012808000
+      }
+    }
+  },
+  "tool_calls": {
+    "tool-1": {
+      "tool_call_id": "tool-1",
+      "thread_id": "thread-root",
+      "started_by_codex_turn_id": "turn-1",
+      "model_visible_call_id": "call_github_search",
+      "kind": {
+        "type": "mcp",
+        "server": "github",
+        "tool": "search"
+      },
+      "raw_invocation_payload_id": "payload-tool-invoke-1",
+      "raw_result_payload_id": "payload-tool-result-1",
+      "execution": {
+        "status": "completed",
+        "started_at_unix_ms": 1762012809000,
+        "ended_at_unix_ms": 1762012812000
+      }
+    }
+  },
+  "terminal_operations": {},
+  "compactions": {},
+  "interaction_edges": {
+    "edge-1": {
+      "edge_id": "edge-1",
+      "edge_type": "spawn_agent",
+      "source": "thread-root",
+      "target": "thread-research"
+    }
+  },
+  "raw_payloads": {
+    "payload-request-1": {
+      "raw_payload_id": "payload-request-1",
+      "path": "payloads/request-1.json"
+    },
+    "payload-response-1": {
+      "raw_payload_id": "payload-response-1",
+      "path": "payloads/response-1.json"
+    },
+    "payload-tool-invoke-1": {
+      "raw_payload_id": "payload-tool-invoke-1",
+      "path": "payloads/tool-invoke-1.json"
+    },
+    "payload-tool-result-1": {
+      "raw_payload_id": "payload-tool-result-1",
+      "path": "payloads/tool-result-1.json"
+    }
+  }
+}

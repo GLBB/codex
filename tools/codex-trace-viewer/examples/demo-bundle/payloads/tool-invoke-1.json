@@ -1,0 +1,8 @@
+{
+  "call_id": "call_github_search",
+  "server": "github",
+  "tool": "search",
+  "arguments": {
+    "query": "codex rollout trace viewer"
+  }
+}
