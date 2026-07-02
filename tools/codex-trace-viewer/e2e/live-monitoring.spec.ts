@@ -27,6 +27,28 @@ async function appendLiveConversation(bundle: string): Promise<void> {
   await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
 }
 
+async function makeFailureAndLargePromptBundle(bundle: string): Promise<void> {
+  const statePath = path.join(bundle, "state.json");
+  const state = JSON.parse(await readFile(statePath, "utf8")) as {
+    codex_turns: Record<string, { execution?: { status?: string } }>;
+    tool_calls: Record<string, { execution?: { status?: string } }>;
+  };
+  state.codex_turns["turn-1"].execution = {
+    ...state.codex_turns["turn-1"].execution,
+    status: "aborted"
+  };
+  state.tool_calls["tool-1"].execution = {
+    ...state.tool_calls["tool-1"].execution,
+    status: "failed"
+  };
+  await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
+
+  const requestPath = path.join(bundle, "payloads/request-1.json");
+  const request = JSON.parse(await readFile(requestPath, "utf8")) as { instructions?: string };
+  request.instructions = `large prompt marker\n${"x".repeat(120_000)}`;
+  await writeFile(requestPath, JSON.stringify(request, null, 2), "utf8");
+}
+
 async function startViewer(args: string[]): Promise<{ child: ChildProcessWithoutNullStreams; url: string }> {
   const child = spawn(process.execPath, ["dist/server/index.js", ...args], {
     cwd: process.cwd()
@@ -90,6 +112,30 @@ test("live updates active bundles and discovers new trace bundles", async ({ pag
 
     await copyDemoBundle(bundleB);
     await expect(page.getByRole("button", { name: /bundle-b/ })).toBeVisible({ timeout: 6_000 });
+  } finally {
+    await stopViewer(child);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("renders failed operations and keeps large prompt sections collapsed", async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codex-trace-viewer-failure-"));
+  const bundle = path.join(root, "bundle-failed");
+  await copyDemoBundle(bundle);
+  await makeFailureAndLargePromptBundle(bundle);
+  const { child, url } = await startViewer(["--bundle", bundle, "--port", "0"]);
+
+  try {
+    await page.goto(url);
+    await expect(page.getByText("failed").first()).toBeVisible();
+
+    await page.getByText("Model Call: gpt-5").click();
+    await page.getByRole("button", { name: "查看完整 Prompt" }).click();
+    const largeSection = page.locator("details").filter({ hasText: "System / Base Instructions" });
+    await expect(largeSection).toBeVisible();
+    await expect.poll(() => largeSection.evaluate((node) => (node as HTMLDetailsElement).open)).toBe(false);
+    await largeSection.click();
+    await expect(largeSection.locator("pre").getByText("large prompt marker")).toBeVisible();
   } finally {
     await stopViewer(child);
     await rm(root, { recursive: true, force: true });
