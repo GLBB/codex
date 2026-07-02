@@ -213,6 +213,12 @@ nav {
   padding: 12px;
 }
 
+.timelineNode.fresh {
+  border-color: #1f8a4c;
+  box-shadow: inset 4px 0 0 #1f8a4c;
+  background: #f0fbf3;
+}
+
 .nodeHeader {
   display: flex;
   align-items: center;
