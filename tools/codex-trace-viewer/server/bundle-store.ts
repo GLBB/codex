@@ -147,6 +147,22 @@ export class BundleStore {
     return tool;
   }
 
+  codeCell(id: string) {
+    const cell = this.getTrace().code_cells?.[id];
+    if (!cell) {
+      throw new Error(`code cell not found: ${id}`);
+    }
+    return cell;
+  }
+
+  terminal(id: string) {
+    const terminal = this.getTrace().terminal_operations?.[id];
+    if (!terminal) {
+      throw new Error(`terminal operation not found: ${id}`);
+    }
+    return terminal;
+  }
+
   turn(id: string) {
     const turn = this.getTrace().codex_turns?.[id];
     if (!turn) {

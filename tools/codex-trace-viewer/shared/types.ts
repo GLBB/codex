@@ -98,6 +98,19 @@ export interface TerminalOperation {
   raw_payload_ids?: string[];
 }
 
+export interface CodeCell {
+  code_cell_id: string;
+  thread_id?: string;
+  codex_turn_id?: string | null;
+  execution?: ExecutionWindow;
+  language?: string | null;
+  source?: unknown;
+  result?: unknown;
+  tool_call_ids?: string[];
+  terminal_operation_ids?: string[];
+  raw_payload_ids?: string[];
+}
+
 export interface Compaction {
   compaction_id: string;
   thread_id: string;
@@ -128,6 +141,7 @@ export interface RolloutTrace {
   conversation_items?: Record<string, ConversationItem>;
   inference_calls?: Record<string, InferenceCall>;
   tool_calls?: Record<string, ToolCall>;
+  code_cells?: Record<string, CodeCell>;
   terminal_operations?: Record<string, TerminalOperation>;
   compactions?: Record<string, Compaction>;
   interaction_edges?: Record<string, InteractionEdge>;
@@ -148,6 +162,7 @@ export interface TraceSummary {
     conversationItems: number;
     inferences: number;
     toolCalls: number;
+    codeCells: number;
     terminalOperations: number;
     compactions: number;
     interactionEdges: number;
@@ -172,6 +187,7 @@ export interface StatsSummary {
   turns: DurationSummary;
   inferences: DurationSummary;
   tools: DurationSummary;
+  codeCells: DurationSummary;
   terminalOperations: DurationSummary;
   tokens: TokenSummary;
   failedToolCalls: number;
@@ -201,6 +217,7 @@ export type TimelineNodeType =
   | "conversation"
   | "inference"
   | "tool"
+  | "code_cell"
   | "terminal"
   | "compaction"
   | "agent_edge";

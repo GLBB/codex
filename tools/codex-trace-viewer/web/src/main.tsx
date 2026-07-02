@@ -3,9 +3,11 @@ import { createRoot } from "react-dom/client";
 import type {
   AgentGraph,
   BundleSummary,
+  CodeCell,
   InferenceCall,
   PromptView,
   StatsSummary,
+  TerminalOperation,
   ThreadTreeNode,
   TimelineNode,
   ToolCall,
@@ -24,7 +26,16 @@ interface TimelineFilters {
   slowMs: string;
 }
 
-const timelineTypes: TimelineNode["type"][] = ["turn", "conversation", "inference", "tool", "terminal", "compaction", "agent_edge"];
+const timelineTypes: TimelineNode["type"][] = [
+  "turn",
+  "conversation",
+  "inference",
+  "tool",
+  "code_cell",
+  "terminal",
+  "compaction",
+  "agent_edge"
+];
 
 interface BundlesUpdatedEvent {
   bundles?: BundleSummary[];
@@ -243,12 +254,16 @@ function Details({
   node,
   inference,
   tool,
+  codeCell,
+  terminal,
   onOpenPrompt,
   onOpenPayload
 }: {
   node?: TimelineNode;
   inference?: InferenceCall;
   tool?: ToolCall;
+  codeCell?: CodeCell;
+  terminal?: TerminalOperation;
   onOpenPrompt: (inferenceId: string) => void;
   onOpenPayload: (payloadId: string) => void;
 }) {
@@ -323,6 +338,50 @@ function Details({
             <>
               <h4>Summary</h4>
               <pre>{JSON.stringify(tool.summary, null, 2)}</pre>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {codeCell ? (
+        <div className="detailBlock">
+          <h3>Code Cell</h3>
+          <dl>
+            <dt>Language</dt>
+            <dd>{codeCell.language ?? "-"}</dd>
+          </dl>
+          {codeCell.source ? (
+            <>
+              <h4>Source</h4>
+              <pre>{JSON.stringify(codeCell.source, null, 2)}</pre>
+            </>
+          ) : null}
+          {codeCell.result ? (
+            <>
+              <h4>Result</h4>
+              <pre>{JSON.stringify(codeCell.result, null, 2)}</pre>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {terminal ? (
+        <div className="detailBlock">
+          <h3>Terminal Operation</h3>
+          <dl>
+            <dt>Terminal</dt>
+            <dd className="mono">{terminal.terminal_id ?? "-"}</dd>
+            <dt>Tool</dt>
+            <dd className="mono">{terminal.tool_call_id ?? "-"}</dd>
+          </dl>
+          {terminal.request ? (
+            <>
+              <h4>Request</h4>
+              <pre>{JSON.stringify(terminal.request, null, 2)}</pre>
+            </>
+          ) : null}
+          {terminal.result ? (
+            <>
+              <h4>Result</h4>
+              <pre>{JSON.stringify(terminal.result, null, 2)}</pre>
             </>
           ) : null}
         </div>
@@ -460,6 +519,7 @@ function Stats({ summary, stats }: { summary?: TraceSummary; stats?: StatsSummar
         ["turns", stats.turns.totalMs],
         ["inferences", stats.inferences.totalMs],
         ["tools", stats.tools.totalMs],
+        ["code cells", stats.codeCells.totalMs],
         ["terminal", stats.terminalOperations.totalMs]
       ]
     : [];
@@ -550,6 +610,8 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<TimelineNode>();
   const [selectedInference, setSelectedInference] = useState<InferenceCall>();
   const [selectedTool, setSelectedTool] = useState<ToolCall>();
+  const [selectedCodeCell, setSelectedCodeCell] = useState<CodeCell>();
+  const [selectedTerminal, setSelectedTerminal] = useState<TerminalOperation>();
   const [tab, setTab] = useState<Tab>("timeline");
   const [prompt, setPrompt] = useState<PromptView>();
   const [payload, setPayload] = useState<unknown>();
@@ -621,6 +683,8 @@ function App() {
   useEffect(() => {
     setSelectedInference(undefined);
     setSelectedTool(undefined);
+    setSelectedCodeCell(undefined);
+    setSelectedTerminal(undefined);
     if (!selectedNode) {
       return;
     }
@@ -632,6 +696,16 @@ function App() {
     if (selectedNode.type === "tool") {
       getJson<ToolCall>(`/api/tools/${encodeURIComponent(selectedNode.id)}`)
         .then(setSelectedTool)
+        .catch((error) => setLiveState(`error: ${error.message}`));
+    }
+    if (selectedNode.type === "code_cell") {
+      getJson<CodeCell>(`/api/code-cells/${encodeURIComponent(selectedNode.id)}`)
+        .then(setSelectedCodeCell)
+        .catch((error) => setLiveState(`error: ${error.message}`));
+    }
+    if (selectedNode.type === "terminal") {
+      getJson<TerminalOperation>(`/api/terminals/${encodeURIComponent(selectedNode.id)}`)
+        .then(setSelectedTerminal)
         .catch((error) => setLiveState(`error: ${error.message}`));
     }
   }, [selectedNode]);
@@ -649,6 +723,8 @@ function App() {
     setPayload(undefined);
     setSelectedInference(undefined);
     setSelectedTool(undefined);
+    setSelectedCodeCell(undefined);
+    setSelectedTerminal(undefined);
     setAgentGraph(undefined);
     setStats(undefined);
     setTab("timeline");
@@ -733,6 +809,8 @@ function App() {
           node={selectedNode}
           inference={selectedInference}
           tool={selectedTool}
+          codeCell={selectedCodeCell}
+          terminal={selectedTerminal}
           onOpenPrompt={openPrompt}
           onOpenPayload={openPayload}
         />

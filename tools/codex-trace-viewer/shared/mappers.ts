@@ -94,6 +94,7 @@ export function buildTraceSummary(trace: RolloutTrace): TraceSummary {
       conversationItems: entries(trace.conversation_items).length,
       inferences: entries(trace.inference_calls).length,
       toolCalls: entries(trace.tool_calls).length,
+      codeCells: entries(trace.code_cells).length,
       terminalOperations: entries(trace.terminal_operations).length,
       compactions: entries(trace.compactions).length,
       interactionEdges: entries(trace.interaction_edges).length
@@ -281,6 +282,26 @@ export function buildTimeline(trace: RolloutTrace, threadId?: string): TimelineN
     });
   }
 
+  for (const [id, cell] of entries(trace.code_cells)) {
+    if (threadId && cell.thread_id !== threadId) {
+      continue;
+    }
+    nodes.push({
+      id,
+      type: "code_cell",
+      label: `Code Cell${cell.language ? `: ${cell.language}` : ""}`,
+      threadId: cell.thread_id,
+      turnId: cell.codex_turn_id,
+      startedAtUnixMs: executionStart(cell),
+      endedAtUnixMs: executionEnd(cell),
+      status: executionStatus(cell),
+      summary: textPartSummary([cell.source ?? cell.result].filter(Boolean)),
+      rawPayloadRefs: cell.raw_payload_ids,
+      relatedIds: [...(cell.tool_call_ids ?? []), ...(cell.terminal_operation_ids ?? [])],
+      durationMs: durationMs(cell)
+    });
+  }
+
   for (const [id, compaction] of entries(trace.compactions)) {
     if (threadId && compaction.thread_id !== threadId) {
       continue;
@@ -391,6 +412,7 @@ export function buildStatsSummary(trace: RolloutTrace): StatsSummary {
   const turns = emptyDurationSummary();
   const inferences = emptyDurationSummary();
   const tools = emptyDurationSummary();
+  const codeCells = emptyDurationSummary();
   const terminalOperations = emptyDurationSummary();
 
   for (const [, turn] of entries(trace.codex_turns)) {
@@ -417,6 +439,9 @@ export function buildStatsSummary(trace: RolloutTrace): StatsSummary {
       failedToolCalls += 1;
     }
   }
+  for (const [, cell] of entries(trace.code_cells)) {
+    addDuration(codeCells, durationMs(cell));
+  }
   for (const [, operation] of entries(trace.terminal_operations)) {
     addDuration(terminalOperations, durationMs(operation));
   }
@@ -431,6 +456,7 @@ export function buildStatsSummary(trace: RolloutTrace): StatsSummary {
     turns,
     inferences,
     tools,
+    codeCells,
     terminalOperations,
     tokens,
     failedToolCalls,
@@ -458,7 +484,7 @@ function timelineSortRank(node: TimelineNode): number {
   if (node.type === "inference") {
     return 2;
   }
-  if (node.type === "tool" || node.type === "terminal") {
+  if (node.type === "tool" || node.type === "code_cell" || node.type === "terminal") {
     return 3;
   }
   if (node.type === "conversation") {
