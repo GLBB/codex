@@ -81,8 +81,20 @@ function classifyInputSource(item: unknown, index: number, inputCount: number): 
   if (role === "developer" && (text.includes("sandbox") || text.includes("permission"))) {
     return "permissions";
   }
+  if (role === "developer" && (text.includes("environment_context") || text.includes("<environment_context>"))) {
+    return "environment_context";
+  }
+  if (role === "developer" && (text.includes("collaboration_mode") || text.includes("collaboration mode"))) {
+    return "collaboration_mode";
+  }
+  if (role === "developer" && (text.includes("plugin") || text.includes("connector"))) {
+    return "plugins";
+  }
   if (role === "developer" && text.includes("skill")) {
     return "skills";
+  }
+  if (role === "developer" && text.includes("tools are grouped")) {
+    return "tool_runtime";
   }
   if (role === "user") {
     return "conversation_history.user";
