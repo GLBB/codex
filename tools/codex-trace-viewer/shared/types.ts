@@ -288,6 +288,7 @@ export interface PromptSection {
   included: boolean;
   rawPayloadRef?: string;
   relatedTimelineNodeId?: string;
+  relatedToolName?: string;
 }
 
 export interface PromptView {
