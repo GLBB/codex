@@ -939,7 +939,9 @@ function App() {
   };
 
   const selectAgentEdge = (edgeNodeId: string) => {
-    const node = timeline.find((item) => item.type === "agent_edge" && item.id === edgeNodeId);
+    const candidates = [...timeline, ...timelineRef.current];
+    const node =
+      candidates.find((item) => item.id === edgeNodeId) ?? candidates.find((item) => item.type === "agent_edge" && item.id === edgeNodeId);
     if (node) {
       setSelectedNode(node);
       setTab("timeline");

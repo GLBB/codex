@@ -128,6 +128,32 @@ function threadRef(value: unknown): string | undefined {
   return undefined;
 }
 
+function explicitTimelineRef(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of [
+    "tool_call_id",
+    "toolCallId",
+    "conversation_item_id",
+    "conversationItemId",
+    "message_item_id",
+    "messageItemId",
+    "delivered_item_id",
+    "deliveredItemId",
+    "result_item_id",
+    "resultItemId",
+    "codex_turn_id",
+    "codexTurnId"
+  ]) {
+    if (typeof record[key] === "string") {
+      return record[key];
+    }
+  }
+  return undefined;
+}
+
 function rawRefsFromValue(value: unknown): string[] {
   const refs = new Set<string>();
   function visit(item: unknown): void {
@@ -399,7 +425,8 @@ export function buildAgentGraph(trace: RolloutTrace): AgentGraph {
         edgeType: "spawn",
         sourceThreadId: node.parentId,
         targetThreadId: node.id,
-        label: "spawn"
+        label: "spawn",
+        relatedTimelineNodeId: node.id
       });
     }
   }
@@ -407,13 +434,14 @@ export function buildAgentGraph(trace: RolloutTrace): AgentGraph {
   for (const [id, edge] of entries(trace.interaction_edges)) {
     const sourceThreadId = threadRef(edge.source);
     const targetThreadId = threadRef(edge.target);
+    const relatedTimelineNodeId = explicitTimelineRef(edge) ?? targetThreadId ?? sourceThreadId ?? id;
     edges.push({
       id,
       edgeType: edge.edge_type ?? "interaction",
       sourceThreadId,
       targetThreadId,
       label: edge.edge_type ?? id,
-      relatedTimelineNodeId: id,
+      relatedTimelineNodeId,
       rawPayloadRefs: rawRefsFromValue(edge)
     });
   }
