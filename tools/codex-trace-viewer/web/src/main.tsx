@@ -30,6 +30,8 @@ export interface TimelineFilters {
 }
 
 const timelineTypes: TimelineNode["type"][] = [
+  "session",
+  "thread",
   "turn",
   "conversation",
   "inference",
