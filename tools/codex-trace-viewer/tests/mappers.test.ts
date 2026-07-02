@@ -14,7 +14,7 @@ describe("trace mappers", () => {
       counts: {
         threads: 2,
         turns: 1,
-        conversationItems: 2,
+        conversationItems: 3,
         inferences: 1,
         toolCalls: 1,
         codeCells: 1,
@@ -57,6 +57,7 @@ describe("trace mappers", () => {
       "tool:tool1",
       "terminal:term1",
       "code_cell:cell1",
+      "reasoning:item-reasoning",
       "conversation:item-assistant",
       "compaction:compaction1",
       "agent_edge:edge1"
@@ -72,6 +73,11 @@ describe("trace mappers", () => {
     expect(timeline.find((node) => node.id === "cell1")).toMatchObject({
       durationMs: 100,
       relatedIds: ["term1"]
+    });
+    expect(timeline.find((node) => node.id === "item-reasoning")).toMatchObject({
+      type: "reasoning",
+      label: "Reasoning: reasoning_summary",
+      summary: "先定位关键节点，再检查工具调用。"
     });
   });
 

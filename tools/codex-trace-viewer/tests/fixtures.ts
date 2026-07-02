@@ -49,6 +49,16 @@ export function sampleTrace(): RolloutTrace {
         role: "assistant",
         kind: "message",
         body: { parts: [{ type: "output_text", text: "分析完成" }] }
+      },
+      "item-reasoning": {
+        item_id: "item-reasoning",
+        thread_id: "thread-root",
+        codex_turn_id: "turn1",
+        first_seen_at_unix_ms: 1850,
+        role: "assistant",
+        channel: "analysis",
+        kind: "reasoning_summary",
+        body: { parts: [{ type: "summary_text", text: "先定位关键节点，再检查工具调用。" }] }
       }
     },
     inference_calls: {
