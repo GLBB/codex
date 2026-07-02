@@ -374,6 +374,21 @@ summary span {
   margin-bottom: 12px;
 }
 
+.payloadToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.errorBox {
+  padding: 12px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #7f1d1d;
+  border-radius: 6px;
+}
+
 .sectionActions {
   display: flex;
   align-items: center;

@@ -458,11 +458,31 @@ export function PromptInspector({ prompt }: { prompt?: PromptView }) {
   );
 }
 
-function RawPayload({ payload }: { payload?: unknown }) {
+export function RawPayload({ payload, error }: { payload?: unknown; error?: string }) {
+  const [copyState, setCopyState] = useState("");
+  const copyPayload = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setCopyState("copied");
+    } catch (copyError) {
+      setCopyState(copyError instanceof Error ? copyError.message : "copy failed");
+    }
+  };
+  if (error) {
+    return <div className="errorBox">{error}</div>;
+  }
   if (payload === undefined) {
     return <div className="empty">从详情面板选择 raw payload。</div>;
   }
-  return <pre className="payload">{JSON.stringify(payload, null, 2)}</pre>;
+  return (
+    <div className="rawPayload">
+      <div className="payloadToolbar">
+        <button onClick={copyPayload}>Copy payload JSON</button>
+        {copyState ? <span>{copyState}</span> : null}
+      </div>
+      <pre className="payload">{JSON.stringify(payload, null, 2)}</pre>
+    </div>
+  );
 }
 
 export function AgentGraphView({
@@ -615,6 +635,7 @@ function App() {
   const [tab, setTab] = useState<Tab>("timeline");
   const [prompt, setPrompt] = useState<PromptView>();
   const [payload, setPayload] = useState<unknown>();
+  const [payloadError, setPayloadError] = useState<string>();
   const [query, setQuery] = useState("");
   const [liveState, setLiveState] = useState("connecting");
   const [followLatest, setFollowLatest] = useState(true);
@@ -721,6 +742,7 @@ function App() {
     setSelectedNode(undefined);
     setPrompt(undefined);
     setPayload(undefined);
+    setPayloadError(undefined);
     setSelectedInference(undefined);
     setSelectedTool(undefined);
     setSelectedCodeCell(undefined);
@@ -746,8 +768,14 @@ function App() {
   };
 
   const openPayload = async (payloadId: string) => {
-    setPayload(await getJson(`/api/payloads/${encodeURIComponent(payloadId)}`));
+    setPayload(undefined);
+    setPayloadError(undefined);
     setTab("payload");
+    try {
+      setPayload(await getJson(`/api/payloads/${encodeURIComponent(payloadId)}`));
+    } catch (error) {
+      setPayloadError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const selectAgentEdge = (edgeNodeId: string) => {
@@ -801,7 +829,7 @@ function App() {
         {tab === "timeline" ? <Timeline nodes={filteredTimeline} selectedNode={selectedNode} onSelect={setSelectedNode} /> : null}
         {tab === "prompt" ? <PromptInspector prompt={prompt} /> : null}
         {tab === "agent" ? <AgentGraphView graph={agentGraph} onSelectEdge={selectAgentEdge} /> : null}
-        {tab === "payload" ? <RawPayload payload={payload} /> : null}
+        {tab === "payload" ? <RawPayload payload={payload} error={payloadError} /> : null}
         {tab === "stats" ? <Stats summary={summary} stats={stats} /> : null}
       </section>
       <aside className="right">
