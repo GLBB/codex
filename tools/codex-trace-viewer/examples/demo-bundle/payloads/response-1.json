@@ -1,0 +1,15 @@
+{
+  "id": "resp-demo",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "已生成业务流程视图，并支持查看完整 prompt 分段。"
+        }
+      ]
+    }
+  ]
+}
