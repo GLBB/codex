@@ -1,6 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AgentGraph, BundleSummary, PromptView, StatsSummary, ThreadTreeNode, TimelineNode, TraceSummary } from "../../shared/types";
+import type {
+  AgentGraph,
+  BundleSummary,
+  InferenceCall,
+  PromptView,
+  StatsSummary,
+  ThreadTreeNode,
+  TimelineNode,
+  ToolCall,
+  TraceSummary
+} from "../../shared/types";
 import "./styles.css";
 
 type Tab = "timeline" | "prompt" | "agent" | "payload" | "stats";
@@ -231,10 +241,14 @@ function Timeline({
 
 function Details({
   node,
+  inference,
+  tool,
   onOpenPrompt,
   onOpenPayload
 }: {
   node?: TimelineNode;
+  inference?: InferenceCall;
+  tool?: ToolCall;
   onOpenPrompt: (inferenceId: string) => void;
   onOpenPayload: (payloadId: string) => void;
 }) {
@@ -266,6 +280,52 @@ function Details({
         <button className="primary" onClick={() => onOpenPrompt(node.id)}>
           查看完整 Prompt
         </button>
+      ) : null}
+      {inference ? (
+        <div className="detailBlock">
+          <h3>Model Call</h3>
+          <dl>
+            <dt>Provider</dt>
+            <dd>{inference.provider_name ?? "-"}</dd>
+            <dt>Response</dt>
+            <dd className="mono">{inference.response_id ?? "-"}</dd>
+            <dt>Upstream</dt>
+            <dd className="mono">{inference.upstream_request_id ?? "-"}</dd>
+            <dt>Input</dt>
+            <dd>{inference.usage?.input_tokens ?? "-"}</dd>
+            <dt>Cached</dt>
+            <dd>{inference.usage?.cached_input_tokens ?? "-"}</dd>
+            <dt>Output</dt>
+            <dd>{inference.usage?.output_tokens ?? "-"}</dd>
+            <dt>Reasoning</dt>
+            <dd>{inference.usage?.reasoning_output_tokens ?? "-"}</dd>
+          </dl>
+        </div>
+      ) : null}
+      {tool ? (
+        <div className="detailBlock">
+          <h3>Tool Call</h3>
+          <dl>
+            <dt>Call ID</dt>
+            <dd className="mono">{tool.model_visible_call_id ?? tool.mcp_call_id ?? tool.code_mode_runtime_tool_id ?? "-"}</dd>
+            <dt>Terminal</dt>
+            <dd className="mono">{tool.terminal_operation_id ?? "-"}</dd>
+          </dl>
+          <h4>Kind</h4>
+          <pre>{JSON.stringify(tool.kind ?? {}, null, 2)}</pre>
+          {tool.requester ? (
+            <>
+              <h4>Requester</h4>
+              <pre>{JSON.stringify(tool.requester, null, 2)}</pre>
+            </>
+          ) : null}
+          {tool.summary ? (
+            <>
+              <h4>Summary</h4>
+              <pre>{JSON.stringify(tool.summary, null, 2)}</pre>
+            </>
+          ) : null}
+        </div>
       ) : null}
       {node.rawPayloadRefs?.length ? (
         <div>
@@ -488,6 +548,8 @@ function App() {
   const [timeline, setTimeline] = useState<TimelineNode[]>([]);
   const [selectedThread, setSelectedThread] = useState<string>();
   const [selectedNode, setSelectedNode] = useState<TimelineNode>();
+  const [selectedInference, setSelectedInference] = useState<InferenceCall>();
+  const [selectedTool, setSelectedTool] = useState<ToolCall>();
   const [tab, setTab] = useState<Tab>("timeline");
   const [prompt, setPrompt] = useState<PromptView>();
   const [payload, setPayload] = useState<unknown>();
@@ -556,6 +618,24 @@ function App() {
     return () => events.close();
   }, [selectedThread, followLatest]);
 
+  useEffect(() => {
+    setSelectedInference(undefined);
+    setSelectedTool(undefined);
+    if (!selectedNode) {
+      return;
+    }
+    if (selectedNode.type === "inference") {
+      getJson<InferenceCall>(`/api/inferences/${encodeURIComponent(selectedNode.id)}`)
+        .then(setSelectedInference)
+        .catch((error) => setLiveState(`error: ${error.message}`));
+    }
+    if (selectedNode.type === "tool") {
+      getJson<ToolCall>(`/api/tools/${encodeURIComponent(selectedNode.id)}`)
+        .then(setSelectedTool)
+        .catch((error) => setLiveState(`error: ${error.message}`));
+    }
+  }, [selectedNode]);
+
   const selectThread = (threadId?: string) => {
     setSelectedThread(threadId);
     setSelectedNode(undefined);
@@ -567,6 +647,8 @@ function App() {
     setSelectedNode(undefined);
     setPrompt(undefined);
     setPayload(undefined);
+    setSelectedInference(undefined);
+    setSelectedTool(undefined);
     setAgentGraph(undefined);
     setStats(undefined);
     setTab("timeline");
@@ -647,7 +729,13 @@ function App() {
         {tab === "stats" ? <Stats summary={summary} stats={stats} /> : null}
       </section>
       <aside className="right">
-        <Details node={selectedNode} onOpenPrompt={openPrompt} onOpenPayload={openPayload} />
+        <Details
+          node={selectedNode}
+          inference={selectedInference}
+          tool={selectedTool}
+          onOpenPrompt={openPrompt}
+          onOpenPayload={openPayload}
+        />
       </aside>
     </main>
   );
