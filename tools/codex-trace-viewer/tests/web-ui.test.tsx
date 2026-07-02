@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AgentGraphView, defaultFilters, errorSummary, filterTimeline, PromptInspector, RawPayload } from "../web/src/main";
+import { AgentGraphView, defaultFilters, errorSummary, filterTimeline, highlightedText, PromptInspector, RawPayload } from "../web/src/main";
 import { buildAgentGraph, buildTimeline } from "../shared/mappers";
 import { buildPromptView } from "../shared/prompt";
 import { sampleTrace, sampleWireRequest } from "./fixtures";
@@ -41,6 +41,12 @@ describe("viewer UI", () => {
     edgeFilters.types = new Set(["agent_edge"]);
     edgeFilters.agentEdge = "delegates";
     expect(filterTimeline(buildTimeline(sampleTrace()), edgeFilters).map((node) => node.id)).toEqual(["edge1"]);
+  });
+
+  it("highlights timeline search matches without changing text case", () => {
+    const { container } = render(<>{highlightedText("Model Call: GPT-5", "call")}</>);
+    expect(container.textContent).toEqual("Model Call: GPT-5");
+    expect(container.querySelector("mark")?.textContent).toEqual("Call");
   });
 
   it("searches and copies prompt sections", async () => {
