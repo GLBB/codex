@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { InferenceCall, RolloutTrace } from "../shared/types.js";
 import { buildPromptView } from "../shared/prompt.js";
-import { buildThreadTree, buildTimeline, buildTraceSummary, searchTrace } from "../shared/mappers.js";
+import { buildAgentGraph, buildStatsSummary, buildThreadTree, buildTimeline, buildTraceSummary, searchTrace } from "../shared/mappers.js";
 
 export interface BundleStoreOptions {
   bundlePath: string;
@@ -74,8 +74,61 @@ export class BundleStore {
     return buildTimeline(this.getTrace(), threadId);
   }
 
-  search(query: string) {
-    return searchTrace(this.getTrace(), query);
+  async search(query: string) {
+    const needle = query.trim().toLowerCase();
+    if (!needle) {
+      return [];
+    }
+    const trace = this.getTrace();
+    const results = new Map<string, ReturnType<typeof buildTimeline>[number]>();
+    for (const node of searchTrace(trace, query)) {
+      results.set(`${node.type}:${node.id}`, node);
+    }
+
+    const timeline = buildTimeline(trace);
+    const addMatchingRawPayloadNodes = (payloadId: string) => {
+      for (const node of timeline) {
+        if (node.rawPayloadRefs?.includes(payloadId)) {
+          results.set(`${node.type}:${node.id}`, node);
+        }
+      }
+    };
+
+    for (const [payloadId, payload] of Object.entries(trace.raw_payloads ?? {})) {
+      if (`${payloadId} ${payload.path}`.toLowerCase().includes(needle)) {
+        addMatchingRawPayloadNodes(payloadId);
+      }
+    }
+
+    await Promise.all(
+      Object.values(trace.inference_calls ?? {}).map(async (inference) => {
+        const payloadId = inference.raw_request_payload_id;
+        if (!payloadId) {
+          return;
+        }
+        try {
+          const payload = await this.payload(payloadId);
+          if (JSON.stringify(payload).toLowerCase().includes(needle)) {
+            const node = timeline.find((item) => item.type === "inference" && item.id === inference.inference_call_id);
+            if (node) {
+              results.set(`${node.type}:${node.id}`, node);
+            }
+          }
+        } catch {
+          addMatchingRawPayloadNodes(payloadId);
+        }
+      })
+    );
+
+    return [...results.values()];
+  }
+
+  agentGraph() {
+    return buildAgentGraph(this.getTrace());
+  }
+
+  stats() {
+    return buildStatsSummary(this.getTrace());
   }
 
   inference(id: string): InferenceCall {

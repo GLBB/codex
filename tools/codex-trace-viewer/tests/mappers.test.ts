@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildThreadTree, buildTimeline, buildTraceSummary, searchTrace } from "../shared/mappers";
+import { buildAgentGraph, buildStatsSummary, buildThreadTree, buildTimeline, buildTraceSummary, searchTrace } from "../shared/mappers";
 import { sampleTrace } from "./fixtures";
 
 describe("trace mappers", () => {
@@ -45,7 +45,8 @@ describe("trace mappers", () => {
   });
 
   it("builds a time ordered business timeline", () => {
-    expect(buildTimeline(sampleTrace()).map((node) => `${node.type}:${node.id}`)).toEqual([
+    const timeline = buildTimeline(sampleTrace());
+    expect(timeline.map((node) => `${node.type}:${node.id}`)).toEqual([
       "turn:turn1",
       "conversation:item-user",
       "inference:inf1",
@@ -53,10 +54,83 @@ describe("trace mappers", () => {
       "conversation:item-assistant",
       "agent_edge:edge1"
     ]);
+    expect(timeline.find((node) => node.id === "inf1")).toMatchObject({
+      durationMs: 600,
+      model: "gpt-5"
+    });
+    expect(timeline.find((node) => node.id === "tool1")).toMatchObject({
+      durationMs: 100,
+      toolName: "mcp:github/search"
+    });
   });
 
   it("filters timeline by thread and searches model-visible ids", () => {
     expect(buildTimeline(sampleTrace(), "thread-child").map((node) => node.id)).toEqual(["edge1"]);
     expect(searchTrace(sampleTrace(), "call_search").map((node) => node.id)).toEqual(["tool1"]);
+  });
+
+  it("builds agent graph nodes and interaction edges", () => {
+    expect(buildAgentGraph(sampleTrace())).toEqual({
+      rootThreadId: "thread-root",
+      nodes: [
+        {
+          id: "thread-root",
+          label: "main",
+          parentId: undefined,
+          model: "gpt-5",
+          status: "running",
+          startedAtUnixMs: 1000,
+          endedAtUnixMs: undefined
+        },
+        {
+          id: "thread-child",
+          label: "worker",
+          parentId: "thread-root",
+          model: "gpt-5-mini",
+          status: "completed",
+          startedAtUnixMs: 1500,
+          endedAtUnixMs: 2200
+        }
+      ],
+      edges: [
+        {
+          id: "origin:thread-root:thread-child",
+          edgeType: "spawn",
+          sourceThreadId: "thread-root",
+          targetThreadId: "thread-child",
+          label: "spawn"
+        },
+        {
+          id: "edge1",
+          edgeType: "delegates",
+          sourceThreadId: "thread-root",
+          targetThreadId: "thread-child",
+          label: "delegates",
+          relatedTimelineNodeId: "edge1",
+          rawPayloadRefs: []
+        }
+      ]
+    });
+  });
+
+  it("aggregates stats from timings, tokens, and child threads", () => {
+    const trace = sampleTrace();
+    expect(buildStatsSummary(trace)).toEqual({
+      totalDurationMs: undefined,
+      turns: { count: 1, totalMs: 1000, maxMs: 1000 },
+      inferences: { count: 1, totalMs: 600, maxMs: 600 },
+      tools: { count: 1, totalMs: 100, maxMs: 100 },
+      terminalOperations: { count: 0, totalMs: 0, maxMs: 0 },
+      tokens: {
+        inputTokens: 120,
+        cachedInputTokens: 0,
+        outputTokens: 40,
+        reasoningOutputTokens: 0
+      },
+      failedToolCalls: 0,
+      retryCount: 0,
+      compactions: 0,
+      childThreads: 1
+    });
   });
 });
