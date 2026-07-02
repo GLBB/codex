@@ -32,6 +32,7 @@ describe("viewer UI", () => {
       "tool1",
       "term1",
       "cell1",
+      "item-reasoning",
       "item-assistant",
       "compaction1"
     ]);

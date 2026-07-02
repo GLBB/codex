@@ -225,6 +225,7 @@ export type TimelineNodeType =
   | "thread"
   | "turn"
   | "conversation"
+  | "reasoning"
   | "inference"
   | "tool"
   | "code_cell"
