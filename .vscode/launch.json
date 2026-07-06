@@ -5,10 +5,8 @@
       "type": "lldb",
       "request": "launch",
       "name": "Cargo launch",
-      "cargo": {
-        "cwd": "${workspaceFolder}/codex-rs",
-        "args": ["build", "--bin=codex-tui"]
-      },
+      "preLaunchTask": "cargo build codex-tui debug symbols",
+      "program": "${workspaceFolder}/codex-rs/target/debug/codex-tui",
       "args": []
     },
     {
@@ -22,6 +20,7 @@
       "type": "lldb",
       "request": "launch",
       "name": "debug prompt-input (with skill mention)",
+      "preLaunchTask": "cargo build codex debug symbols",
       "program": "${workspaceFolder}/codex-rs/target/debug/codex",
       "args": ["debug", "prompt-input", "$apollo-config 帮我看下配置"],
       "cwd": "${workspaceFolder}",
@@ -31,6 +30,7 @@
       "type": "lldb",
       "request": "launch",
       "name": "debug prompt-input (no args, just context)",
+      "preLaunchTask": "cargo build codex debug symbols",
       "program": "${workspaceFolder}/codex-rs/target/debug/codex",
       "args": ["debug", "prompt-input"],
       "cwd": "${workspaceFolder}",
@@ -40,8 +40,28 @@
       "type": "lldb",
       "request": "launch",
       "name": "codex exec (full turn)",
+      "preLaunchTask": "cargo build codex debug symbols",
       "program": "${workspaceFolder}/codex-rs/target/debug/codex",
       "args": ["exec", "hello"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "thread-manager-sample",
+      "preLaunchTask": "cargo build thread-manager-sample debug symbols",
+      "program": "${workspaceFolder}/codex-rs/target/debug/codex-thread-manager-sample",
+      "args": ["hello"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "thread-manager-sample (no build)",
+      "program": "${workspaceFolder}/codex-rs/target/debug/codex-thread-manager-sample",
+      "args": ["hello"],
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"]
     }
