@@ -5,9 +5,90 @@
       "type": "lldb",
       "request": "launch",
       "name": "Cargo launch",
-      "preLaunchTask": "cargo build codex-tui debug symbols",
-      "program": "${workspaceFolder}/codex-rs/target/debug/codex-tui",
-      "args": []
+      "cargo": {
+        "args": ["build", "--bin", "codex-tui"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Cargo launch (observability)",
+      "cargo": {
+        "args": ["build", "--bin", "codex-tui"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": [
+        "-c",
+        "log_dir=\"${workspaceFolder}/.codex-debug-logs\"",
+        "--no-alt-screen"
+      ],
+      "env": {
+        "CODEX_TUI_RECORD_SESSION": "1",
+        "RUST_LOG": "codex_core=debug,codex_tui=debug,codex_rmcp_client=debug,codex_otel=debug"
+      },
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Cargo launch (full vars)",
+      "cargo": {
+        "args": ["build", "--bin", "codex-tui"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "full",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-vars",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Cargo launch (full vars, no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-vars/debug/codex-tui",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Cargo launch (no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-fast/debug/codex-tui",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
     },
     {
       "type": "lldb",
@@ -19,9 +100,89 @@
     {
       "type": "lldb",
       "request": "launch",
+      "name": "debug prompt-input (observability)",
+      "cargo": {
+        "args": ["build", "--bin", "codex"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": [
+        "-c",
+        "log_dir=\"${workspaceFolder}/.codex-debug-logs\"",
+        "debug",
+        "prompt-input"
+      ],
+      "env": {
+        "CODEX_TUI_RECORD_SESSION": "1",
+        "RUST_LOG": "codex_core=debug,codex_tui=debug,codex_rmcp_client=debug,codex_otel=debug"
+      },
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "debug prompt-input (full vars)",
+      "cargo": {
+        "args": ["build", "--bin", "codex"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "full",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-vars",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": ["debug", "prompt-input"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "debug prompt-input (full vars, no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-vars/debug/codex",
+      "args": ["debug", "prompt-input"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
       "name": "debug prompt-input (with skill mention)",
-      "preLaunchTask": "cargo build codex debug symbols",
-      "program": "${workspaceFolder}/codex-rs/target/debug/codex",
+      "cargo": {
+        "args": ["build", "--bin", "codex"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": ["debug", "prompt-input", "$apollo-config 帮我看下配置"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "debug prompt-input (with skill mention, no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-fast/debug/codex",
       "args": ["debug", "prompt-input", "$apollo-config 帮我看下配置"],
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"]
@@ -30,8 +191,19 @@
       "type": "lldb",
       "request": "launch",
       "name": "debug prompt-input (no args, just context)",
-      "preLaunchTask": "cargo build codex debug symbols",
-      "program": "${workspaceFolder}/codex-rs/target/debug/codex",
+      "cargo": {
+        "args": ["build", "--bin", "codex"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
       "args": ["debug", "prompt-input"],
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"]
@@ -39,9 +211,68 @@
     {
       "type": "lldb",
       "request": "launch",
+      "name": "debug prompt-input (no args, just context, no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-fast/debug/codex",
+      "args": ["debug", "prompt-input"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "codex exec (full vars)",
+      "cargo": {
+        "args": ["build", "--bin", "codex"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "full",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-vars",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": ["exec", "hello"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "codex exec (full vars, no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-vars/debug/codex",
+      "args": ["exec", "hello"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
       "name": "codex exec (full turn)",
-      "preLaunchTask": "cargo build codex debug symbols",
-      "program": "${workspaceFolder}/codex-rs/target/debug/codex",
+      "cargo": {
+        "args": ["build", "--bin", "codex"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
+      "args": ["exec", "hello"],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "codex exec (full turn, no build)",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-fast/debug/codex",
       "args": ["exec", "hello"],
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"]
@@ -50,8 +281,19 @@
       "type": "lldb",
       "request": "launch",
       "name": "thread-manager-sample",
-      "preLaunchTask": "cargo build thread-manager-sample debug symbols",
-      "program": "${workspaceFolder}/codex-rs/target/debug/codex-thread-manager-sample",
+      "cargo": {
+        "args": ["build", "-p", "codex-thread-manager-sample"],
+        "cwd": "${workspaceFolder}/codex-rs",
+        "env": {
+          "CARGO_PROFILE_DEV_DEBUG": "limited",
+          "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+          "CARGO_PROFILE_DEV_STRIP": "false",
+          "CARGO_BUILD_JOBS": "2",
+          "CARGO_TARGET_DIR": "${workspaceFolder}/codex-rs/target/vscode-debug-fast",
+          "RUSTFLAGS": "-C dwarf-version=4"
+        },
+        "problemMatcher": "$rustc"
+      },
       "args": ["hello"],
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"]
@@ -60,7 +302,7 @@
       "type": "lldb",
       "request": "launch",
       "name": "thread-manager-sample (no build)",
-      "program": "${workspaceFolder}/codex-rs/target/debug/codex-thread-manager-sample",
+      "program": "${workspaceFolder}/codex-rs/target/vscode-debug-fast/debug/codex-thread-manager-sample",
       "args": ["hello"],
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"]
