@@ -30,7 +30,7 @@
 | Multi-Agent | 子 agent 如何 spawn、fork 历史、通信、等待和回收 | `codex-rs/core/src/agent` |
 | Review / Guardian | 如何让 Agent 审查代码或审查危险动作 | `codex-rs/core/src/tasks/review.rs`、`codex-rs/core/src/guardian` |
 | App Server / Protocol | 如何把 agent runtime 暴露给 IDE、桌面端和自动化客户端 | `codex-rs/app-server`、`codex-rs/app-server-protocol` |
-| Observability / Eval | 如何调试模型请求、工具调用、日志、trace、测试和回放 | `codex-rs/otel`、`codex-rs/rollout-trace`、`codex-rs/core/tests/suite` |
+| Observability / Eval | 如何调试模型请求、工具调用、日志、trace、测试和回放 | [可观测性导读](observability-guide.md)、`codex-rs/otel`、`codex-rs/rollout-trace`、`codex-rs/core/tests/suite` |
 
 ## 学习产出矩阵
 
