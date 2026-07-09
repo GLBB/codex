@@ -42,6 +42,14 @@
       "args": [
         "-c",
         "log_dir=\"${workspaceFolder}/.codex-debug-logs\"",
+        "-c",
+        "otel.environment=\"dev\"",
+        "-c",
+        "otel.exporter={ otlp-http = { endpoint = \"http://127.0.0.1:4318/v1/logs\", protocol = \"binary\" } }",
+        "-c",
+        "otel.trace_exporter={ otlp-http = { endpoint = \"http://127.0.0.1:4318/v1/traces\", protocol = \"binary\" } }",
+        "-c",
+        "otel.metrics_exporter={ otlp-http = { endpoint = \"http://127.0.0.1:4318/v1/metrics\", protocol = \"binary\" } }",
         "--no-alt-screen"
       ],
       "env": {
@@ -117,6 +125,14 @@
       "args": [
         "-c",
         "log_dir=\"${workspaceFolder}/.codex-debug-logs\"",
+        "-c",
+        "otel.environment=\"dev\"",
+        "-c",
+        "otel.exporter={ otlp-http = { endpoint = \"http://127.0.0.1:4318/v1/logs\", protocol = \"binary\" } }",
+        "-c",
+        "otel.trace_exporter={ otlp-http = { endpoint = \"http://127.0.0.1:4318/v1/traces\", protocol = \"binary\" } }",
+        "-c",
+        "otel.metrics_exporter={ otlp-http = { endpoint = \"http://127.0.0.1:4318/v1/metrics\", protocol = \"binary\" } }",
         "debug",
         "prompt-input"
       ],
