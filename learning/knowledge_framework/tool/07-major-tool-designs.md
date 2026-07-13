@@ -17,6 +17,44 @@
 
 Shell Tool 不应只建模成同步的 `run(command) -> text`。命令可能立即退出，也可能持续运行、要求交互、产生大量输出，或者在 Agent Turn 被取消后仍留在操作系统中。
 
+### Shell、Process 与终端术语
+
+| 术语 | 本文含义 |
+| --- | --- |
+| Shell | 解释并启动命令的程序，例如 Bash、Zsh 或 PowerShell；它本身也是一个 Process |
+| Process | 操作系统正在执行的程序实例；一个命令可能再创建多个子进程 |
+| PID / Process ID | 操作系统分配给 Process 的标识；进程退出后可能被操作系统复用 |
+| Process Tree | 一个进程及其递归创建的所有子孙进程；清理时不能只终止最外层 Shell |
+| stdin / stdout / stderr | 进程的标准输入、标准输出和标准错误通道 |
+| Pipe | 在非交互模式下连接 Agent Runtime 与进程输入输出的数据管道，通常可以分别采集 stdout 和 stderr |
+| TTY | Terminal 的历史称呼；程序用“是否连接到 TTY”判断自己是否处于交互式终端 |
+| PTY | Pseudo Terminal，软件模拟的终端设备，使进程表现得像运行在真实终端中 |
+| TTY 标志 | Tool 是否为命令分配 PTY；`false` 使用普通 Pipe，`true` 使用交互式 PTY |
+| Exec Session ID | Unified Exec 为可继续交互的进程分配的稳定句柄，供 `write_stdin` 使用；它不等于 PID 或 Agent Session ID |
+| Yield Window | `exec_command` 首次等待命令输出的时间窗口；窗口结束不代表进程被终止 |
+| Poll | 根据 Exec Session ID 查询新增输出和退出状态，通常由一次空的 `write_stdin` 表达 |
+| Background Process | Yield Window 结束后仍在运行、由 Process Store 继续持有的进程 |
+| Interrupt | 请求进程中断当前工作，语义接近终端中的 Ctrl-C；进程可以捕获或忽略 |
+| Terminate | 要求进程结束；通常比 Interrupt 强，但仍需确认整个 Process Tree 已清理 |
+| Exit Code | 进程结束时返回的整数状态；`0` 通常表示成功，具体含义仍由程序定义 |
+| Output Buffer | Runtime 暂存进程输出的有界缓冲区；不等于完整、永久保存的终端日志 |
+
+本文中的 `Session` 必须结合限定词理解：Agent Session 保存对话和任务状态，Exec Session 表示可继续交互的命令会话，PTY Session 表示底层伪终端连接。它们可能相互关联，但生命周期和 ID 都不相同。
+
+### TTY 标志如何选择
+
+```text
+tty = false
+    stdin / stdout / stderr 使用普通 Pipe
+    适合编译、测试、搜索、Git 和其他非交互命令
+
+tty = true
+    为进程分配 PTY
+    适合 REPL、交互式 Shell、全屏 TUI 和需要持续输入的程序
+```
+
+TTY 会改变程序行为：程序可能开启颜色和进度动画、减少输出缓冲、显示交互提示，并通过终端接收 Ctrl-C。代价是 stdout 与 stderr 经常合并，输出可能包含 ANSI 控制序列，程序也可能因为等待用户输入而一直不退出。因此默认应使用非 TTY 模式，只在命令确实依赖交互式终端时启用。
+
 Codex 将接口拆成两个工具：
 
 ```text
@@ -91,7 +129,15 @@ Codex 的关键设计包括：
 
 ## MCP / App：外部工具适配与信任管理
 
-MCP Handler 的职责不是重新实现外部业务，而是把不稳定的外部工具面适配到统一 Runtime：
+MCP 语境中的 Host 是承载 Agent 的 AI 应用。它拥有模型连接、MCP Client、Tool Catalog、Policy、Approval、Runtime 和用户交互界面；在本文讨论的实现中，Host 具体指 Codex，而不是 MCP Server、外部 App 或模型服务。
+
+```text
+Model Provider ←→ Codex Host / MCP Client ←→ MCP Server ←→ External Service
+                     │
+                     └── Agent Loop、Catalog、Policy、Approval、Runtime
+```
+
+MCP Handler 的职责不是重新实现外部业务，而是把外部 MCP Tool Definition、调用和结果适配到 Codex 的统一 Tool Runtime：
 
 ```text
 tools/list
@@ -103,7 +149,9 @@ tools/list
   → Result Truncation / Event / Context
 ```
 
-关键设计是同时保留原始 Server/Tool 身份和模型可见名称。原始名称用于协议路由，规范化名称用于模型调用。`read_only_hint` 可以帮助并发规划，`destructive_hint` 和 `open_world_hint` 可以帮助审批，但这些 Annotation 只是外部声明，Host 仍要实施自己的策略。
+关键设计是同时保留原始 Server / Tool 身份和模型可见名称。原始身份用于选择 MCP 连接并构造 `tools/call`，规范化名称则放入模型可见 Tool Definition，供模型选择和调用。
+
+`read_only_hint` 可以作为 Codex 并发规划的输入，`destructive_hint` 和 `open_world_hint` 可以作为 Approval 决策的输入，但这些 Annotation 都由外部 MCP Server 声明。Codex 作为 Host 仍需结合 Server 信任、App 和 Tool 启停状态、用户认证、Allowlist / Denylist、Approval Mode 与具体调用参数作出最终决策，并负责 Timeout、结果截断、脱敏和审计。Annotation 不会自行授予权限，也不能替代 Codex Policy。
 
 连接与 Tool Timeout 位于 `codex-rs/codex-mcp/src/connection_manager.rs`，模型可见名称处理位于 `codex-rs/codex-mcp/src/tools.rs`，审批、Elicitation、调用事件和结果处理位于 `codex-rs/core/src/mcp_tool_call.rs`。
 
