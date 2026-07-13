@@ -95,6 +95,8 @@ lookup
 
 ## MCP 专线
 
+本节只追踪 MCP Tool 在 Codex 中的执行主链。协议角色、Resources、Prompts、Sampling、Elicitation、Transport 和安全模型见 [MCP 学习地图](../mcp/README.md)，完整 Codex MCP 路线见其中的 [Codex 集成与源码阅读](../mcp/07-codex-integration-and-source-reading.md)。
+
 理解统一主链后，再进入：
 
 1. `codex-rs/codex-mcp/src/tools.rs` 的 `ToolInfo` 和名称规范化；
