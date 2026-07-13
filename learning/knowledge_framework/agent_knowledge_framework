@@ -200,7 +200,7 @@ Agent
 
 ## 3. Agent Loop 是中心，不是全部
 
-Tool 与行动系统的分层说明、设计检查和 Codex 源码阅读路线见 [Tool 与行动系统学习地图](tool/README.md)。
+Tool 与行动系统的分层说明、设计检查和 Codex 源码阅读路线见 [Tool 与行动系统学习地图](tool/README.md)。MCP 跨越 Tool、Context、人机交互、安全和互操作，完整协议与 Codex 集成见 [MCP 学习地图](mcp/README.md)。
 
 Agent Loop 负责推进任务：
 
@@ -259,7 +259,7 @@ Loop 内部直接使用 Goal、Task、State、Model、Prompt、Structured Output
 | Memory | 跨步骤或跨会话保存状态和经验 | 外部事实知识库的同义词 |
 | RAG | 从外部知识库检索证据并注入上下文 | Agent 或 Memory 的同义词 |
 | Skill | 按需加载的工作方法、知识和资源 | 天然可信或自动获得执行权限的代码 |
-| MCP | 外部工具、资源和提示的接入协议 | 权限、沙箱或多 Agent 协议本身 |
+| MCP | 外部工具、资源、提示和双向 Client 能力的互操作协议 | 权限、沙箱、Agent Loop 或多 Agent 协议本身 |
 | Verifier | 用测试、证据或规则判断结果是否满足条件 | 模型声称“已完成”的同义词 |
 | Workflow | 由代码控制的确定性步骤 | 必然需要多个 Agent |
 | Multi-Agent | 多个独立 Agent 的协作与编排 | 单纯增加几个角色提示词 |

@@ -42,6 +42,8 @@ Database Tool 应区分只读查询、事务写入和管理操作；API/SaaS Too
 
 MCP Tool 是可执行动作，Resource 是可读取上下文，App/Connector 通常还包含认证、产品配置和外部服务映射。MCP Server 提供的 Annotation 和 Schema 是重要输入，但 Host 仍需实施自己的过滤、审批和输出治理。
 
+这里从 Tool 系统视角描述 MCP 接入，不表示 Resource 本身就是 Tool。完整 MCP 还包含 Prompts、Sampling、Elicitation、Transport 和生命周期，见 [MCP 学习地图](../mcp/README.md)。
+
 验证重点：Server 信任、认证状态、工具过滤、名称冲突、Prompt Injection、Tool Timeout 和第三方数据政策。
 
 ## Plan / Ask User / Agent Control
