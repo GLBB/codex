@@ -39,11 +39,31 @@ App-server / Agent Protocol
 | Function Calling | 模型表达结构化调用 | Host 可把 MCP Tool 转成 Function Tool |
 | REST / GraphQL / Database Protocol | 访问具体业务系统 | MCP Server 内部可以再调用这些协议 |
 | Plugin | 打包、安装和分发扩展 | Plugin 可以携带 MCP Server 配置 |
-| App / Connector | 产品化外部服务接入 | 常以 MCP Tools 为执行面，并增加认证和管理 |
+| App | 用户可安装、启用和授权的产品级集成 | 可由 Connector 或自定义 MCP Server 提供外部能力 |
+| Connector | App 背后的外部服务连接层或历史兼容名称 | 管理 Provider、认证、用户连接、Scope 和操作映射 |
 | Skill | 按需加载工作方法和资源 | Skill 可指导 Agent 使用 MCP，但不等于 MCP Server |
 | Hook | 生命周期观察或干预 | 可在 MCP 调用前后实施额外 Policy |
 
-“GitHub MCP Tool”可以同时具有多个属性：来源是 MCP，模型调用形态是 Function Call，业务能力是外部 API 写操作，产品分发方式可能是 Plugin 或 Connector。
+“GitHub MCP Tool”可以同时具有多个属性：来源是 MCP，模型调用形态是 Function Call，业务能力是外部 API 写操作，产品分发方式可能是 Plugin 或 App。
+
+## App 与 Connector
+
+在当前 OpenAI 产品术语中，ChatGPT 原有的 Connector 已主要改称 App；现有功能没有因为改名而消失，但源码、配置和兼容协议仍可能出现 Connector。做架构分析时应继续区分：
+
+```text
+App
+    用户看到和管理的完整产品集成
+        ↓
+Connector / Connection
+    外部服务类型、OAuth、用户账号、租户和 Scope
+        ↓
+MCP Server / Provider Adapter
+    暴露或映射具体 Tools 与数据
+```
+
+Connector-backed App 通过连接器访问由产品管理的外部服务；Custom App 可以通过开发者的 MCP Server 暴露操作。反过来，一个通过 `config.toml` 直接连接的本地 MCP Server 可以提供 Tool，却未必具有 App 的安装页面、图标、管理员策略和产品级认证流程。
+
+因此在 Tool Catalog 中，Tool Definition 的协议来源是 MCP Server；App / Connector 则提供产品身份、认证连接、启停状态和策略上下文。术语变化见 [OpenAI MCP 与 Apps 文档](https://developers.openai.com/api/docs/mcp)，数据流关系见 [Apps 与 Connectors](https://learn.chatgpt.com/docs/enterprise/apps-and-connectors#understand-data-flow-and-security)。
 
 ## 参与者不是部署拓扑
 
