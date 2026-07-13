@@ -1,0 +1,322 @@
+# Agent 知识框架
+
+## 1. 一句话定义
+
+Agent 是一个围绕目标和任务维护状态，以模型生成候选决策、以 Agent Loop 推进控制流程，通过工具感知和改变环境，并用验证机制在权限与资源边界内判断任务是否真正完成的系统。
+
+```text
+Agent = Goal / Task + Model + Agent Loop + Context / State
+      + Tools + Verification + Runtime + Safety Boundary
+```
+
+模型不是 Agent，RAG 不是 Agent，Tool 也不是 Agent。它们只有围绕目标、状态和完成标准被 Agent Loop 组织起来，才能构成完整的 Agent 系统。
+
+下面的知识树是一张多视角覆盖地图，而不是所有节点互斥的严格分类树。同一能力可能分别从控制、执行、安全和工程视角出现，例如 MCP 同时属于工具接入和互操作，幂等性同时属于工具语义和系统可靠性。
+
+## 2. 总体知识树
+
+```text
+Agent
+├── 1. Goal、Task、State 与 Agent Loop
+│   ├── 任务与控制状态
+│   │   ├── Goal / Success Criteria
+│   │   ├── Task / Subtask / Dependency
+│   │   ├── Plan / Progress
+│   │   ├── Session / Turn / Checkpoint
+│   │   └── Budget / Deadline / Terminal State
+│   ├── 构建本轮输入
+│   │   ├── Prompt / Instructions
+│   │   ├── Conversation / Session State
+│   │   ├── Environment / Workspace
+│   │   ├── Memory / RAG / Skills
+│   │   └── Available Tools
+│   ├── 生成并解释决策
+│   │   ├── Final Answer / Structured Output
+│   │   ├── Tool Call / Tool Selection
+│   │   ├── Clarification / User Input
+│   │   └── Handoff / Delegation
+│   ├── 校验并执行动作
+│   │   ├── Schema / Semantic Validation
+│   │   ├── Policy / Permission / Approval
+│   │   ├── Tool Runtime
+│   │   └── Sandbox / Remote Executor
+│   ├── 观察、验证并更新状态
+│   │   ├── Tool Result / Observation
+│   │   ├── Artifact / Diff / Evidence
+│   │   ├── Verification / Completion Criteria
+│   │   ├── History / Memory / Usage
+│   │   └── Checkpoint / Progress
+│   └── 状态转移
+│       ├── Continue / Complete
+│       ├── Wait for User / Approval / Event
+│       ├── Retry / Recover / Compensate
+│       └── Timeout / Cancel / Reject / Fail
+│
+├── 2. Model 与决策系统
+│   ├── Model Provider / API Protocol
+│   ├── 能力协商
+│   │   ├── Context Window / Modality
+│   │   ├── Tool Calling
+│   │   ├── Structured Output
+│   │   └── Streaming
+│   ├── Reasoning Effort / Sampling
+│   ├── Planning / Reflection / Critique
+│   ├── Model Routing / Fallback
+│   └── Rate Limit / Capacity / Retry
+│
+├── 3. Context 与知识系统
+│   ├── Prompt、指令来源与优先级
+│   ├── 对话历史与 Session
+│   ├── 环境与 Workspace 状态
+│   ├── Memory
+│   │   ├── 工作记忆
+│   │   ├── 情景记忆
+│   │   ├── 语义记忆
+│   │   └── 用户偏好与程序性经验
+│   ├── RAG
+│   │   ├── 数据摄取、解析与切分
+│   │   ├── 索引、权限与租户隔离
+│   │   ├── 召回、过滤与重排
+│   │   └── 引用、证据与评估
+│   ├── Skills：按需加载工作方法、知识与资源
+│   └── Context Engineering
+│       ├── Provenance / Trust / Freshness
+│       ├── 选择、渐进披露与冲突处理
+│       ├── 压缩、摘要与缓存
+│       ├── Token 预算与硬上限
+│       └── Memory Write / Forget Policy
+│
+├── 4. Tool 与行动系统
+│   ├── Tool Contract
+│   │   ├── Name / Namespace / Description
+│   │   ├── Function / Freeform / Hosted 调用编码
+│   │   ├── Input Schema / Strictness
+│   │   ├── Output Contract
+│   │   └── Capability / Risk Metadata
+│   ├── Tool Catalog 与规划
+│   │   ├── Core / Hosted / MCP / Extension / Dynamic 来源
+│   │   ├── Registry / Routing / Name Conflict
+│   │   ├── Enable / Disable / Capability Filtering
+│   │   └── Direct / Deferred / Hidden / Tool Search
+│   ├── Policy 与生命周期
+│   │   ├── PreToolUse / PermissionRequest / PostToolUse
+│   │   ├── Approval / Sandbox / Network Policy
+│   │   ├── Authentication / External Trust
+│   │   └── Start / Progress / Finish / Abort Events
+│   ├── Tool Runtime
+│   │   ├── 参数解析与语义验证
+│   │   ├── 调度、并发与互斥
+│   │   ├── 超时、取消、PTY 与后台进程
+│   │   ├── 输出结构化、截断与脱敏
+│   │   ├── call_id 配对与上下文回写
+│   │   └── 错误分类、重试与幂等
+│   └── 能力类型
+│       ├── File / Search / Patch / Image
+│       ├── Shell / Process / Git
+│       ├── Browser / Computer Use
+│       ├── Web / API / Database / SaaS
+│       ├── MCP Tools / Resources / Apps
+│       └── Plan / Ask User / Agent Control
+│
+├── 5. Verification 与完成判定
+│   ├── Preconditions / Postconditions
+│   ├── Tests / Assertions / Type Check
+│   ├── Evidence / Grounding / Citation
+│   ├── Critic / Verifier / Evaluator
+│   ├── Side-Effect Reconciliation
+│   ├── Human Acceptance
+│   └── Completion / Failure Criteria
+│
+├── 6. 安全与治理
+│   ├── Trust Boundary：区分可信指令和不可信数据
+│   ├── Threat Model：Prompt Injection / Exfiltration / Supply Chain
+│   ├── Policy：允许哪些工具、路径、命令和网络目标
+│   ├── Approval：哪些动作需要用户或自动审查器确认
+│   ├── Isolation：Sandbox / Container / VM / Worktree
+│   ├── Identity：用户、Agent、工具和外部服务身份
+│   ├── Credentials：Secret、Scope、委托和轮换
+│   ├── Privacy：最小披露、留存、删除和合规
+│   └── Audit：记录来源、决策、动作、结果和副作用
+│
+├── 7. 人机协作与编排
+│   ├── Human–Agent Interaction
+│   │   ├── Clarification / Approval
+│   │   ├── Progress Reporting / Editable Plan
+│   │   ├── Steering / Interrupt / Correction
+│   │   └── Handoff / Final Acceptance
+│   ├── Single Agent / Deterministic Workflow
+│   ├── Prompt Chaining / Routing / Parallelization
+│   ├── Evaluator–Optimizer
+│   ├── Agent as Tool / Handoff / Manager–Worker
+│   └── Multi-Agent
+│       ├── 任务分解与依赖图
+│       ├── Context / Permission / Budget 隔离
+│       ├── 并行、取消和失败传播
+│       └── 结果验证、冲突处理与合并
+│
+├── 8. 扩展与互操作
+│   ├── Plugin：打包和分发组件或能力
+│   ├── Hook：在生命周期节点观察或干预
+│   ├── MCP：连接外部 Tools / Resources / Prompts
+│   ├── Agent Skills：复用工作流知识与资源
+│   ├── API / SDK / Webhook / Event Stream
+│   └── CLI / IDE / App Server / ACP 等客户端协议
+│
+├── 9. Runtime 与产品工程
+│   ├── 产品形态
+│   │   ├── Coding / Personal Agent
+│   │   ├── Browser / Computer Agent
+│   │   ├── Research / Data Agent
+│   │   └── Agent Platform
+│   ├── 生命周期与调度
+│   │   ├── Create / Queue / Lease / Run
+│   │   ├── Pause / Resume / Wait
+│   │   └── Complete / Fail / Cancel / Archive
+│   ├── 可靠性
+│   │   ├── Retry / Backoff / Deduplication
+│   │   ├── Idempotency / Exactly-Once Boundary
+│   │   ├── Checkpoint / Recovery / Replay
+│   │   └── Compensation / Degradation / Backpressure
+│   ├── 可观测性
+│   │   ├── Event / Log / Trace / Span
+│   │   ├── Metric / Usage / Cost / Latency
+│   │   └── Artifact / Trajectory / Replay
+│   └── 运维
+│       ├── Deployment / Worker / Queue
+│       ├── Quota / Budget / Rate Limit
+│       ├── Multi-Tenancy / Data Isolation
+│       └── Version / Data Retention / Incident Response
+│
+└── 10. Evaluation 与持续改进
+    ├── Offline / Online Evaluation
+    ├── Task Outcome / Completion Quality
+    ├── Tool Selection / Trajectory / Efficiency
+    ├── Context / RAG / Memory Evaluation
+    ├── Safety / Adversarial / Permission Evaluation
+    ├── Human Experience / Trust / Controllability
+    ├── Regression Suite / Release Gate
+    └── Feedback / Failure Mining / Improvement Loop
+```
+
+## 3. Agent Loop 是中心，不是全部
+
+Tool 与行动系统的分层说明、设计检查和 Codex 源码阅读路线见 [Tool 与行动系统学习地图](tool/README.md)。
+
+Agent Loop 负责推进任务：
+
+```text
+构建 Context
+    ↓
+调用 Model
+    ↓
+解释决策
+    ↓
+校验并执行 Tool
+    ↓
+观察结果并验证完成条件
+    ↓
+把 Observation、Evidence 和 Progress 写回 State
+    ↓
+判断完成或进入下一轮
+```
+
+Loop 内部直接使用 Goal、Task、State、Model、Prompt、Structured Output 和 Tool Selection；Loop 外围则提供 Context Store、Tool Runtime、Verifier、Policy、Sandbox、Persistence 和 Observability。
+
+因此更准确的关系是：
+
+```text
+                     Context / Memory / RAG
+                               │
+                               ▼
+ Goal / Task / State ───── Agent Loop ─────── Model
+         │                     │                │
+         │                     ▼                ▼
+ Policy / Approval ─────── Tool Runtime ◄── Decision
+         │                     │
+         ▼                     ▼
+     Sandbox          Observation / Artifact
+                               │
+                               ▼
+                  Verification / Completion
+                               │
+                               ▼
+                   State / Trace / Evaluation
+```
+
+## 4. 容易混淆的概念
+
+| 概念 | 它是什么 | 它不是什么 |
+|---|---|---|
+| Goal | Agent 试图达到的目标和成功边界 | 一句无需验证的愿望描述 |
+| Task | 可调度、可跟踪状态的工作单元 | 与 Session 或一次 Model Call 必然等价的对象 |
+| Plan | 可更新的任务分解、顺序和依赖 | 只能存在于模型隐藏推理中的文本 |
+| State | Agent 推进任务所需的显式运行状态 | 对话历史的同义词 |
+| Model | 生成下一步决策的推理组件 | 完整 Agent |
+| Prompt | 给模型的指令和任务描述 | 运行时安全边界 |
+| Structured Output | 模型表达决策的机器可读格式 | 决策正确性的保证 |
+| Tool Selection | 模型选择下一项能力 | Tool 的实际执行 |
+| Agent Loop | 驱动模型、工具和状态反复交互的控制循环 | Context、安全和产品能力的总和 |
+| Memory | 跨步骤或跨会话保存状态和经验 | 外部事实知识库的同义词 |
+| RAG | 从外部知识库检索证据并注入上下文 | Agent 或 Memory 的同义词 |
+| Skill | 按需加载的工作方法、知识和资源 | 天然可信或自动获得执行权限的代码 |
+| MCP | 外部工具、资源和提示的接入协议 | 权限、沙箱或多 Agent 协议本身 |
+| Verifier | 用测试、证据或规则判断结果是否满足条件 | 模型声称“已完成”的同义词 |
+| Workflow | 由代码控制的确定性步骤 | 必然需要多个 Agent |
+| Multi-Agent | 多个独立 Agent 的协作与编排 | 单纯增加几个角色提示词 |
+
+## 5. 三条分析主线
+
+阅读任何 Agent 项目时，同时沿三条链分析。
+
+### 执行链
+
+```text
+Trigger → Goal / Task → Context → Model → Decision → Action → Observation → Validation → State Transition → Result
+```
+
+### 数据链
+
+```text
+Input → Session / Task State → Tool Result → Artifact / Evidence → Summary → Memory / Evaluation Data
+```
+
+### 信任链
+
+```text
+Identity → Input Provenance → Instruction Priority → Permission → Isolation → Side Effect → Audit
+```
+
+只关注执行链通常只能得到 Agent Demo；同时设计数据链和信任链，才更接近可部署、可恢复和可审计的 Agent 系统。
+
+## 6. 项目对照
+
+| 项目 | 重点观察 |
+|---|---|
+| Codex | Agent Loop、Context、Tool 生命周期、审批、Sandbox、执行器 |
+| pi-mono | 最小 Agent Loop、状态和 Tool Calling |
+| OpenCode / Crush | 终端 UI、Session、Provider、Tool 与代码工作区 |
+| OpenClaw | Gateway、消息渠道、长期 Session、Cron、Tools、常驻运行 |
+| Hermes Agent | Memory、Skills、Delegate、多渠道和轨迹 |
+
+## 7. 完整性检查
+
+一个 Agent 设计至少应回答：
+
+1. 谁触发任务，Goal、成功标准、Task、Plan 和 Session 如何创建？
+2. Agent Loop 在哪里，状态如何转移，停止、超时和取消条件是什么？
+3. 每轮给模型哪些 Instructions、Context、State 和 Tools？
+4. Context 的来源、优先级、可信度、新鲜度和预算如何管理？
+5. Model 能力如何协商，决策如何结构化表达和校验？
+6. Tool 如何注册、发现、路由和执行，结果怎样用 call_id 回写？
+7. 哪些动作允许、拒绝或需要审批，副作用和幂等边界在哪里？
+8. 文件、进程、网络、身份和凭据如何隔离？
+9. 如何用测试、证据或人工验收判断任务真正完成？
+10. History、State、Memory、RAG 和 Skills 如何区分和更新？
+11. 状态如何持久化、暂停、恢复、补偿和重放？
+12. Plugin、Hook、MCP、协议和子 Agent 如何扩展？
+13. 用户如何澄清、审批、纠偏、中断和验收？
+14. 如何追踪故障、评估结果与轨迹、控制成本并形成改进闭环？
+
+## 8. 学习与实践
+
+先使用本文建立概念地图，再沿执行链、数据链和信任链阅读具体项目。分阶段学习安排见 [Agent 开发学习路线](../roadmaps/agent-learning-roadmap.md)，Codex 的源码主题入口见 [Agent 开发主题学习指南](../codex/agent-topic-guide.md)，系统课程见 [Agent 开发系列教程](../codex/agent-course/README.md)。
