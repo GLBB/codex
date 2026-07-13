@@ -9,9 +9,11 @@ Tool 系统把模型生成的候选动作转换成真实世界中的受控操作
 ```text
 Model-visible Contract
         ↓
+Provider Protocol / Tool Call
+        ↓
 Catalog / Exposure Planning
         ↓
-Tool Call / Routing
+Agent Tool Loop / Routing
         ↓
 Policy / Approval / Sandbox
         ↓
@@ -20,16 +22,41 @@ Runtime / External System
 Output / Observation / Context
 ```
 
-## 文档结构
+## 推荐学习顺序
 
 1. [Tool Contract](01-tool-contract.md)：模型如何认识并表达一次工具调用。
-2. [Tool Catalog 与规划](02-tool-catalog-and-planning.md)：工具从哪里来、哪些工具对模型可见。
-3. [Policy 与生命周期](03-policy-and-lifecycle.md)：执行前后如何审批、隔离、拦截和审计。
-4. [Tool Runtime](04-tool-runtime.md)：调用怎样被解析、调度、取消并回写结果。
-5. [能力类型](05-capability-types.md)：文件、进程、浏览器、外部服务和 Agent 控制能力的差异。
-6. [Codex 源码阅读路线](06-codex-source-reading.md)：沿一条工具调用主链阅读当前实现。
+2. [Model Provider API 与 Tool 协议](08-provider-api-protocol.md)：工具合约如何进入请求，以及调用、流式事件和结果如何在 API 上闭环。
+3. [Tool Catalog 与规划](02-tool-catalog-and-planning.md)：工具从哪里来、哪些工具对模型可见。
+4. [Policy 与生命周期](03-policy-and-lifecycle.md)：执行前后如何审批、隔离、拦截和审计。
+5. [Tool Runtime](04-tool-runtime.md)：调用怎样被解析、调度、取消并回写结果。
+6. [能力类型](05-capability-types.md)：文件、进程、浏览器、外部服务和 Agent 控制能力的差异。
 7. [主要 Tool 的关键设计](07-major-tool-designs.md)：对照 Shell、Patch、MCP、Tool Search 和控制类工具的状态与安全边界。
-8. [Model Provider API 与 Tool 协议](08-provider-api-protocol.md)：工具合约如何进入请求，以及调用、流式事件和结果如何在 API 上闭环。
+8. [Agent Tool Loop、可靠性与评估](09-agent-loop-reliability-and-evaluation.md)：模型如何连续决策，以及系统怎样限制预算、恢复故障并验证质量。
+9. [Codex 源码阅读路线](06-codex-source-reading.md)：完成概念学习后，沿一条工具调用主链阅读当前实现。
+
+初学者按上述顺序阅读；只做架构设计时重点阅读 01、02、03、04、08、09；已有 Agent 基础并准备跟源码时，可以先读 README、08，再进入 06。
+
+## 术语速查
+
+| 术语 | 本文含义 |
+| --- | --- |
+| Tool Contract / Definition / Spec | 工具对模型和协议暴露的名称、描述、输入、输出与调用形态；具体实现中三者边界可能不同 |
+| Catalog | 候选工具及其来源、状态和 Metadata 的集合 |
+| Model-visible Specs | 本轮真正发送给模型、允许模型选择的工具定义 |
+| Registry | Host 能够按名称路由到的本地执行器集合 |
+| Handler / Executor | 接收归一化调用并完成具体业务动作的实现 |
+| Tool Call / Invocation | 模型或嵌套 Runtime 发起的一次工具调用 |
+| Tool Output / Observation | 执行结果及其写回模型上下文的表示 |
+| Provider / Model Service | 接收模型请求并返回 Tool Call 或执行 Hosted Tool 的服务 |
+| Host / Runtime | 组装请求、实施策略并执行本地工具的 Agent 系统 |
+| Exposure | 工具是 Direct、Deferred、Model-only 还是 Hidden |
+| Approval | 是否同意当前具体动作；不等同于 Sandbox |
+| Hosted Tool | Provider 实现和执行、Host 按请求声明的工具 |
+| MCP / App / Connector | 外部能力的发现、认证或调用来源，不等同于调用编码形态 |
+
+## 源码验证基线
+
+本文档面向当前仓库中的 Codex 实现，通用原则与 Codex 实现会分别表述。源码路径最近以 `openai/codex` 上游基线 `c888e8e75a`（2026-07-12）核对。后续源码演进可能改变类型名、文件位置或 Provider 能力，跟读时应以当前分支实现为准。
 
 ## 五层模型
 
@@ -74,3 +101,6 @@ Runtime 把 Tool Call 转成真实操作，负责参数反序列化、语义验�
 5. 为什么并发安全不能由模型自行决定。
 6. 可恢复工具错误为什么应写回模型，而不是直接终止 Agent。
 7. 如何保证 Tool Call 与 Tool Output 成对、有界且可审计。
+8. 模型如何根据 Observation 决定继续调用还是结束，以及怎样避免无限 Tool Loop。
+9. Tool Call 在超时、响应丢失和进程崩溃后如何安全恢复。
+10. 如何通过 Contract Test、Integration Test、Adversarial Eval 和运行指标验证 Tool 系统。
