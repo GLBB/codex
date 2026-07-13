@@ -29,12 +29,13 @@ Output / Observation / Context
 5. [能力类型](05-capability-types.md)：文件、进程、浏览器、外部服务和 Agent 控制能力的差异。
 6. [Codex 源码阅读路线](06-codex-source-reading.md)：沿一条工具调用主链阅读当前实现。
 7. [主要 Tool 的关键设计](07-major-tool-designs.md)：对照 Shell、Patch、MCP、Tool Search 和控制类工具的状态与安全边界。
+8. [Model Provider API 与 Tool 协议](08-provider-api-protocol.md)：工具合约如何进入请求，以及调用、流式事件和结果如何在 API 上闭环。
 
 ## 五层模型
 
 ### Contract
 
-Contract 是模型可见的接口。它回答：工具叫什么、适合做什么、输入如何编码、输出具有什么语义。Schema 既是机器接口，也是模型 Prompt 的一部分。
+Contract 是模型可见的接口。它回答：工具叫什么、适合做什么、输入如何编码、输出具有什么语义。概念上，它与 Instructions、对话历史共同构成模型上下文；在线路协议中通常是独立的 `tools` 字段，而不是拼接进自然语言 Prompt。
 
 ### Catalog
 

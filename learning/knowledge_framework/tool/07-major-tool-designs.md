@@ -144,9 +144,41 @@ Codex v2 Handler 位于 `codex-rs/core/src/tools/handlers/multi_agents_v2.rs` �
 ## 其他主要能力
 
 - `view_image`：重点是本地文件边界、格式解码、大小限制和模型支持的细节级别。
-- Web Search：Hosted 与本地 Extension 的执行边界不同，还要控制实时性、允许域名、引用和外部内容信任。
 - Plan：更新显式进度状态，不应把计划仅保存在模型隐藏推理中。
 - Plugin Install：安装会改变后续能力面，必须区分“建议安装”“用户批准”“实际安装完成”和新会话加载。
+
+## Hosted Web Search：本地声明，服务端执行
+
+Hosted Web Search 容易被误解为“既然定义在服务端，本地不需要 Tool Definition”。实际需要区分三个所有权层次：
+
+| 层次 | 所有者 | 职责 |
+| --- | --- | --- |
+| 工具实现 | 模型服务端 | 真正执行搜索并生成调用事件和结果 |
+| 正式 API 契约 | 模型服务端 | 定义 Hosted Tool 类型及允许配置 |
+| 本轮请求表示 | Codex 本地 | 决定是否启用，并序列化本轮配置 |
+
+Codex 本地声明 Hosted Web Search 是为了按 Turn 控制：
+
+- 当前 Provider 和 Model 是否支持；
+- 使用 Cached、Indexed 还是 Live 模式；
+- 是否限制允许域名；
+- 搜索上下文大小和用户大致位置；
+- 当前产品、安全和成本策略是否允许；
+- 是否已有本地 Extension 提供另一套 Web Search。
+
+调用链与本地工具不同：
+
+```text
+Codex builds hosted spec
+    → sends it in model request
+    → model service selects and executes search
+    → Codex receives WebSearchCall / result events
+    → Codex displays and records them
+```
+
+这里没有 `ToolRouter → ToolRegistry → Local Handler`。`codex-rs/core/src/tools/hosted_spec.rs` 构造 Hosted Web Search 请求表示；`codex-rs/core/src/tools/spec_plan.rs` 的 `hosted_model_tool_specs` 根据 Provider、Model 和 Config 选择是否加入 `hosted_specs`；`build_model_visible_specs_and_registry` 只把这些 Specs 加入模型可见列表。
+
+相对地，本地 Extension Web Tool 会贡献真实 Executor，调用后需要经过本地 Router、Registry、Policy 和 Runtime。两者业务上都叫 Web Search，但执行所有权完全不同。
 
 ## 逐工具分析模板
 
