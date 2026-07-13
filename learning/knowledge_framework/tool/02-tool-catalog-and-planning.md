@@ -35,7 +35,29 @@ Local request declaration：客户端为当前 Turn 启用和配置能力
 
 ### MCP 与 App
 
-工具定义来自外部 Server 或 Connector。Catalog 必须处理连接状态、认证、Allowlist、Denylist、名称清洗和服务端 Schema 变化。
+MCP Tool 定义可以来自独立 MCP Server，也可以来自 App 后端暴露的 MCP Tool Catalog。Catalog 必须处理连接状态、认证、Allowlist、Denylist、名称清洗和服务端 Schema 变化。
+
+这里需要区分三个层次：
+
+| 概念 | 层次 | 主要职责 |
+| --- | --- | --- |
+| App | 产品层 | 用户安装、启用、授权和使用的完整外部服务集成 |
+| Connector | 集成层 | 连接外部服务，管理 Provider、OAuth、用户身份、Scope 和操作映射 |
+| MCP Server | 协议层 | 通过 MCP 暴露 Tools、Resources、Prompts 等能力 |
+
+在当前 OpenAI 产品术语中，原来的 Connector 已主要改称 App，源码、配置和兼容字段仍可能保留 `connector_id` 等名称。架构上不要完全画等号：一个 Connector-backed App 可以通过 Connector 访问外部服务，自定义 App 则可以通过 MCP Server 暴露操作；一个直接配置的本地 MCP Server 未必是完整的产品级 App。参见 [OpenAI MCP 与 Apps 术语说明](https://developers.openai.com/api/docs/mcp) 和 [Apps 数据流](https://learn.chatgpt.com/docs/enterprise/apps-and-connectors#understand-data-flow-and-security)。
+
+```text
+App
+├── 产品 Metadata、启停和管理员策略
+├── Connector / Connection
+│   ├── Provider、OAuth、用户和租户
+│   └── API Scope 与外部服务映射
+└── MCP Tool Catalog
+    └── Tool Definitions
+```
+
+因此 Catalog 的直接输入是 MCP Tool Definition；App 和 Connector 提供它周围的产品身份、认证、连接状态和策略上下文。
 
 ### Extension
 
@@ -46,6 +68,8 @@ Local request declaration：客户端为当前 Turn 启用和配置能力
 由客户端或运行期动态提供。定义可能随 Session 或 Turn 改变，因此必须明确作用域和生命周期。
 
 ## Registry 与模型可见列表
+
+“模型可见工具集合”是当前 Turn 真正告诉模型、允许模型发现或选择的 Tool Definition 集合，包括名称、Description、Schema 和暴露方式。英文资料有时称它为 `Tool Surface`；本文不使用含义不直观的“工具表面”简称。
 
 这两个集合不能混为一谈：
 
@@ -70,7 +94,7 @@ Hidden Tool  = runtime executor；not model-visible
 
 - `Direct`：初始请求直接暴露，也可进入适用的嵌套执行模式。
 - `Deferred`：先注册，等 Tool Search 发现后再把定义交给模型。
-- `DirectModelOnly`：只允许模型直接调用，不进入其他嵌套工具表面。
+- `DirectModelOnly`：只允许模型直接调用，不加入 Code Mode 等嵌套执行模式内部可用的工具集合。
 - `Hidden`：保留路由兼容性，但不告诉模型。
 
 打开 `codex-rs/tools/src/tool_executor.rs` 阅读 `ToolExposure`，随后回到 `spec_plan.rs` 看这些状态如何影响 Specs，而不是先研究单个工具。
@@ -106,4 +130,4 @@ Deferred Loading 的目标不是增加一次搜索步骤，而是控制上下文
 3. 名称冲突时是否保留原始路由身份？
 4. 不可用或未认证工具是隐藏、拒绝还是延迟加载？
 5. 大型工具目录是否有搜索、分页和硬上限？
-6. Model Capability 变化时是否会重建工具表面？
+6. Model Capability 变化时，是否会重新计算本轮模型可见工具集合？

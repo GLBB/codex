@@ -183,7 +183,7 @@ requires_auth = true
 
 这些字段不会直接产生“安全执行”，而是依次参与：
 
-1. Catalog 检查 Connector 是否启用、用户是否完成认证；
+1. Catalog 检查 App、Connector Connection 和对应 Tool 是否启用，以及用户是否完成认证；
 2. Exposure Policy 判断允许模型看到这个外部查询工具；
 3. Approval Policy 根据只读、外部访问和当前模式决定是否询问用户；
 4. Credential Manager 注入最小 Scope 的 CRM Token；

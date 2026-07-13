@@ -54,7 +54,8 @@ Output / Observation / Context
 | Exposure | 工具是 Direct、Deferred、Model-only 还是 Hidden |
 | Approval | 是否同意当前具体动作；不等同于 Sandbox |
 | Hosted Tool | Provider 实现和执行、Host 按请求声明的工具 |
-| MCP / App / Connector | 外部能力的发现、认证或调用来源，不等同于调用编码形态；完整 MCP 不只是 Tool |
+| MCP Server | 通过 MCP 暴露 Tools、Resources、Prompts 等能力的协议端点；完整 MCP 不只是 Tool |
+| App / Connector | App 是用户可管理的产品级集成；Connector 是其外部服务连接层或历史兼容名称 |
 
 ## 源码验证基线
 
