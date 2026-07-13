@@ -61,6 +61,36 @@ Codex 的统一入口位于 `codex-rs/core/src/tools/registry.rs`。阅读 `disp
 - 外部返回内容是否可能包含 Prompt Injection；
 - 外部服务的留存、合规和可用性边界。
 
+## Threat Model
+
+Tool 系统把不可信的模型输出和外部内容连接到真实副作用，因此安全分析不能只检查参数 Schema。至少要覆盖：
+
+| 威胁 | 典型场景 | 主要控制 |
+| --- | --- | --- |
+| Prompt Injection | 网页或 MCP Result 指示模型读取密钥并调用发送工具 | 外部内容标记为不可信、最小工具面、数据流 Policy、关键动作审批 |
+| Tool Poisoning | 恶意 Server 提供误导 Description、Schema 或 `read_only_hint` | Server 信任、Catalog 过滤、Schema 上限、Host 自有 Policy、保守默认值 |
+| Confused Deputy | 低权限用户诱导 Agent 使用高权限服务身份操作资源 | 绑定用户身份、Scope 检查、资源级授权、审计主体 |
+| Data Exfiltration | 只读工具取得私有数据后，经 Web/API Tool 发送到外部 | 数据分类、跨工具信息流控制、域名 Allowlist、输出脱敏 |
+| SSRF | URL 参数访问云 Metadata、本机服务、内网或 Unix Socket | URL 解析、DNS/IP 校验、重定向复检、网络 Sandbox |
+| Command / SQL / Path Injection | 参数被拼接进 Shell、SQL 或文件路径 | 结构化参数、参数化查询、路径规范化、避免字符串拼接 |
+| Credential Leakage | Token 出现在 Prompt、命令行、日志或 Tool Output | 运行时注入、环境隔离、日志脱敏、禁止模型读取凭据 |
+| Supply Chain | Plugin、Extension、MCP Server 或更新包被篡改 | 来源验证、签名或固定版本、最小权限、安装审批 |
+| Approval Fatigue | 频繁宽泛弹窗导致用户机械允许 | 展示具体动作和目标、缩小批准范围、合并同类低风险请求 |
+| TOCTOU | 审批后文件、URL、分支或远端资源发生变化 | 审批绑定规范化目标和版本，执行前重新验证 |
+
+防御应形成多层边界：
+
+```text
+Minimized Tool Exposure
+    → Parameter and Semantic Validation
+    → Policy / Approval
+    → Sandbox / Network / Credential Boundary
+    → Output and Information-flow Control
+    → Audit / Detection / Revocation
+```
+
+模型拒绝危险指令是有用的第一层，但不能代替上述强制控制。外部 Tool Output 进入模型上下文后仍是不可信数据，不会因为已经经过某个 Tool Handler 就自动变成可信指令。
+
 ## 生命周期事件
 
 建议统一表达：
@@ -85,3 +115,6 @@ Codex 的开始、结束和中止通知分别分布在 `codex-rs/core/src/tools/
 4. Sandbox、网络和凭据是否遵循最小权限？
 5. 外部 Tool Output 是否被当作不可信数据？
 6. 每种终态是否只发出一次，且能够审计来源？
+7. 是否分析了跨工具数据流，而不只是单个工具的副作用？
+8. Approval 是否绑定了执行时重新验证的具体目标和版本？
+9. MCP、Plugin 和 Hosted Tool 的信任根与撤销机制是什么？

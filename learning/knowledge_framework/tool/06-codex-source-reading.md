@@ -4,6 +4,8 @@
 
 沿一条真实主链理解“定义如何进入模型、调用如何进入 Runtime、结果如何回到下一轮”，而不是逐个浏览 `handlers/` 目录。
 
+开始源码跟读前，先完成 [Agent Tool Loop、可靠性与评估](09-agent-loop-reliability-and-evaluation.md) 的概念部分，避免只理解单次 Handler 调用而忽略整个 Turn 的停止条件、预算和恢复语义。
+
 ```text
 ToolSpec / ToolExecutor
     → spec_plan

@@ -69,6 +69,95 @@ Codex 解析 `function_call`、`custom_tool_call` 和 `tool_search_call`，在�
 
 Hosted Tool 的执行链不同：Provider 可直接执行 Web Search、Image Generation 等能力，并返回 `web_search_call`、`image_generation_call` 等 Output Item；客户端主要消费状态和结果，不一定需要本地 Handler，也不一定要回传一个本地 Tool Output。
 
+## 端到端协议示例
+
+下面用一个简化的本地 Function Tool 串起完整闭环。第一轮请求把自然语言输入和 Tool Contract 分开编码：
+
+```json
+{
+  "model": "<model>",
+  "instructions": "Use project tools when needed.",
+  "input": [
+    {
+      "role": "user",
+      "content": [{"type": "input_text", "text": "读取 Cargo.toml 的 package 名称"}]
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "read_project_file",
+      "description": "Read a UTF-8 file under the project root.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": false,
+  "stream": true
+}
+```
+
+Provider 返回结构化调用，而不是让客户端从普通文本中猜测动作：
+
+```json
+{
+  "type": "function_call",
+  "id": "fc_123",
+  "call_id": "call_123",
+  "name": "read_project_file",
+  "arguments": "{\"path\":\"Cargo.toml\"}",
+  "status": "completed"
+}
+```
+
+Host 随后完成协议解析、语义验证、Policy 和 Runtime：
+
+```text
+parse arguments
+→ verify Cargo.toml is under the readable project root
+→ resolve approval and sandbox policy
+→ execute handler
+→ truncate and structure output
+```
+
+如果 Host 在本地维护完整历史，下一轮请求会保留调用项并追加同一 `call_id` 的输出。下面省略了与示例无关的请求字段：
+
+```json
+{
+  "model": "<model>",
+  "input": [
+    {
+      "role": "user",
+      "content": [{"type": "input_text", "text": "读取 Cargo.toml 的 package 名称"}]
+    },
+    {
+      "type": "function_call",
+      "id": "fc_123",
+      "call_id": "call_123",
+      "name": "read_project_file",
+      "arguments": "{\"path\":\"Cargo.toml\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_123",
+      "output": "[package]\nname = \"codex-example\""
+    }
+  ],
+  "tools": ["<same tool declarations required by this request mode>"],
+  "tool_choice": "auto"
+}
+```
+
+模型读取 Observation 后可以生成最终消息，也可以继续发出下一次 Tool Call。系统必须用调用次数、时间和成本预算限制这个循环，详见 [Agent Tool Loop、可靠性与评估](09-agent-loop-reliability-and-evaluation.md)。
+
+如果工具被拒绝、超时或取消，也应返回匹配 `call_id` 的失败 Output，让模型知道“动作未完成或可能部分完成”。只有 Provider 传输损坏、Registry 内部不变量破坏等 Fatal Error 才应直接中断整个 Turn。
+
 ## 流式协议与错误边界
 
 开启流式传输后，Codex 同时处理三类信息：
@@ -106,3 +195,5 @@ Hosted Tool 的执行链不同：Provider 可直接执行 Web Search、Image Gen
 6. Hosted Tool 是否错误地注册了本地 Handler，或本地 Tool 是否缺少 Executor？
 7. 历史重放、压缩和恢复是否保留 Call / Output 配对？
 8. 不支持的 API 字段是显式降级、转换，还是被静默丢弃？
+9. 失败、拒绝、超时和取消是否仍生成配对的 Tool Output？
+10. Agent Loop 是否具有调用次数、总 Deadline 和成本上限？
