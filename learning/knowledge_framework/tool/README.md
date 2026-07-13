@@ -22,6 +22,8 @@ Runtime / External System
 Output / Observation / Context
 ```
 
+本组只研究 MCP Tool 如何进入 Tool Catalog、Policy 和 Runtime。MCP 还包含 Resources、Prompts、Sampling、Elicitation、Transport 和 Authorization，完整内容见 [MCP 学习地图](../mcp/README.md)。
+
 ## 推荐学习顺序
 
 1. [Tool Contract](01-tool-contract.md)：模型如何认识并表达一次工具调用。
@@ -52,7 +54,7 @@ Output / Observation / Context
 | Exposure | 工具是 Direct、Deferred、Model-only 还是 Hidden |
 | Approval | 是否同意当前具体动作；不等同于 Sandbox |
 | Hosted Tool | Provider 实现和执行、Host 按请求声明的工具 |
-| MCP / App / Connector | 外部能力的发现、认证或调用来源，不等同于调用编码形态 |
+| MCP / App / Connector | 外部能力的发现、认证或调用来源，不等同于调用编码形态；完整 MCP 不只是 Tool |
 
 ## 源码验证基线
 
