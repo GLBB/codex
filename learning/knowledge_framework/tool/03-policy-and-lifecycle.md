@@ -4,6 +4,8 @@
 
 Tool Contract 回答“调用是否符合接口”，Policy 回答“这个主体在当前环境中是否允许执行这个动作”。不要把安全规则只写进 Description，因为模型遵循描述不构成强制边界。
 
+Tool Definition 中的 Capability / Risk Metadata 是 Policy 的输入，不是 Policy 本身。`read_only_hint`、`destructive_hint`、`open_world_hint` 等术语及其生效阶段见 [Tool Contract：Capability 与 Risk Metadata](01-tool-contract.md#capability-与-risk-metadata)。
+
 ```text
 Valid Tool Call
       ↓

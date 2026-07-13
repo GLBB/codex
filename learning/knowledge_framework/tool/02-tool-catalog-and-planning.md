@@ -22,7 +22,16 @@ Model-visible Specs + Runtime Registry
 
 ### Hosted
 
-由模型服务提供，例如 Hosted Web Search。Host 需要根据 Provider 和 Model Capability 决定能否声明。
+由模型服务实现和执行，例如 Hosted Web Search。Host 不提供本地 Handler，但仍要根据 Provider、Model Capability、Feature、网络模式和产品策略决定是否把 Hosted Spec 放进本轮模型请求，并填入允许域名、搜索模式或用户位置等请求配置。
+
+因此要区分：
+
+```text
+Server implementation：服务端实际执行能力
+Local request declaration：客户端为当前 Turn 启用和配置能力
+```
+
+服务端支持某项工具，不等于所有请求都自动获得该工具。
 
 ### MCP 与 App
 
@@ -46,6 +55,16 @@ Model-visible Specs：本轮请求允许模型直接选择的工具
 ```
 
 Codex 的 `ToolRouter` 同时持有 Registry 和模型可见 Specs。构建入口在 `codex-rs/core/src/tools/spec_plan.rs` 的 `build_tool_router`；最终拆成可见定义和 `ToolRegistry` 的逻辑位于 `build_model_visible_specs_and_registry`。
+
+本地 Tool 通常同时贡献 Runtime 和 Spec；Hosted Tool 只贡献 Model-visible Spec：
+
+```text
+Local Tool   = model-visible spec + runtime executor
+Hosted Tool  = model-visible spec；execution owned by model service
+Hidden Tool  = runtime executor；not model-visible
+```
+
+在 Codex 的规划结构中，`runtimes` 最终建立 `ToolRegistry`，`hosted_specs` 只追加到模型可见列表。Hosted Tool 的调用不会再被本地 Router 分发到 Handler。
 
 ## Exposure
 

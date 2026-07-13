@@ -7,6 +7,7 @@
 ```text
 ToolSpec / ToolExecutor
     → spec_plan
+    → Provider API Request / Stream
     → ToolRouter
     → ToolCallRuntime
     → ToolRegistry
@@ -38,6 +39,8 @@ ToolSpec / ToolExecutor
 读到这里应回答：为什么一个 Runtime 已注册的工具可能不出现在模型请求中。
 
 ## 第三站：解析与调度
+
+在进入 Runtime 前，先用 [Model Provider API 与 Tool 协议](08-provider-api-protocol.md) 对照 `codex-rs/core/src/client.rs` 的 `build_responses_request`，确认模型看到的 Specs 如何进入 `tools`，以及 Function Call 如何从 Provider Stream 返回。这里重点是协议映射，不必展开 HTTP Transport。
 
 打开 `codex-rs/core/src/tools/router.rs`，阅读 `ToolRouter::build_tool_call`，观察 Function、Custom 和 Tool Search 如何归一成 `ToolCall`。
 
