@@ -50,8 +50,10 @@ Host 是承载 Agent、模型、Policy 和用户界面的应用。Host 通常为
 7. [Codex 集成与源码阅读](07-codex-integration-and-source-reading.md)：区分 MCP 标准能力与当前 Codex 实现。
 8. [开发、测试与运维](08-development-testing-and-operations.md)：设计 Server、验证协议并观察生产行为。
 9. [MCP 与 CLI](09-mcp-and-cli.md)：区分两种集成边界，理解为什么有些能力会从 MCP 改为 CLI，以及怎样选型和迁移。
+10. [可运行案例：任务板 MCP Server](../cases/mcp-task-board/README.md)：亲手观察初始化、能力发现、Resource 读取、Tool 调用、业务失败和状态变化。
+11. [可运行案例：可切换模型 Provider 的 Agent 集成 MCP](../cases/agent-mcp-demo/README.md)：使用 OpenRouter 或 MiMo，观察 Host 如何把 MCP Tool 转成模型 Function Tool，并在 Agent Loop 中桥接两套调用协议。
 
-初学者按顺序阅读；只关心 Agent Tool 接入时重点阅读 01、03、05、06；需要在 MCP 和 CLI 之间选型时，在 05 和 06 之后阅读 09；准备阅读 Codex 源码时先完成 01、02、03、05，再进入 07。
+初学者可先阅读 01、02、03，再运行任务板案例，然后带着观察到的问题阅读 04、05 和 06；理解 05 的桥接主链后运行可切换 Provider 的 Agent 案例；需要在 MCP 和 CLI 之间选型时，在 05 和 06 之后阅读 09；准备阅读 Codex 源码时先完成 01、02、03、05，再进入 07。
 
 ## MCP 在 Agent 知识框架中的位置
 
@@ -93,3 +95,5 @@ Host 是承载 Agent、模型、Policy 和用户界面的应用。Host 通常为
 8. 如何区分 MCP 标准、Host 产品能力和当前 Codex 实现。
 9. 如何测试动态 Catalog、长任务、取消、认证和恶意 Server。
 10. 为什么 CLI 不天然优于 MCP，以及怎样根据互操作、上下文成本、治理和交互需求选择集成边界。
+11. 一次 MCP 会话如何完成初始化、发现、调用和结果关联，以及 Resource 与 Tool 为什么承担不同职责。
+12. Agent Host 如何在模型 Function Tool 和 MCP Tool 之间转换 Definition、Call 与 Result，并独立完成循环终止判断。
