@@ -49,8 +49,9 @@ Host 是承载 Agent、模型、Policy 和用户界面的应用。Host 通常为
 6. [安全与信任](06-security-and-trust.md)：Server、Definition、Credential、Result 和后续动作如何形成信任链。
 7. [Codex 集成与源码阅读](07-codex-integration-and-source-reading.md)：区分 MCP 标准能力与当前 Codex 实现。
 8. [开发、测试与运维](08-development-testing-and-operations.md)：设计 Server、验证协议并观察生产行为。
+9. [MCP 与 CLI](09-mcp-and-cli.md)：区分两种集成边界，理解为什么有些能力会从 MCP 改为 CLI，以及怎样选型和迁移。
 
-初学者按顺序阅读；只关心 Agent Tool 接入时重点阅读 01、03、05、06；准备阅读 Codex 源码时先完成 01、02、03、05，再进入 07。
+初学者按顺序阅读；只关心 Agent Tool 接入时重点阅读 01、03、05、06；需要在 MCP 和 CLI 之间选型时，在 05 和 06 之后阅读 09；准备阅读 Codex 源码时先完成 01、02、03、05，再进入 07。
 
 ## MCP 在 Agent 知识框架中的位置
 
@@ -91,3 +92,4 @@ Host 是承载 Agent、模型、Policy 和用户界面的应用。Host 通常为
 7. Annotation 为什么只是 Policy 输入，而不是安全证明。
 8. 如何区分 MCP 标准、Host 产品能力和当前 Codex 实现。
 9. 如何测试动态 Catalog、长任务、取消、认证和恶意 Server。
+10. 为什么 CLI 不天然优于 MCP，以及怎样根据互操作、上下文成本、治理和交互需求选择集成边界。
