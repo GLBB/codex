@@ -97,7 +97,7 @@ Agent
 │   │   ├── Core / Hosted / MCP / Extension / Dynamic 来源
 │   │   ├── Registry / Routing / Name Conflict
 │   │   ├── Enable / Disable / Capability Filtering
-│   │   └── Direct / Deferred / Hidden / Tool Search
+│   │   └── Direct / Deferred / DirectModelOnly / Hidden / Tool Search
 │   ├── Policy 与生命周期
 │   │   ├── PreToolUse / PermissionRequest / PostToolUse
 │   │   ├── Approval / Sandbox / Network Policy
@@ -110,6 +110,13 @@ Agent
 │   │   ├── 输出结构化、截断与脱敏
 │   │   ├── call_id 配对与上下文回写
 │   │   └── 错误分类、重试与幂等
+│   ├── 程序化工具编排
+│   │   ├── Direct Tool Call / Generated Program
+│   │   ├── Provider Programmatic Tool Calling / Codex Code Mode
+│   │   ├── Nested Tool Exposure / Namespace / DirectModelOnly
+│   │   ├── Program / Cell / Session Lifecycle
+│   │   ├── Intermediate Observation / Final Result
+│   │   └── Budget / Policy / Sandbox / Cancel
 │   └── 能力类型
 │       ├── File / Search / Patch / Image
 │       ├── Shell / Process / Git
@@ -202,6 +209,22 @@ Agent
 
 Tool 与行动系统的分层说明、设计检查和 Codex 源码阅读路线见 [Tool 与行动系统学习地图](tool/README.md)。MCP 跨越 Tool、Context、人机交互、安全和互操作，完整协议与 Codex 集成见 [MCP 学习地图](mcp/README.md)。
 
+Code Mode 的**主归属是 Tool 与行动系统中的程序化工具编排**。普通 Direct Tool Call 由模型逐次选择工具并等待 Observation；Code Mode 则让模型生成一段受控程序，由专门的 Program Runtime 执行，并在程序内部调用允许嵌套的工具。它因此同时与 Tool Catalog、Tool Runtime、Context、安全和可靠性相交，但不是独立 Agent，也不只是模型能力或某一种业务工具。完整概念、适用条件和 Codex 源码阅读路线见 [Code Mode 与程序化工具编排](tool/10-code-mode-and-programmatic-tool-calling.md)。
+
+```text
+Model Decision
+    ├── Direct Tool Call
+    │       └── Tool Runtime ──> Observation ──> next model turn
+    │
+    └── Generated Program
+            └── Program Runtime / Code Mode
+                    ├── nested tool call
+                    ├── loop / condition / data transform
+                    └── bounded final result ──> next model turn
+```
+
+`Programmatic Tool Orchestration` 是通用知识节点；Provider 侧的 Programmatic Tool Calling 和 Codex 的 Code Mode 是可能具有不同协议与执行位置的具体实现。Codex Code Mode 当前仍处于开发中且默认关闭，因此这里用它帮助理解架构边界，不把它列为所有 Agent 的必备能力。
+
 Agent Loop 负责推进任务：
 
 ```text
@@ -255,6 +278,7 @@ Loop 内部直接使用 Goal、Task、State、Model、Prompt、Structured Output
 | Prompt | 给模型的指令和任务描述 | 运行时安全边界 |
 | Structured Output | 模型表达决策的机器可读格式 | 决策正确性的保证 |
 | Tool Selection | 模型选择下一项能力 | Tool 的实际执行 |
+| Code Mode | 模型生成受控程序，由 Program Runtime 在其中编排一组允许嵌套的 Tool | 普通 Direct Tool Call、通用 Shell，或一个独立 Agent |
 | Agent Loop | 驱动模型、工具和状态反复交互的控制循环 | Context、安全和产品能力的总和 |
 | Memory | 跨步骤或跨会话保存状态和经验 | 外部事实知识库的同义词 |
 | RAG | 从外部知识库检索证据并注入上下文 | Agent 或 Memory 的同义词 |
@@ -308,14 +332,15 @@ Identity → Input Provenance → Instruction Priority → Permission → Isolat
 4. Context 的来源、优先级、可信度、新鲜度和预算如何管理？
 5. Model 能力如何协商，决策如何结构化表达和校验？
 6. Tool 如何注册、发现、路由和执行，结果怎样用 call_id 回写？
-7. 哪些动作允许、拒绝或需要审批，副作用和幂等边界在哪里？
-8. 文件、进程、网络、身份和凭据如何隔离？
-9. 如何用测试、证据或人工验收判断任务真正完成？
-10. History、State、Memory、RAG 和 Skills 如何区分和更新？
-11. 状态如何持久化、暂停、恢复、补偿和重放？
-12. Plugin、Hook、MCP、协议和子 Agent 如何扩展？
-13. 用户如何澄清、审批、纠偏、中断和验收？
-14. 如何追踪故障、评估结果与轨迹、控制成本并形成改进闭环？
+7. Direct Tool Call 与程序化工具编排如何选择，哪些工具允许嵌套，程序、中间结果和 Session 由谁管理？
+8. 哪些动作允许、拒绝或需要审批，副作用和幂等边界在哪里？
+9. 文件、进程、网络、身份和凭据如何隔离？
+10. 如何用测试、证据或人工验收判断任务真正完成？
+11. History、State、Memory、RAG 和 Skills 如何区分和更新？
+12. 状态如何持久化、暂停、恢复、补偿和重放？
+13. Plugin、Hook、MCP、协议和子 Agent 如何扩展？
+14. 用户如何澄清、审批、纠偏、中断和验收？
+15. 如何追踪故障、评估结果与轨迹、控制成本并形成改进闭环？
 
 ## 8. 学习与实践
 

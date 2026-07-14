@@ -93,7 +93,7 @@ create_file → git_add → git_commit
 1. 模型协议是否允许一次产生多个调用；
 2. 每个 Executor 及其目标资源是否支持并发。
 
-Programmatic Tool Calling 或 Code Mode 都可以让模型生成一段受控程序来组合多个工具，适合循环、过滤和数据变换，但二者不能据此视为同一执行位置。Programmatic Tool Calling 的程序可以运行在 Provider Hosted Runtime；Code Mode 的执行位置则由具体 Agent Harness 决定，可能是本地或远程 Execution Environment。二者都能减少模型采样与工具调用之间的往返，但会扩大单次执行面，因此需要：
+Programmatic Tool Calling 或 Code Mode 都可以让模型生成一段受控程序来组合多个工具，适合循环、过滤和数据变换，但二者不能据此视为同一执行位置。Programmatic Tool Calling 的程序可以运行在 Provider Hosted Runtime；Code Mode 的执行位置则由具体 Agent Harness 决定，可能是本地或远程 Execution Environment。概念、适用条件和 Codex 实现路线见 [Code Mode 与程序化工具编排](10-code-mode-and-programmatic-tool-calling.md)。二者都能减少模型采样与工具调用之间的往返，但会扩大单次执行面，因此需要：
 
 - 只暴露允许嵌套调用的工具；
 - 限制代码运行时间、内存和调用次数；
