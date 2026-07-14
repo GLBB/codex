@@ -1,15 +1,43 @@
 # Agent Tool Loop、可靠性与评估
 
-## 为什么 Runtime 之外还需要 Tool Loop
+## 先固定角色与执行边界
 
-Runtime 负责正确执行单次调用，Agent Tool Loop 负责把多次模型决策和 Observation 组织成有终点的任务：
+本文按架构职责而不是物理位置命名参与者，避免把 `Host`、`客户端`、`服务端` 或 `Runtime` 当成不言自明的主体：
+
+| 术语 | 本文固定含义 |
+| --- | --- |
+| Agent Orchestrator | 推进模型请求、Tool Call、Observation、预算和停止条件的组件；在本文主要指 Codex |
+| Model Provider | 接收 Responses 请求、运行模型并返回结构化 Output Item 的服务 |
+| Tool Executor / Tool Runtime | 执行或分发由 Agent Orchestrator 负责闭环的工具调用组件 |
+| Execution Environment | Tool Executor 使用的进程、操作系统、Sandbox、Container 或远程执行环境 |
+| Provider Hosted Runtime | Provider 用于执行 Built-in / Hosted Tool 的托管环境 |
+| External Service | MCP Server、Database、SaaS 或其他业务 API |
+
+`Agent Orchestrator` 不等于“本机”。Codex CLI 的编排组件通常运行在本地进程中，但 Tool Executor 可以位于本地、远程执行环境或外部服务；Built-in / Hosted Tool 也可能完全在 Model Provider 一侧执行。本文因此避免单独使用 `Host`，也避免没有指出协议边界的“客户端/服务端”。
+
+```text
+Agent Orchestrator
+    ├── request ──> Model Provider
+    │                  └── Provider Hosted Runtime
+    │                      └── Built-in / Hosted Tool
+    │
+    └── tool call ──> Policy ──> Tool Executor
+                                  ├── Local Process / Sandbox
+                                  ├── Remote Execution Environment
+                                  ├── MCP Server
+                                  └── External Service
+```
+
+## 为什么 Tool Runtime 之外还需要 Tool Loop
+
+Tool Runtime 负责正确执行单次由 Agent Orchestrator 闭环的调用，Agent Orchestrator 中的 Tool Loop 负责把多次模型决策和 Observation 组织成有终点的任务：
 
 ```text
 Task / Current State
     ↓
 Model decides: answer or call tools
     ↓ call
-Catalog / Policy / Runtime
+Catalog / Policy / Tool Runtime
     ↓ observation
 Update state and budgets
     ↓
@@ -36,7 +64,7 @@ Provider 的 `tool_choice` 只表达本轮调用约束：
 - `required`：必须产生某种 Tool Call；
 - specific tool：限制为指定工具或能力。
 
-它不能替代 Agent 级停止条件。Host 仍应设置：
+它不能替代 Agent 级停止条件。负责推进 Tool Loop 的 Agent Orchestrator 仍应设置：
 
 - 每个 Response 的最大 Tool Call 数；
 - 每个 Turn 的累计调用数；
@@ -49,7 +77,7 @@ Provider 的 `tool_choice` 只表达本轮调用约束：
 
 ## 顺序、并行与 Programmatic Tool Calling
 
-两个调用只有在没有数据依赖且 Runtime 均允许时才能并行：
+两个调用只有在没有数据依赖且负责执行它们的 Tool Executor 均允许时才能并行：
 
 ```text
 search_code ─┐
@@ -65,7 +93,7 @@ create_file → git_add → git_commit
 1. 模型协议是否允许一次产生多个调用；
 2. 每个 Executor 及其目标资源是否支持并发。
 
-Programmatic Tool Calling 或 Code Mode 让模型生成一段受控程序来组合多个工具，适合循环、过滤和数据变换。它减少模型与 Provider 的往返，但扩大单次执行面，因此需要：
+Programmatic Tool Calling 或 Code Mode 都可以让模型生成一段受控程序来组合多个工具，适合循环、过滤和数据变换，但二者不能据此视为同一执行位置。Programmatic Tool Calling 的程序可以运行在 Provider Hosted Runtime；Code Mode 的执行位置则由具体 Agent Harness 决定，可能是本地或远程 Execution Environment。二者都能减少模型采样与工具调用之间的往返，但会扩大单次执行面，因此需要：
 
 - 只暴露允许嵌套调用的工具；
 - 限制代码运行时间、内存和调用次数；
@@ -84,9 +112,9 @@ Programmatic Tool Calling 或 Code Mode 让模型生成一段受控程序来组�
 | Policy Reject | 未执行及拒绝原因类别 | 不得假装成功，可选择安全替代方案 |
 | Timeout / Cancel | 是否可能已有部分副作用 | 查询状态、补偿或停止 |
 | Rate Limit / Transient Failure | 可重试性和 Retry-After | 在预算内退避重试 |
-| Fatal Runtime Error | 有界诊断和 Trace ID | 中止 Turn 并保留审计信息 |
+| Fatal Tool Runtime Error | 有界诊断和 Trace ID | 中止 Turn 并保留审计信息 |
 
-模型可理解不等于把原始堆栈、Token 或服务端响应全部放入上下文。内部诊断与 Model Output 应是不同视图。
+模型可理解不等于把原始堆栈、Token、Provider 响应或 External Service 响应全部放入上下文。内部诊断与 Model Output 应是不同视图。
 
 ## 执行语义与故障恢复
 
@@ -96,7 +124,7 @@ Programmatic Tool Calling 或 Code Mode 让模型生成一段受控程序来组�
 - **At-least-once**：保证尝试完成，但可能重复副作用；
 - **Effectively-once**：借助幂等键、去重记录和状态核对，让业务效果等价于一次。
 
-最危险的情况是“服务端已经执行，客户端在收到响应前断开”。此时不能仅因没有 Tool Output 就重新执行写操作。恢复策略应按顺序检查：
+最危险的情况是“下游执行方已经产生副作用，但调用方在收到完成确认前断开”。下游执行方可能是 Provider Hosted Runtime、MCP Server 或其他 External Service；调用方通常是 Agent Orchestrator 或 Tool Executor。此时不能仅因没有 Tool Output 就重新执行写操作。恢复策略应按顺序检查：
 
 1. 调用是否有稳定 `call_id`、Invocation ID 或幂等键；
 2. 是否能查询外部操作状态；
@@ -127,18 +155,18 @@ Tool Budget 应是分层的：
 | --- | --- |
 | Call Budget | 单次 Response、Turn、Session 的最大调用数 |
 | Time Budget | Queue Timeout、Tool Timeout、Turn Deadline |
-| Concurrency Budget | 全局、每 Provider、每 Server、每资源的并发数 |
+| Concurrency Budget | 全局、每 Model Provider、每 MCP Server、每 External Service、每资源的并发数 |
 | Output Budget | 原始字节、模型 Token、展示行数、分页大小 |
 | Cost Budget | Hosted Search、Browser、API、子 Agent 的费用 |
 | Retry Budget | 最大次数、指数退避、累计等待时间 |
 
-当下游达到 Rate Limit、连接池或并发上限时，Runtime 应排队、拒绝或降级，并把排队时间与执行时间分开记录。持续失败的远端服务可以使用 Circuit Breaker，避免每个模型 Turn 都重复触发相同故障。
+当下游达到 Rate Limit、连接池或并发上限时，负责该调用的 Tool Executor 或调用管理器应排队、拒绝或降级，并把排队时间与执行时间分开记录。持续失败的 MCP Server 或 External Service 可以使用 Circuit Breaker，避免每个模型 Turn 都重复触发相同故障。
 
 预算耗尽是一种正常终态，不应伪装成工具成功。模型需要知道哪些动作未执行，用户界面需要知道限制来自哪一层。
 
 ## 可观测性
 
-一次调用应能通过 `thread_id → turn_id → call_id → external_operation_id` 关联模型、Policy、Runtime 和外部系统。建议至少记录：
+一次调用应能通过 `thread_id → turn_id → call_id → external_operation_id` 关联模型、Policy、Tool Executor 和 External Service。建议至少记录：
 
 - Tool Name、Namespace、来源和 Exposure；
 - Provider Response Item ID 与 `call_id`；
@@ -173,7 +201,7 @@ calls_per_successful_turn
 | Contract Test | ToolSpec 序列化、Schema、Strictness、Provider Wire Shape |
 | Handler Test | 参数解析、语义验证、错误分类、输出结构 |
 | Policy Test | Metadata、Approval Mode、Sandbox 和网络规则组合 |
-| Runtime Test | 路由、并发锁、Timeout、Cancel、进程与连接清理 |
+| Tool Runtime Test | 路由、并发锁、Timeout、Cancel、进程与连接清理 |
 | Protocol Integration Test | Provider Tool Call、流式 Delta、Call/Output 配对 |
 | External Integration Test | MCP、Database、SaaS 的认证、限流和故障行为 |
 | Recovery Test | 响应丢失、进程崩溃、Resume、幂等与孤儿清理 |
@@ -214,7 +242,7 @@ Eval 样本应包含相似工具、缺失工具、未认证工具、动态工具
 ## 验收问题
 
 1. `tool_choice` 为什么不能代替 Agent 级停止条件？
-2. 模型允许并行与 Runtime 允许并发为什么是两层判断？
+2. 模型允许并行与 Tool Executor 允许并发为什么是两层判断？
 3. 响应丢失后，为什么写工具不能直接重试？
 4. 一个可恢复错误应向模型暴露哪些信息，又应隐藏哪些信息？
 5. 如何识别 Tool Thrashing？
