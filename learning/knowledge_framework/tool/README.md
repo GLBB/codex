@@ -33,10 +33,11 @@ Output / Observation / Context
 5. [Tool Runtime](04-tool-runtime.md)：调用怎样被解析、调度、取消并回写结果。
 6. [能力类型](05-capability-types.md)：文件、进程、浏览器、外部服务和 Agent 控制能力的差异。
 7. [主要 Tool 的关键设计](07-major-tool-designs.md)：对照 Shell、Patch、MCP、Tool Search 和控制类工具的状态与安全边界。
-8. [Agent Tool Loop、可靠性与评估](09-agent-loop-reliability-and-evaluation.md)：模型如何连续决策，以及系统怎样限制预算、恢复故障并验证质量。
-9. [Codex 源码阅读路线](06-codex-source-reading.md)：完成概念学习后，沿一条工具调用主链阅读当前实现。
+8. [Code Mode 与程序化工具编排](10-code-mode-and-programmatic-tool-calling.md)：模型如何用受控程序组合工具，以及 Nested Exposure、Program Runtime、Policy 和 Observation 如何闭环。
+9. [Agent Tool Loop、可靠性与评估](09-agent-loop-reliability-and-evaluation.md)：模型如何连续决策，以及系统怎样限制预算、恢复故障并验证质量。
+10. [Codex 源码阅读路线](06-codex-source-reading.md)：完成概念学习后，沿一条工具调用主链阅读当前实现。
 
-初学者按上述顺序阅读；只做架构设计时重点阅读 01、02、03、04、08、09；已有 Agent 基础并准备跟源码时，可以先读 README、08，再进入 06。
+初学者按上述顺序阅读；只做架构设计时重点阅读 01、02、03、04、08、09、10；已有 Agent 基础并准备跟源码时，可以先读 README、08，再进入 06。
 
 ## 术语速查
 
@@ -49,6 +50,9 @@ Output / Observation / Context
 | Handler / Executor | 接收归一化调用并完成具体业务动作的实现 |
 | Tool Call / Invocation | 模型或嵌套 Runtime 发起的一次工具调用 |
 | Tool Output / Observation | 执行结果及其写回模型上下文的表示 |
+| Programmatic Tool Orchestration | 模型生成受控程序，在 Program Runtime 中组合一组允许嵌套的工具 |
+| Code Mode | 程序化工具编排的一种产品或实现名称，不是统一行业协议 |
+| Nested Tool | 允许由 Program Runtime 内部调用、仍需经过 Policy 和 Runtime 的工具 |
 | Provider / Model Service | 接收模型请求并返回 Tool Call 或执行 Hosted Tool 的服务 |
 | Host / Runtime | 组装请求、实施策略并执行本地工具的 Agent 系统 |
 | Exposure | 工具是 Direct、Deferred、Model-only 还是 Hidden |
@@ -107,3 +111,4 @@ Runtime 把 Tool Call 转成真实操作，负责参数反序列化、语义验�
 8. 模型如何根据 Observation 决定继续调用还是结束，以及怎样避免无限 Tool Loop。
 9. Tool Call 在超时、响应丢失和进程崩溃后如何安全恢复。
 10. 如何通过 Contract Test、Integration Test、Adversarial Eval 和运行指标验证 Tool 系统。
+11. Code Mode 为什么需要独立的 Nested Tool Catalog，以及它与 Direct Tool Calling 和 Provider Programmatic Tool Calling 有何区别。

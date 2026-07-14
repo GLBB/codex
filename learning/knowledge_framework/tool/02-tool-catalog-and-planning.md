@@ -94,7 +94,7 @@ Hidden Tool  = runtime executor；not model-visible
 
 - `Direct`：初始请求直接暴露，也可进入适用的嵌套执行模式。
 - `Deferred`：先注册，等 Tool Search 发现后再把定义交给模型。
-- `DirectModelOnly`：只允许模型直接调用，不加入 Code Mode 等嵌套执行模式内部可用的工具集合。
+- `DirectModelOnly`：只允许模型直接调用，不加入 Code Mode 等嵌套执行模式内部可用的工具集合；为什么程序需要独立的工具集合，见 [Code Mode 与程序化工具编排](10-code-mode-and-programmatic-tool-calling.md)。
 - `Hidden`：保留路由兼容性，但不告诉模型。
 
 打开 `codex-rs/tools/src/tool_executor.rs` 阅读 `ToolExposure`，随后回到 `spec_plan.rs` 看这些状态如何影响 Specs，而不是先研究单个工具。
