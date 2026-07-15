@@ -29,6 +29,8 @@ Host 至少要限制：模型范围、最大 Token、上下文来源、Tool 面�
 
 Server 可以通过 `elicitation/create` 请求 Client 向用户收集信息。结果通常区分 Accept、Decline 和 Cancel；不能把三者折叠成空字符串。
 
+`2025-11-25` 的 Elicitation Capability 可以分别声明 Form 和 URL 模式：Form 用受限 Schema 收集结构化字段；URL 模式让用户在受信任的外部页面完成授权或其他敏感交互。Client 只能使用初始化时声明支持的模式，并应校验 URL、Origin、返回关联和超时。
+
 Elicitation 可用于补充缺失字段或跳转到授权页面，但不应成为窃取凭据的通道。Host 应展示 Server 身份、请求原因、字段类型和数据去向，限制密码、Token 等敏感字段，并让用户能够拒绝。
 
 ```text
@@ -38,6 +40,21 @@ Server Request → Host Policy → User UI → User Decision → Server Response
 ```
 
 Agent Turn 取消、Session 关闭或连接断开时，Pending Elicitation 必须解除并写入明确终态。
+
+一次 Form Elicitation 的关联关系可以抽象为：
+
+```text
+tools/call request id=20
+    ↓ Server 处理到缺少字段
+elicitation/create request id=server-7
+    ↓ Host 展示 Form 并等待用户
+Accept(data) / Decline / Cancel
+    ↓ response to server-7
+Server 恢复 tools/call
+    ↓ final response to id=20
+```
+
+外层 Tool Request ID 与内层 Elicitation Request ID 必须分别保存。用户 Decline 表示拒绝提供信息，Cancel 表示取消交互；两者都不应伪造成带空字段的 Accept。
 
 ## Roots：Workspace 提示
 
@@ -52,6 +69,19 @@ Roots 变化时，支持相应 Capability 的 Client 可以通知 Server。Host 
 - Progress：长请求报告进度；进度不是最终成功结果。
 - Cancellation：请求停止工作；取消确认不等于外部副作用已回滚。
 - List Changed：通知 Capability Catalog 变化；Host 重新发现后仍要重新治理。
+
+## Ping 与分页
+
+双方都可以发送 `ping` Request 检查对端是否仍能处理协议消息。Ping 只证明协议端点响应，不证明外部 API、Credential、某个 Tool 或业务数据库健康。生产 Health Check 应分层记录 Transport、MCP 和下游依赖状态。
+
+`resources/list`、`resources/templates/list`、`prompts/list` 和 `tools/list` 等列表操作可以分页。MCP 使用不透明 Cursor，而不是页码：
+
+```text
+list() → items + nextCursor
+list(cursor=nextCursor) → items + nextCursor?
+```
+
+Client 不应解析 Cursor、假设固定页大小或在不同 Server、身份和 Catalog 版本之间复用 Cursor。Host 还应设置最大页数、最大 Item 数和 Definition Token 上限，防止“合法分页”变成无界 Context 注入。
 
 ## Tasks：实验性耐久请求
 
