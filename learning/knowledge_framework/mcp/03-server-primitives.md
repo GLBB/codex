@@ -12,6 +12,32 @@ Server 可以向 Client 暴露：
 
 “常见控制者”描述推荐交互模型，不是协议强制 UI。Host 可以为 Resource 提供搜索工具，也可以将某些 Prompt 转成命令，但仍要保留来源与信任级别。
 
+## 不要把 Primitive 机械映射成 CRUD
+
+MCP 定义的是能力交换方式，不是 REST 风格的 CRUD 规范。Server 可以把新增、修改和删除设计成 Tool，但“查询”并不必须设计成 Resource：只读 Tool 同样可以执行按条件搜索、聚合、计算或从外部系统获取数据。
+
+```text
+Tools
+    customer_create
+    customer_update
+    customer_delete
+    customer_search       # 查询也可以是 Tool
+
+Resources
+    customer://123
+    customer://123/orders
+    schema://customers
+```
+
+选择时应判断交互语义，而不是判断它属于 CRUD 的哪个字母：
+
+- 需要传入参数执行动作、查询或计算时，优先考虑 Tool；
+- 数据有稳定 URI，适合读取、引用、缓存或订阅时，优先考虑 Resource；
+- 同一业务对象可以同时提供 Tool 和 Resource，例如用 `customer_search` 找到客户，再读取 `customer://123`；
+- `readOnlyHint=true` 的 Tool 仍然是 Tool，不会因此变成 Resource。
+
+因此，Resource 不是 MCP 中所有“查”的统一入口。它表达的是可寻址上下文，而不是 CRUD Read 的协议别名。
+
 ## Tools：动作
 
 Client 使用 `tools/list` 发现 Tool，使用 `tools/call` 调用 Tool。Definition 通常包含：
@@ -53,6 +79,8 @@ Tool Result 可以包含文本、图像、音频、Resource Link 或嵌入的 Re
 - 保留错误、取消与业务成功的区别；
 - 转换成 Provider 能接受的 Observation。
 
+声明了 `outputSchema` 时，Server 应让 `structuredContent` 符合该 Schema；为兼容只处理 Content Block 的 Client，可以同时返回文本表示。`isError=true` 表示 Tool 已被协议正常调用但业务执行失败，不应伪装成 JSON-RPC Error。
+
 ### Annotation
 
 `readOnlyHint`、`destructiveHint`、`idempotentHint` 和 `openWorldHint` 是 Server 自述。它们可以帮助 Catalog、Approval、并发和 Retry Policy，但不是安全证明。缺失或相互矛盾时，Host 应使用保守默认值。
@@ -74,6 +102,8 @@ Resource Definition 可包含名称、标题、描述、URI、MIME Type、大小
 db://schemas/{schema}/tables/{table}
 ```
 
+`resources/read` 可以返回文本或二进制 Blob。URI 和声明的 MIME Type 都是外部 Metadata，Host 仍应检查内容大小、实际类型和安全性。支持订阅的 Client 可以使用 `resources/subscribe`，但变化通知只提示内容可能更新，Client 需要重新读取才能获得新快照。
+
 Resource 不应无条件全部注入模型。Host 应按用户选择、检索结果或 Agent 需要读取，并实施权限过滤、Freshness、去重、Token 预算和引用追踪。
 
 ## Prompts：模板
@@ -83,6 +113,18 @@ Prompt 是 Server 提供的可复用消息模板：
 ```text
 prompts/list → 发现模板和参数
 prompts/get  → 传入参数并得到消息内容
+```
+
+Prompt Result 可以包含多条带 Role 的 Message，每条 Message 再携带文本、图像、音频或嵌入 Resource 等内容。Host 应把它接入自己的 Prompt 组装流程，而不是把整个 Result 当成一段最高优先级字符串：
+
+```text
+prompts/get(name, arguments)
+    ↓
+Prompt Result: description + messages[]
+    ↓
+Host 校验参数、来源、Role、内容类型和大小
+    ↓
+在既有 System / Developer / User 层级下组装 Context
 ```
 
 适合表达领域工作流入口、Few-shot 示例和工具使用建议。它不适合绕过 Host 的系统指令或安全规则。

@@ -52,6 +52,8 @@ Shutdown / Disconnect / Cleanup
 
 初始化解决三件事：协商协议版本、交换实现身份、声明可选 Capability。双方只能使用已协商的能力；“规范定义过”不表示当前连接支持。
 
+Server 的 Initialize Result 还可以包含 `instructions`，表达跨 Tool 的共同工作流、约束和使用建议。Host 应保留它的 Server Provenance，并像 Tool Description 一样将其视为外部声明；它不能覆盖 System、Developer、用户指令或组织 Policy。
+
 Capability 还可以声明变化通知，例如 Server 的 `tools.listChanged`。收到 `notifications/tools/list_changed` 后，Host 应重新获取并治理 Catalog，而不是直接相信缓存永久有效。
 
 ## stdio
@@ -81,6 +83,10 @@ Streamable HTTP 适合远程 Server。Client 使用 HTTP POST 发送消息，Ser
 
 远程 Transport 的网络认证不替代 MCP Tool Approval：前者回答“能否连接以及以谁的身份连接”，后者回答“当前具体动作是否允许”。
 
+Streamable HTTP 使用一个同时支持 POST 和 GET 的 MCP Endpoint，而不是每个 Tool 一个 REST URL。POST 发送 JSON-RPC 消息并可能返回普通 JSON 或 SSE；GET 可以建立 Server 到 Client 的 SSE 通道。初始化后还要处理 `MCP-Protocol-Version`、可选的 `MCP-Session-Id`、SSE `Last-Event-ID` 恢复和可选的 Session DELETE。
+
+HTTP 连接断开不等于 MCP Cancellation，也不能证明写操作失败。完整的消息、Session 和 OAuth 链路见 [远程 HTTP 与 Authorization](10-remote-http-and-authorization.md)。
+
 ## Timeout、取消与进度
 
 至少区分：
@@ -103,3 +109,5 @@ Streamable HTTP 适合远程 Server。Client 使用 HTTP POST 发送消息，Ser
 - 把重连、重新认证和 Catalog 变化写入 Trace。
 
 协议生命周期与 Agent Session 生命周期不是同一个对象。一个 Agent Session 可以跨越多次 MCP 重连，一个共享 MCP 连接也可能服务多个 Turn。
+
+协议本身没有专用的 Shutdown Request。stdio 通常由 Client 关闭输入流并等待或终止子进程；HTTP 通常关闭连接，并可对支持 Session 删除的 Server 发送 DELETE。实现不要虚构一个双方并未协商的 `shutdown` Method。

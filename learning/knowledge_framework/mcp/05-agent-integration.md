@@ -1,5 +1,41 @@
 # MCP 与 Agent、Tool 系统集成
 
+## 为什么通常只配置 Server 就能接入
+
+“Agent 无需修改，只配置 MCP Server 的 URL”成立的前提是 Agent Host 已经实现了通用 MCP Client 和 Tool 适配层。无需修改的是每个业务系统对应的 Agent 代码；连接、发现、转换、路由和治理能力并不是凭 URL 自动产生的，而是 Host 预先实现的一次性基础设施。
+
+对于远程 Streamable HTTP Server，URL 只标识协议端点，不负责描述全部业务接口。连接后，Host 通过标准 MCP 生命周期动态获得能力：
+
+```text
+配置 Server URL、认证和 Policy
+    ↓
+建立 Transport 连接
+    ↓
+initialize：协商协议版本和 Capability
+    ↓
+tools/list：获取名称、描述、输入 Schema 和 Annotation
+    ↓
+过滤并转换为模型可见的 Tool Catalog
+    ↓
+模型选择 Tool，Host 路由为 tools/call
+    ↓
+结果转换成 Observation，进入下一轮模型输入
+```
+
+因此 Host 不需要预先依赖 CRM、数据库或代码托管平台的专用 SDK。MCP Server 负责把统一的 `tools/call` 映射到自己的数据库、REST API 或其他业务实现；Host 依据 `tools/list` 返回的 Definition 动态适配。stdio Server 使用启动命令而不是 URL，但发现和调用过程相同。
+
+“只配置 URL”也不等于一定可用。至少还要满足：
+
+- Server 与 Host 支持兼容的 MCP 版本和 Capability；
+- 认证凭据、租户 Scope 和网络访问有效；
+- Tool 的描述和 Schema 足以让模型正确选择和构造参数；
+- Host 的 Enable、Allowlist、Approval 和输出限制允许本轮暴露与执行；
+- Catalog 变化后，Host 能通过通知或重连重新发现能力。
+
+模型通常不知道 URL，也不直接发送 MCP JSON-RPC。它看到的是 Host 转换后的 Tool Definition；协议连接和路由由 Host 完成。
+
+Server 还可以在 Initialize Result 中提供全局 `instructions`。Host 可以把它作为 Server 级使用建议参与 Tool 规划，但必须保留来源、限制大小，并确保它不能提升为高于 Host Policy 或用户明确要求的指令。
+
 ## 两套协议之间的桥
 
 模型通常不直接发送 MCP JSON-RPC。Host 先把 MCP Tool 转换成 Model Provider 能理解的 Tool Spec，再把模型产生的 Tool Call 路由回 MCP Server：
@@ -86,6 +122,8 @@ MCP Result 与 Provider Tool Output 的结构不一定一致。桥接层需要�
 ## Resources 和 Prompts 如何接入 Context
 
 Resources 不一定变成模型 Tool。Host 可以提供用户选择器、应用检索、显式的 `list/read resource` Tool，或在可靠规则下直接注入 Context。无论采用哪条路径，都需要 Provenance、权限、新鲜度和 Token 上限。
+
+因此，配置 Server 后，Agent 也不会自动看到 Server 的全部 Resource 内容。模型若要主动访问 Resource，Host 必须显式暴露通用的 Resource 列表/读取工具，或先由 Host 选择并把内容注入 Context。
 
 Prompts 应作为有来源的模板进入 Host 的 Prompt 组装流程。Server 返回的 Message 不应自动覆盖 System、Developer、用户明确指令或组织 Policy。
 
