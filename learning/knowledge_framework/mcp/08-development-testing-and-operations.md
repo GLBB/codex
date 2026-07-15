@@ -54,6 +54,37 @@ Transport 是部署决策，不应改变 Primitive 的业务语义。
 
 测试客户端或 MCP Inspector 能验证协议行为，但不能替代真实 Host 的 Tool Catalog、Prompt 优先级、Policy 和 UI 测试。
 
+## 从原始协议过渡到 SDK 与 Inspector
+
+手写 JSON-RPC 适合观察协议主链，但生产 Server 和 Client 应优先使用维护活跃、支持目标协议版本的 SDK。SDK 能减少 Schema 类型、消息关联、Capability、Transport 和升级兼容中的重复错误，但不会自动解决业务授权、幂等、输出上限和 Prompt Injection。
+
+推荐开发循环：
+
+```text
+SDK 实现 Server
+    ↓
+MCP Inspector 检查连接与 Capability
+    ↓
+分别测试 Tools / Resources / Prompts / Notifications
+    ↓
+真实 Host 验证 Catalog、Approval 和 Context
+    ↓
+对接真实外部系统验证身份、Scope 和副作用
+```
+
+使用 Inspector 时至少检查：
+
+1. 初始化协商出的版本和 Capability 是否符合预期；
+2. Tool Schema、Annotation、结构化结果和业务错误能否正确展示；
+3. Resource MIME Type、内容大小、Template 和订阅是否正确；
+4. Prompt 参数和生成的 Message 是否保留来源；
+5. List Changed、Progress、Logging 等 Notification 是否可观察；
+6. 非法参数、并发调用、断线和 Server 重启后的行为。
+
+Inspector 证明 Server 的协议面可以工作，不证明某个 Agent Host 会把所有能力暴露给模型，也不证明 Approval、认证或外部副作用安全。
+
+工具用法以官方 [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector) 为准；选择 SDK 时检查官方 [SDK 列表](https://modelcontextprotocol.io/docs/sdk) 的语言、协议版本和维护等级，不要只按包名相似度安装第三方实现。
+
 ## 必测场景
 
 1. Server 返回零个、很多个、分页和动态变化的 Tool。
@@ -113,3 +144,5 @@ Sampling  可选
 ```
 
 然后沿执行链、数据链和信任链分别回答：谁选择数据、谁授权查询、Credential 在哪里、结果如何截断、恶意单元格文本如何隔离、Timeout 后怎样确认查询状态。能回答这些问题，才算真正理解 MCP 集成，而不只是会启动一个 Server。
+
+完成设计后，先用 Inspector 分别调用 Resource、Prompt 和 Tool，再接入真实 Host。最后为缺少数据范围的调用增加 Elicitation：分别验证 Accept、Decline、Cancel、Timeout 和连接断开，确认 Pending Request 都有明确终态。

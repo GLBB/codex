@@ -88,6 +88,8 @@ Tool Result、Resource 和 Prompt 都可能包含自然语言指令。Host 应�
 - 日志、错误与 Trace 不记录 Secret；
 - Server 配置不能从不可信项目静默覆盖高权限凭据。
 
+对于受保护的远程 Streamable HTTP Server，还要区分 OAuth Resource Indicator 与 MCP Resource URI，验证 Token Audience，并禁止把 Client 交给 MCP Server 的 Token 原样传给下游 API。Protected Resource Metadata、PKCE、Scope Challenge 和 Step-up 的完整流程见 [远程 HTTP 与 Authorization](10-remote-http-and-authorization.md)。
+
 ## 安全评审清单
 
 1. Server 的来源、运营者、版本和更新机制是什么？
