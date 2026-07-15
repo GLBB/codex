@@ -49,6 +49,7 @@ Output / Observation / Context
 | Registry | Host 能够按名称路由到的本地执行器集合 |
 | Handler / Executor | 接收归一化调用并完成具体业务动作的实现 |
 | Tool Call / Invocation | 模型或嵌套 Runtime 发起的一次工具调用 |
+| `call_id` | 将一次模型工具调用与其 Tool Output 配对的不透明标识；不等同于协议请求 ID、业务操作 ID 或幂等键 |
 | Tool Output / Observation | 执行结果及其写回模型上下文的表示 |
 | Programmatic Tool Orchestration | 模型生成受控程序，在 Program Runtime 中组合一组允许嵌套的工具 |
 | Code Mode | 程序化工具编排的一种产品或实现名称，不是统一行业协议 |

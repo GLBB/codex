@@ -68,6 +68,31 @@ Codex 的执行输出格式化在 `codex-rs/core/src/tools/mod.rs`，通用 Tool
 
 ## call_id 与上下文回写
 
+`call_id` 是模型服务为某一次工具调用提供的关联标识。Host 应把它视为不透明字符串：接收调用时原样保存，回传 Tool Output 时继续使用同一个值。它解决的是“这份结果属于哪一次模型工具调用”，尤其适用于同一轮中存在多个并行调用、结果返回顺序与调用顺序不一致的情况。
+
+一次 MCP Tool 调用可能同时出现多种 ID，不能混用：
+
+| 标识 | 关联对象 | 主要用途 |
+| --- | --- | --- |
+| Provider Item `id` | 模型响应中的调用项 | 标识响应项及其流式生命周期 |
+| `call_id` | 模型工具调用与对应的 Tool Output | 将执行结果写回正确的调用 |
+| Runtime Invocation ID | Host 内部的一次调度或执行尝试 | 排队、取消、重试和日志追踪 |
+| MCP JSON-RPC Request ID | MCP Client 与 Server 之间的一次请求和响应 | 在协议连接中匹配 `tools/call` 请求与响应 |
+| External Operation ID | 外部系统中的订单、任务或作业 | 查询真实业务状态 |
+| Idempotency Key | 一个业务动作的重复提交 | 防止重试产生重复副作用 |
+
+Host 接入 MCP 时通常维护如下映射，而不是把这些 ID 当成同一个值：
+
+```text
+模型 call_id
+    ↓ Host 路由与记录
+Runtime Invocation ID
+    ↓ MCP Client 发送 tools/call
+MCP JSON-RPC Request ID
+    ↓ Server 执行业务操作
+External Operation ID / Idempotency Key
+```
+
 每个 Tool Call 都必须得到一个对应 Output，即使结果是拒绝、超时或取消。Runtime 还要避免孤儿 Output、重复 Output 和错误的输出种类：
 
 - Function Call 对应 Function Call Output；
