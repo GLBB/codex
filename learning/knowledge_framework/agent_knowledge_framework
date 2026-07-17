@@ -54,6 +54,11 @@ Agent
 │
 ├── 2. Model 与决策系统
 │   ├── Model Provider / API Protocol
+│   │   ├── Completion → Message / Item / Content Block 演进
+│   │   ├── OpenAI Chat Completions
+│   │   ├── OpenAI Responses
+│   │   ├── Anthropic Messages
+│   │   └── Provider Adapter / Canonical Conversation
 │   ├── 能力协商
 │   │   ├── Context Window / Modality
 │   │   ├── Tool Calling

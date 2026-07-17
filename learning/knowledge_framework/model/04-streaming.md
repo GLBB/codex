@@ -113,4 +113,4 @@ Streaming 能降低首 Token 延迟，却不一定降低总延迟。合理的 UI
 
 ---
 
-[上一篇：能力协商](02-capability-negotiation.md) · [返回学习地图](README.md) · [下一篇：Reasoning Effort 与 Sampling](04-reasoning-effort-and-sampling.md)
+[上一篇：能力协商](03-capability-negotiation.md) · [返回学习地图](README.md) · [下一篇：Reasoning Effort 与 Sampling](05-reasoning-effort-and-sampling.md)

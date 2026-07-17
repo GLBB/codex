@@ -135,4 +135,4 @@ Unknown     不发送危险或不可逆依赖字段；必要时探测或失败
 
 ---
 
-[上一篇：Model Provider 与 API Protocol](01-provider-api-protocol.md) · [返回学习地图](README.md) · [下一篇：Streaming](03-streaming.md)
+[上一篇：Provider Wire API 对照](02-provider-wire-api-comparison.md) · [返回学习地图](README.md) · [下一篇：Streaming](04-streaming.md)

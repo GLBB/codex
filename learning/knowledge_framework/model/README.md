@@ -41,15 +41,16 @@ Model Catalog + Provider Capability
 ## 推荐学习顺序
 
 1. [Model Provider 与 API Protocol](01-provider-api-protocol.md)：分清 Provider、Model、Wire API、Transport 和 Agent Runtime。
-2. [能力协商：Context、Modality、Tool、Structured Output 与 Streaming](02-capability-negotiation.md)：学习如何从能力目录构造有效请求。
-3. [Streaming：从增量事件恢复完整决策](03-streaming.md)：理解事件流、终态、取消、断线和重复边界。
-4. [Reasoning Effort 与 Sampling](04-reasoning-effort-and-sampling.md)：理解推理预算、随机性、延迟、成本和可复现性。
-5. [Planning、Reflection 与 Critique](05-planning-reflection-critique.md)：把三类决策机制放回 Agent Loop，而不是把它们当作模型魔法。
-6. [Model Routing 与 Fallback](06-model-routing-fallback.md)：设计选择、切换、降级和恢复策略。
-7. [Rate Limit、Capacity 与 Retry](07-rate-limit-capacity-retry.md)：建立错误分类、退避、幂等和容量控制。
-8. [完整案例、设计检查与练习](08-complete-case-and-checklist.md)：沿一条端到端链路串起本部分。
+2. [Provider Wire API：Chat Completions、Responses 与 Anthropic Messages](02-provider-wire-api-comparison.md)：理解协议为什么从 Completion 演进到 Message、Item 与 Content Block，并比较指令、工具、状态和流式语义。
+3. [能力协商：Context、Modality、Tool、Structured Output 与 Streaming](03-capability-negotiation.md)：学习如何从能力目录构造有效请求。
+4. [Streaming：从增量事件恢复完整决策](04-streaming.md)：理解事件流、终态、取消、断线和重复边界。
+5. [Reasoning Effort 与 Sampling](05-reasoning-effort-and-sampling.md)：理解推理预算、随机性、延迟、成本和可复现性。
+6. [Planning、Reflection 与 Critique](06-planning-reflection-critique.md)：把三类决策机制放回 Agent Loop，而不是把它们当作模型魔法。
+7. [Model Routing 与 Fallback](07-model-routing-fallback.md)：设计选择、切换、降级和恢复策略。
+8. [Rate Limit、Capacity 与 Retry](08-rate-limit-capacity-retry.md)：建立错误分类、退避、幂等和容量控制。
+9. [完整案例、设计检查与练习](09-complete-case-and-checklist.md)：沿一条端到端链路串起本部分。
 
-初学者应按顺序阅读。已经实现过模型客户端的读者，可以先读第 2、6、7 篇，再用第 8 篇检查系统边界。
+初学者应按顺序阅读。已经实现过模型客户端的读者，可以先读第 3、7、8 篇，再用第 9 篇检查系统边界。
 
 ## 三条阅读主线
 
@@ -76,27 +77,31 @@ Error → Classification → Retry Same Route / Change Transport
 | 知识框架节点 | 对应教程 |
 | --- | --- |
 | Model Provider / API Protocol | 第 1 篇 |
-| Context Window / Modality | 第 2 篇 |
-| Tool Calling | 第 1、2 篇 |
-| Structured Output | 第 2 篇 |
-| Streaming | 第 2、3 篇 |
-| Reasoning Effort / Sampling | 第 4 篇 |
-| Planning / Reflection / Critique | 第 5 篇 |
-| Model Routing / Fallback | 第 6 篇 |
-| Rate Limit / Capacity / Retry | 第 7 篇 |
-| 综合设计与验收 | 第 8 篇 |
+| Chat Completions / Responses / Anthropic Messages | 第 2 篇 |
+| Provider Adapter / Canonical Conversation | 第 1、2 篇 |
+| Context Window / Modality | 第 3 篇 |
+| Tool Calling | 第 1～3 篇 |
+| Structured Output | 第 3 篇 |
+| Streaming | 第 2～4 篇 |
+| Reasoning Effort / Sampling | 第 5 篇 |
+| Planning / Reflection / Critique | 第 6 篇 |
+| Model Routing / Fallback | 第 7 篇 |
+| Rate Limit / Capacity / Retry | 第 8 篇 |
+| 综合设计与验收 | 第 9 篇 |
 
 ## 学习完成标准
 
 完成本组教程后，应能回答：
 
 1. Provider、Model、API Protocol 和 Transport 为什么不能混为一谈？
-2. 能力协商为什么不是“把所有参数都发给 Provider”？
-3. Context Window 的标称值、有效输入预算和自动压缩阈值有什么区别？
-4. Tool Calling 和 Structured Output 分别约束动作与最终结果的哪一部分？
-5. 为什么收到若干文本 Delta 不等于收到一个完整响应？
-6. Reasoning Effort 与 temperature、top-p 等 Sampling 参数控制的是不是同一件事？
-7. Planning、Reflection 和 Critique 应在什么证据边界上运行？
-8. 模型切换、传输降级和模型元数据兜底有什么不同？
-9. 哪些错误适合重试，哪些错误重试只会放大故障？
-10. 如何证明一次 fallback 没有破坏上下文、工具调用和副作用的一致性？
+2. Chat Completions 的 Message、Responses 的 Item 与 Anthropic 的 Content Block 怎样映射，哪里不能无损转换？
+3. 为什么 Agent 的内部事实模型不应直接等同于某一家 Provider 的 Wire API？
+4. 能力协商为什么不是“把所有参数都发给 Provider”？
+5. Context Window 的标称值、有效输入预算和自动压缩阈值有什么区别？
+6. Tool Calling 和 Structured Output 分别约束动作与最终结果的哪一部分？
+7. 为什么收到若干文本 Delta 不等于收到一个完整响应？
+8. Reasoning Effort 与 temperature、top-p 等 Sampling 参数控制的是不是同一件事？
+9. Planning、Reflection 和 Critique 应在什么证据边界上运行？
+10. 模型切换、传输降级和模型元数据兜底有什么不同？
+11. 哪些错误适合重试，哪些错误重试只会放大故障？
+12. 如何证明一次 fallback 没有破坏上下文、工具调用和副作用的一致性？
