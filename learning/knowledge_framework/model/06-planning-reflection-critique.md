@@ -131,4 +131,4 @@ planned high-risk action
 
 ---
 
-[上一篇：Reasoning Effort 与 Sampling](04-reasoning-effort-and-sampling.md) · [返回学习地图](README.md) · [下一篇：Model Routing 与 Fallback](06-model-routing-fallback.md)
+[上一篇：Reasoning Effort 与 Sampling](05-reasoning-effort-and-sampling.md) · [返回学习地图](README.md) · [下一篇：Model Routing 与 Fallback](07-model-routing-fallback.md)

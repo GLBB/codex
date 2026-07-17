@@ -188,4 +188,4 @@ Observation 以同一 `call_id` 回写历史，模型继续请求文件读取、
 
 ---
 
-[上一篇：Rate Limit、Capacity 与 Retry](07-rate-limit-capacity-retry.md) · [返回学习地图](README.md)
+[上一篇：Rate Limit、Capacity 与 Retry](08-rate-limit-capacity-retry.md) · [返回学习地图](README.md)
