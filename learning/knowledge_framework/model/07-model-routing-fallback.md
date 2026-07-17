@@ -116,4 +116,4 @@ Failure
 
 ---
 
-[上一篇：Planning、Reflection 与 Critique](05-planning-reflection-critique.md) · [返回学习地图](README.md) · [下一篇：Rate Limit、Capacity 与 Retry](07-rate-limit-capacity-retry.md)
+[上一篇：Planning、Reflection 与 Critique](06-planning-reflection-critique.md) · [返回学习地图](README.md) · [下一篇：Rate Limit、Capacity 与 Retry](08-rate-limit-capacity-retry.md)

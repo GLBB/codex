@@ -82,6 +82,8 @@ next input: function_call_output(call_id, output)
 
 Provider 托管工具的边界不同：Provider 可能自己完成搜索或代码执行，再以具体 Call Item 和结果事件返回。系统仍要区分“模型提出动作”“谁执行动作”“谁负责把结果回到下一步上下文”。
 
+Chat Completions、OpenAI Responses 与 Anthropic Messages 的对象模型、工具闭环、状态延续和流式事件对照见 [Provider Wire API：Chat Completions、Responses 与 Anthropic Messages](02-provider-wire-api-comparison.md)。
+
 Tool 线路协议的更细说明见 [Model Provider API 与 Tool 协议](../tool/08-provider-api-protocol.md)。本组教程后续关注能力选择和决策系统，不重复展开所有工具类型。
 
 ## 请求构造应是显式投影
@@ -123,4 +125,4 @@ Provider-specific Request DTO
 
 ---
 
-[返回学习地图](README.md) · [下一篇：能力协商](02-capability-negotiation.md)
+[返回学习地图](README.md) · [下一篇：Provider Wire API 对照](02-provider-wire-api-comparison.md)

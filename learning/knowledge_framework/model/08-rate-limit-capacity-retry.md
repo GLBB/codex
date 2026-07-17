@@ -114,4 +114,4 @@ Exactly-once 通常无法由单个客户端保证。更现实的目标是 At-lea
 
 ---
 
-[上一篇：Model Routing 与 Fallback](06-model-routing-fallback.md) · [返回学习地图](README.md) · [下一篇：完整案例、设计检查与练习](08-complete-case-and-checklist.md)
+[上一篇：Model Routing 与 Fallback](07-model-routing-fallback.md) · [返回学习地图](README.md) · [下一篇：完整案例、设计检查与练习](09-complete-case-and-checklist.md)
