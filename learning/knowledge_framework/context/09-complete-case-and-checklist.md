@@ -190,6 +190,8 @@ Context 系统不是 Agent Loop 旁边的一块静态数据库；它在 Loop 每
 - 是否按 Provenance、Trust、Freshness、相关性和成本选择？
 - 是否区分标称窗口与该模型在当前任务上的有效利用能力？
 - 摘要、截断和缓存是否有不同语义与失效策略？
+- Prompt Cache Key 是否划定了正确 Scope，实际请求是否仍保持稳定且正确的前缀？
+- 是否分别监控缓存读取、缓存写入、非缓存输入、延迟和成本？
 - 是否有总预算、分类预算、单项硬上限和 Loop 上限？
 - 是否记录被选择、压缩和丢弃的原因以支持调试？
 - 跨 Session 或 Agent 时，是否生成自包含 Handoff，并要求接收者刷新易变状态？
@@ -203,5 +205,6 @@ Context 系统不是 Agent Loop 旁边的一块静态数据库；它在 Loop 每
 4. 为 CI 日志、Skill Metadata、单个 RAG Chunk 和历史摘要分别设定硬上限，并说明超限降级策略。
 5. 任务被迫切换到新 Session：分别设计 Compaction Item 和 Handoff Document，指出两者不能互换的字段。
 6. 同一份证据分别放在 20K 输入的开头、中间和结尾，设计一个区分 Retriever Recall 与模型利用率的评估。
+7. 连续捕获两次 Agent 请求，从模型、基础指令、Tool Definitions 到 History 逐项寻找第一个前缀差异，并判断应修复无意义抖动还是接受正确失效。
 
 [上一篇：Context Engineering](08-context-engineering.md) · [返回学习地图](README.md)

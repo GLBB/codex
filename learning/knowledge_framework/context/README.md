@@ -68,6 +68,10 @@ RAG 文档、网页、日志和工具输出通常是数据或证据。即使其�
 
 通常不会。大窗口缓解“选出的材料放不下”，RAG 解决“从更大且持续变化、受权限控制的知识空间中选什么”。当资料小而固定时可以直接使用 Long Context；企业知识、动态事实和可引用回答通常仍需 RAG，实践中常采用 Hybrid，详见 [RAG：召回、证据与评估](06-rag-retrieval-grounding-and-evaluation.md#9-模型上下文很大rag-是否还有用)。
 
+### Prompt Cache 命中会释放 Context Window 吗
+
+不会。缓存 Token 通常仍是本次模型输入并占用 Context Window；缓存优化的是相同前缀的重复计算、延迟或计费，摘要与 Compaction 才负责释放容量。稳定 Cache Key 也不等于一定命中，模型、指令、工具和历史序列化前缀仍需保持兼容，详见 [Context Engineering](08-context-engineering.md#prompt-cache-复用的是什么)。
+
 ## 六类知识载体
 
 | 载体 | 典型生命周期 | 主要用途 | 首要风险 |
@@ -109,6 +113,8 @@ RAG 文档、网页、日志和工具输出通常是数据或证据。即使其�
 - `codex-rs/state/src/runtime/memories.rs`：Memory 提取、整合、使用计数与清理。
 - `codex-rs/core-skills/src/`：Skill 发现、Metadata 预算、加载与注入。
 - `codex-rs/core/src/compact*.rs`：本地或远端压缩与压缩预算。
+- `codex-rs/core/src/client.rs` 与 `codex-rs/core/tests/suite/prompt_caching.rs`：Prompt Cache Key、请求前缀稳定性和缓存边界。
+- `codex-rs/codex-api/src/sse/responses.rs` 与 `codex-rs/protocol/src/protocol.rs`：缓存读取 / 写入 Token 的解析与观测。
 
 这些是实现示例，不代表 RAG、Memory 或指令优先级只有一种标准协议。阅读时先理解职责，再对照类型名。
 
@@ -122,6 +128,6 @@ RAG 文档、网页、日志和工具输出通常是数据或证据。即使其�
 4. 四类 Memory 分别适合存什么，以及何时不应写入。
 5. RAG 从摄取到引用的完整链路，以及租户隔离为什么必须在检索前实施。
 6. Skill 为什么采用 Metadata → 主说明 → 相关资源的渐进披露。
-7. 摘要、截断和缓存分别解决什么问题，分别可能损失什么。
+7. 摘要、截断和 Prompt Cache 分别解决什么问题，为什么缓存命中不释放 Context Window。
 8. 如何给不同 Context 类别分配预算和硬上限。
 9. 如何设计 Memory Write / Forget Policy，避免把一次误解变成长期事实。
