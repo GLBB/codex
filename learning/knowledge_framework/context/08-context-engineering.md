@@ -138,9 +138,71 @@ utility = relevance × authority × freshness × actionability
 
 摘要应说明“不确定”和“未验证”，不能把推断压成事实。
 
-### Cache 怎样不破坏正确性
+### Prompt Cache 复用的是什么
 
-稳定基础指令和未变化历史前缀适合缓存；当前时间、权限、Workspace 和易变检索结果需要更细的失效策略。Cache Key 至少要考虑模型、指令版本、租户 / 用户 Scope、工具定义和相关状态版本。
+Prompt Cache 复用的是多次模型请求中相同或兼容的输入前缀已经完成的服务端计算，不是把一段语义相近的文字当作同一份 Memory。一次 Agent 请求可以粗略看成：
+
+```text
+稳定前缀                                                    易变后缀
+模型基础指令 → Tool Definitions → 早期 History → 最近 History → 当前用户消息
+└────────────────── 可能复用的 Prefix ──────────────────┘
+```
+
+具体命中粒度、最小长度、保留时间和计费方式由 Provider、模型与接口版本决定，不能把某一版本的规则写成通用不变量。但系统设计通常要同时满足两类条件：
+
+1. 请求落在正确的缓存作用域，例如使用稳定且隔离良好的 `prompt_cache_key`。
+2. 从请求开头到某个边界的序列化内容与顺序保持一致；仅仅 Key 相同不代表内容一定命中。
+
+模型、基础指令、Tool Definition、消息角色、内容、顺序或图片表示发生变化，都可能让可复用前缀提前结束。即使后部内容相同，只要更靠前的位置变化，后面的相同内容通常也不能继续视作同一连续前缀。因此应把稳定内容放前面，把当前 Turn、时间、动态权限和检索结果等易变内容追加在后面。
+
+### Cache Key 与内容失效是两层问题
+
+Cache Key 的首要职责是划定复用范围并避免错误共享。它至少要考虑 Provider 的契约，以及会形成安全或正确性边界的租户、用户、Session、模型族和指令版本。Key 过宽可能把不同 Scope 的请求送入同一复用域；Key 每轮随机变化则会失去复用机会。
+
+但不要把所有状态版本都机械拼进 Key。权限或 Workspace 变化时，更重要的是把变化作为新的、模型可见的 Context Item 追加到历史，确保模型得到最新状态；是否还要切换 Key，要根据 Provider 的隔离语义和缓存中是否包含不可跨 Scope 复用的内容决定。
+
+可以把两层失效分开评审：
+
+| 层次 | 典型问题 | 设计动作 |
+| --- | --- | --- |
+| 作用域失效 | 用户、租户、会话或安全边界改变 | 更换或重新派生 Cache Key |
+| 前缀失效 | 指令、工具、早期历史或序列化格式改变 | 接受从变化点后重新计算，避免无意义地重写更早内容 |
+| 新鲜度更新 | cwd、权限、时间或检索证据改变 | 在旧前缀后追加带版本或时间的新 Observation |
+| 历史重写 | Compaction、Rollback、脱敏或规范化改变旧 Item | 建立新的缓存前沿，并验证旧状态没有残留 |
+
+安全不能依赖“缓存大概会失效”。身份与权限过滤仍必须在内容进入模型请求之前完成；删除敏感内容时也要遵循 Provider 的缓存保留契约，并清理系统自己控制的派生缓存。
+
+### Prompt Cache 不等于 Context 压缩
+
+缓存命中的 Token 通常仍属于本次输入，也仍占用模型 Context Window。它可能减少重复前缀的计算成本、延迟或输入计费，但不会让模型获得更大的有效窗口。Compaction、摘要和截断负责容量，Prompt Cache 负责重复计算，两者可以同时发生：
+
+```text
+缓存：相同长前缀再次发送得更便宜或更快
+压缩：把旧历史改写得更短，从而释放窗口
+```
+
+压缩会重写旧历史，因此常常也会改变缓存前缀。不能只比较压缩节省的 Token，还要比较压缩后的非缓存输入、缓存写入、后续多 Turn 的缓存读取和任务质量。
+
+### 怎样提高命中率而不牺牲正确性
+
+- 基础指令和 Tool Definitions 使用确定性顺序与稳定序列化；不要从无序集合生成请求。
+- History 默认有序追加，不因本轮状态变化重写较早 Item。
+- 把权限、环境和 Workspace 变化渲染成差量，追加在已发送历史之后。
+- 只有状态真的变化时才注入更新；避免把每轮生成的时间戳、随机 ID 或等价但格式不同的文本放进稳定前缀。
+- Tool Catalog 很大时使用延迟发现，但要保证已加载工具的排序和定义稳定。
+- Compaction、Rollback、模型切换和 Tool Schema 变更视为明确的缓存边界，而不是隐蔽地追求旧命中。
+- 优先保证指令、权限与新鲜度正确；缓存命中率是优化指标，不是 Context 正确性的约束。
+
+### 怎样观测与诊断
+
+若 Provider 返回细分用量，至少记录每次请求的 `input_tokens`、`cached_input_tokens`、`cache_write_input_tokens`、输出 Token、首 Token 延迟、总延迟、模型、Cache Key 的非敏感标识和 Context 版本。常用派生指标包括：
+
+```text
+cache_read_ratio = cached_input_tokens / input_tokens
+non_cached_input = max(input_tokens - cached_input_tokens, 0)
+```
+
+`cache_write_input_tokens` 的含义和计费应按 Provider 契约解释，不能与 `cached_input_tokens` 混为一谈。排查命中骤降时，应从请求开头依次比较模型、基础指令、工具列表与 Schema、历史 Item 的角色 / 顺序 / 内容和多模态表示，找到第一个差异点；只检查 Cache Key 通常不够。
 
 ## 7. Token 预算与硬上限
 
@@ -194,7 +256,13 @@ Context Engineering 不只负责读。任务完成后，系统要决定哪些结
 
 从 `codex-rs/context-fragments/src/fragment.rs` 建立“类型化 Fragment”概念，再读 `codex-rs/core/src/context_manager/history.rs` 的记录、归一化、Token 估算和 World State 更新。这两处构成“内容表示 + 历史装配”主干。
 
-沿容量路径阅读 `codex-rs/core/src/compact_token_budget.rs`、`compact.rs` 和 `context/token_budget_context.rs`，观察总窗口、压缩与模型可见预算提示之间的分工。沿状态路径阅读 `context/world_state/` 的 Snapshot / Diff。沿渐进披露路径阅读 `codex-rs/core-skills/src/render.rs` 的 Metadata Budget。
+沿 Prompt Cache 路径先看 `codex-rs/core/src/client.rs` 的 `ModelClient::prompt_cache_key` 和请求构造：默认 Key 来自 Session ID，并随请求发出。再读 `codex-rs/core/tests/suite/prompt_caching.rs`，观察测试如何要求 Tool Definitions 稳定、旧输入保持为下一请求的完整前缀，并把设置与环境变化追加到后面。这里验证的是“缓存命中潜力”；真正的缓存存储与命中由 Provider 完成，并不在 `core/src/context/` 中。
+
+接着读 `codex-rs/core/src/context_manager/history.rs` 的 `record_items`、`replace` 和 `update_world_state`，再进入 `context/world_state/mod.rs` 的 `snapshot`、`render_history_diff`。重点观察默认追加、历史重写后清空基线、状态未变化时不重复注入、状态变化时只渲染差量怎样共同保护稳定前缀。不要把 World State Snapshot 误认为 Prompt Cache；它是决定“下一轮需要告诉模型什么”的本地比较状态。
+
+最后沿观测路径阅读 `codex-rs/codex-api/src/sse/responses.rs` 如何把 Provider 用量映射为 `cached_input_tokens` 和 `cache_write_input_tokens`，以及 `codex-rs/protocol/src/protocol.rs` 的 `TokenUsage` 如何区分缓存与非缓存输入。用 `codex-rs/core/tests/suite/prompt_cache_key.rs` 确认 Root / Subagent 的 Thread ID 可以不同，而默认 Prompt Cache Key 仍按共享 Session 作用域组织。
+
+沿容量路径阅读 `codex-rs/core/src/compact_token_budget.rs`、`compact.rs` 和 `context/token_budget_context.rs`，观察总窗口、压缩与模型可见预算提示之间的分工。沿渐进披露路径阅读 `codex-rs/core-skills/src/render.rs` 的 Metadata Budget。
 
 最后用 `codex-rs/core/tests/suite/compact.rs`、`rollout_budget.rs` 和 `skills.rs` 看不变量怎样被测试。阅读到能解释“为什么一个 Fragment 出现、何时更新、怎样被截断或压缩”即可。
 
@@ -205,7 +273,11 @@ Context Engineering 不只负责读。任务完成后，系统要决定哪些结
 - 是否按具体 Model / Version 测量位置、长度、干扰项和多跳利用率？
 - 冲突是否区分指令冲突与事实冲突？
 - 摘要是否保留禁止事项、来源和未验证状态？
-- Cache Key 与失效条件是否包含权限和版本？
+- Cache Key 是否与租户、用户、Session 和 Provider 隔离语义一致？
+- Key 相同时，是否仍验证模型、指令、工具与历史的实际前缀稳定性？
+- 动态状态是否通过追加差量保持新鲜，而不是为了命中继续使用旧状态？
+- 是否分别观测缓存读取、缓存写入、非缓存输入、延迟和成本？
+- 是否明确缓存 Token 仍占 Context Window，不能替代压缩与截断？
 - 是否同时设置总预算、分类预算、单项上限和循环预算？
 - Memory 写入与遗忘是否可解释、可更正、可传播？
 
