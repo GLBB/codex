@@ -102,6 +102,60 @@ tool_call(call_id = 42)  ↔  tool_output(call_id = 42)
 | 是否立即释放当前窗口 | 是，若 Runtime 用结果替换旧历史 | 否；只有进入新 Context 且不再携带旧历史时才释放 |
 | 内容重点 | 维持当前推理连续性 | 让不了解前情的接收者能够重新定位、验证并接手 |
 
+### 哪个效果更好
+
+不能脱离任务阶段比较。如果目标是**在同一 Session 中无缝继续**，Compaction 通常更好；如果目标是**摆脱长期积累的噪声，在干净 Context 中重新聚焦**，高质量 Handoff 往往更好。
+
+| 评价目标 | 更适合的机制 | 原因 |
+| --- | --- | --- |
+| 保留近期对话细节 | Compaction | 通常仍保留最近原始 Turn |
+| 延续 Tool Call、内部 ID 和运行状态 | Compaction | 仍处于原 Thread 和 Runtime 生命周期 |
+| 清除重复日志、失败探索和过期计划 | Handoff + 新 Session | 新 Context 不再携带旧历史 |
+| 让另一个 Agent 或人接手 | Handoff | 交接件面向不了解原历史的接收者 |
+| 自动跨过一次 Token 阈值 | Compaction | Runtime 可以直接替换旧 Model Context |
+| 多次压缩后恢复任务清晰度 | Handoff + 新 Session | 避免继续累积摘要漂移和旧 Context 干扰 |
+
+Handoff 经常“感觉效果更好”，是因为它把任务重新整理成一份短而自包含的状态，并在新 Session 中去掉探索过程：
+
+```text
+旧 Session
+├── 多轮探索和失败尝试
+├── 重复 Tool Output
+├── 已过期的计划与 Workspace 判断
+└── 当前仍然有效的任务状态
+                 │
+                 ▼ Handoff
+新 Session
+├── 目标、限制和完成标准
+├── 已确认事实与证据位置
+├── 当前修改和验证结果
+└── 未决项、下一步与待刷新状态
+```
+
+但这种优势不是 Handoff 这个名字天然带来的。如果交接件漏掉否定条件、失败原因、用户已有改动或外部副作用，新 Session 无法再从原始 History 补回信息，效果会比 Compaction 更差。Compaction 的主要风险则是摘要错误继续留在同一 Thread，并与残余旧 Context 一起累积。
+
+还要注意：**只在当前 Session 里生成 Handoff 文档，不切换 Context，并不会节省 Token 或清除噪声**。只有新 Session 以 Handoff 为启动输入、且不再附带完整旧历史时，才获得“干净重启”的效果。
+
+### 推荐的组合策略
+
+```text
+普通长任务
+    ↓
+优先 Compaction，保持工具和近期对话连续
+    ↓
+到达阶段边界 / 多次压缩 / 出现重复与约束遗忘
+    ↓
+生成 Handoff Artifact
+    ↓
+新 Session 读取 Handoff，并重新验证 Workspace、权限和外部状态
+```
+
+适合继续 Compaction 的信号：任务接近完成、近期 Tool 交互很重要、后台进程仍在运行，或者只是第一次接近窗口阈值。
+
+适合 Handoff 的信号：从调查切换到实现或验证阶段、已经多次压缩、模型开始重复或遗忘约束、需要更换 Agent / Model / Environment，或者任务将暂停后继续。
+
+所以更准确的结论是：**Compaction 擅长不中断地继续，Handoff 擅长清理后重新开始；长任务通常组合使用，而不是永久二选一。**
+
 ### 同一段摘要为什么不能直接通用
 
 压缩摘要可以依赖同一 Thread 中仍保留的最近 Turn、工具状态和内部 ID；Handoff 必须更自包含，至少明确：
@@ -154,8 +208,10 @@ Handoff 不是把完整 Context 复制到另一个地方。它应去掉闲聊、
 - Resume 是否会刷新易变环境，而不是盲信旧快照？
 - Fork 是否有明确的共享点和独立后续事件？
 - 压缩是否保留目标、约束、事实、证据、修改和未决项？
+- 系统是否根据连续性需求、Context 噪声和任务阶段选择 Compaction 或 Handoff？
 - Handoff 是否明确接收者、状态基线、证据位置和必须重新验证的内容？
 - Handoff 是否被误认为当前 Session 的自动 Token 回收机制？
+- 新 Session 是否真的只使用交接所需 Context，而不是把 Handoff 和全部旧历史再次拼在一起？
 - 外部副作用是否被误认为能随对话回滚？
 
 [上一篇：Prompt、指令来源与优先级](01-prompt-instructions-and-priority.md) · [返回学习地图](README.md) · [下一篇：环境与 Workspace 状态](03-environment-and-workspace-state.md)
