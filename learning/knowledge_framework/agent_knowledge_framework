@@ -220,6 +220,8 @@ Prompt 与指令优先级、Session、Workspace、Memory、RAG、Skills 和 Cont
 
 Tool 与行动系统的分层说明、设计检查和 Codex 源码阅读路线见 [Tool 与行动系统学习地图](tool/README.md)。MCP 跨越 Tool、Context、人机交互、安全和互操作，完整协议与 Codex 集成见 [MCP 学习地图](mcp/README.md)。
 
+Preconditions、Tests、Evidence、Verifier、副作用对账、人工验收和终态归约见 [Verification 与完成判定学习地图](verification/README.md)。
+
 Code Mode 的**主归属是 Tool 与行动系统中的程序化工具编排**。普通 Direct Tool Call 由模型逐次选择工具并等待 Observation；Code Mode 则让模型生成一段受控程序，由专门的 Program Runtime 执行，并在程序内部调用允许嵌套的工具。它因此同时与 Tool Catalog、Tool Runtime、Context、安全和可靠性相交，但不是独立 Agent，也不只是模型能力或某一种业务工具。完整概念、适用条件和 Codex 源码阅读路线见 [Code Mode 与程序化工具编排](tool/10-code-mode-and-programmatic-tool-calling.md)。
 
 ```text
