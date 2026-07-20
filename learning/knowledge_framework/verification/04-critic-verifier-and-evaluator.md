@@ -1,5 +1,21 @@
 # Critic、Verifier 与 Evaluator
 
+## 继续看“网站标题”案例
+
+Agent 根据一张页面截图得出“标题已更新且页面正常”。截图能支持标题显示正确，却不一定覆盖页面健康检查、交互功能或当前 Deployment 与 Commit 的对应关系。
+
+```text
+Critic
+    指出“页面正常”的结论超出了现有截图能证明的范围
+Verifier
+    标题 Criterion = Pass
+    页面健康 Criterion = Unknown（当前证据尚不能证明）
+Evaluator
+    统计大量任务中的误完成率和各类 Criterion 通过率
+```
+
+三者都可能使用模型，但职责不同：Critic 找漏洞，Verifier 按标准判定，Evaluator 衡量系统质量。
+
 ## 三种角色解决不同问题
 
 | 角色 | 核心问题 | 典型输入 | 典型产物 | 是否决定当前任务终态 |

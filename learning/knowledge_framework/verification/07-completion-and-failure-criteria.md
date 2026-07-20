@@ -1,5 +1,23 @@
 # Completion 与 Failure Criteria
 
+## 最后才宣布完成
+
+回到“修改测试环境网站标题”的例子，只有在以下条件都满足后才能宣布 Complete：
+
+```text
+文件修改正确
+    + 构建和相关测试通过
+    + 目标 Deployment 使用当前 Commit
+    + 页面实际显示“夏日促销”
+    + 约定的页面健康检查通过
+    + 如果 Success Criteria 要求人工验收，则已获得 Acceptance
+    + 没有未对账的发布请求
+        ↓
+      Complete
+```
+
+如果发布请求仍然无法确认，对应的操作和 Criterion 应保持 `Unknown`，Task 则归约为 `Blocked / Waiting`。不能为了让流程结束而把它改写成 `Failed` 或 `Complete`。
+
 ## 完成是一次证据驱动的状态归约
 
 Agent 不应在模型生成 Final Answer 时自动进入 Complete。更可靠的判定是：
