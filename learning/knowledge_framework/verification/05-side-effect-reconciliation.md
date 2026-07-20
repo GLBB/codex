@@ -1,5 +1,20 @@
 # Side-Effect Reconciliation
 
+## 先看一个超时请求
+
+部署请求发出后，客户端在收到平台确认前超时。此时最准确的结论不是“部署失败”，而是“部署状态未知”。平台可能已经部署成功，立即重试可能产生第二个 Deployment。
+
+```text
+Unknown
+    ↓ 查询 Request ID / Deployment ID
+确认已部署 → Succeeded
+确认 Running → 等待或轮询
+确认 NotStarted / FailedNoEffect → 在条件允许时重试
+无法权威确认 → 保持 Unknown，阻塞任务或请求人工决策
+```
+
+“查询不到 Deployment”不等于“确认没有部署”：目标平台可能仍在处理，查询结果也可能尚未一致。只有权威状态确认请求未开始、失败且无副作用，或者目标服务能用同一 Idempotency Key 保证重试不会扩大效果时，才可以重试。
+
 ## 最危险的不是明确失败，而是结果未知
 
 外部写操作通常跨越 Agent、Tool Runtime 和目标服务。调用方超时，不代表目标端没有执行：
