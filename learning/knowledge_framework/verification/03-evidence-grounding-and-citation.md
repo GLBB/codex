@@ -1,5 +1,24 @@
 # Evidence、Grounding 与 Citation
 
+## 证据要回答“凭什么这么说”
+
+当 Agent 说“测试环境页面已经更新”时，至少要能指出：当前部署的 Commit、目标环境，以及访问该环境时实际读到的页面内容。
+
+```text
+Claim
+    测试环境页面标题是“夏日促销”
+Source
+    测试环境页面、部署平台中的环境与版本记录
+Observation / Artifact
+    浏览器读取的 DOM、平台返回的 Deployment 记录
+Evidence
+    DOM 中的标题值、环境到 Deployment 与 Commit 的对应关系
+Provenance
+    URL、Deployment ID、Commit、访问时间
+```
+
+代码中出现这段文字，只能证明代码包含它；测试通过，只能证明测试所覆盖的性质成立。URL、ID、Commit 和时间帮助定位并复核来源，但它们本身不等于支持 Claim 的事实。证据必须和 Claim 的范围相匹配。
+
 ## 从 Observation 到可核验结论
 
 这些概念位于同一条链上，但含义不同：
