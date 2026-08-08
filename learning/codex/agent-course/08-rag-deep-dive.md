@@ -1,178 +1,158 @@
-# 08 RAG 深挖：从能检索到能排查
+# 08 RAG 深挖：让 Agent 找到证据，而不是只生成答案
 
-## 本课目标
+## 从一次错误回答开始
 
-很多 Agent 面试会从 RAG 开始深挖，因为 RAG 同时考数据处理、检索、排序、上下文、评测和线上排障。本课目标是让你能回答：
+用户问“Codex 的 MCP 调用失败后在哪里记录 trace？”，系统检索到一篇介绍 MCP 协议的
+文章，却没找到本仓库的实现。模型回答得很流畅，但没有回答问题。
 
-- RAG 和微调怎么选？
-- 召回率低怎么排查？
-- Chunk、Embedding、Hybrid Search、Rerank、Query Rewrite 分别解决什么问题？
-- RAG 和 Agent Memory 有什么关系？
-
-## Step 1：画出 RAG 主链路
-
-先画基础链路：
+这是典型 RAG 事故。最终生成只是供应链最后一环：
 
 ```text
-documents
-  -> parse / clean
-  -> chunk
-  -> embedding
-  -> index
-  -> retrieve
-  -> rerank
-  -> context packing
-  -> generation with citations
-  -> evaluation
+文档 -> 解析 -> Chunk -> 索引 -> 召回 -> 重排 -> Context Packing -> 生成与引用
 ```
 
-面试时不要只说“向量库 + 大模型”。至少要能讲清每一段可能失败在哪里。
+任何一环丢失信息，后面的模型都无法凭空恢复。排障的第一原则是先找证据在哪一环消失。
 
-## Step 2：拆 Chunk 策略
+## Chunk：把文档切成可检索的意义单元
 
-常见追问：
+Chunk 太小，可能只召回“permission check”一句而失去所属函数；太大，则把整个模块带入
+上下文，相关信号被噪声淹没。
 
-- Chunk 太大和太小分别有什么问题？
-- 语义被切断怎么办？
-- 代码、表格、Markdown、PDF 要不要用同一种切法？
+好的切分先尊重结构，再考虑 token：Markdown 按标题层级，代码按类型/函数，表格保留
+表头，PDF 保留页码。每个 chunk 带 metadata：
 
-答题要点：
+```json
+{
+  "document_id": "core/tools/mcp.rs",
+  "heading_path": ["MCP", "Approval"],
+  "symbol": "handle_mcp_tool_call",
+  "updated_at": 1785945600,
+  "permission_tags": ["repo:codex"],
+  "text": "..."
+}
+```
 
-- 小 chunk 召回精确，但上下文缺失。
-- 大 chunk 上下文完整，但噪声和 token 成本高。
-- 真实系统要按文档结构切，例如标题、段落、代码块、表格、章节。
-- 可以保留 metadata：文档 ID、标题路径、页码、更新时间、权限标签。
+Overlap 可以减少边界切断，但会产生重复召回。代码场景更适合保留父类型、函数签名和相邻
+注释，而不是机械复制前后 100 tokens。
 
-动手任务：给本仓库 `learning/` 下的 Markdown 设计 chunk 规则，写出伪代码：
+## 召回：语义相似和精确匹配互补
+
+向量 embedding 擅长“含义相近”，却可能漏掉错误码、文件路径和函数名；BM25 擅长词项
+匹配，却不理解同义表达。Hybrid Search 同时取两路候选，再融合排名：
 
 ```text
-split_by_heading(markdown):
-  keep heading path
-  keep code blocks intact
-  max_chunk_tokens = 600
-  overlap_tokens = 80
+query
+  ├─ dense retrieval：语义候选
+  └─ sparse/BM25：符号与关键词候选
+        -> merge/deduplicate
+        -> rerank top N
 ```
 
-## Step 3：拆 Embedding、Hybrid Search 和 Rerank
+Reranker 在较小候选集上做更昂贵的相关性判断。它不能召回第一阶段完全没找到的文档，
+所以低 recall 不能靠无限调 rerank 修复。
 
-常见追问：
+## Query Rewrite：把人的问题变成检索任务
 
-- Embedding 模型怎么选？
-- 为什么只用向量检索不够？
-- BM25、Hybrid Search、Rerank 分别解决什么？
-
-答题要点：
-
-- Embedding 适合语义相似，但对精确实体、代码符号、错误码、短 query 可能不稳定。
-- BM25 适合关键词、专有名词、错误码和精确匹配。
-- Hybrid Search 把语义召回和关键词召回合并，提高召回覆盖。
-- Rerank 在候选集上做精排，通常更慢但更准。
-
-排查路径：
+“它失败后去哪看？”缺少实体，直接检索效果很差。Rewrite 可以结合对话变成：
 
 ```text
-答案错
-  -> 检查引用是否相关
-  -> 若无相关引用：查 retrieve recall
-  -> 若有相关引用但排序靠后：查 rerank
-  -> 若引用相关但回答错：查 context packing / prompt / generation
+Codex MCP tool call failure permission handling tool dispatch trace
 ```
 
-## Step 4：拆 Query Rewrite 和多跳检索
+复杂问题还要拆成多跳：
 
-常见追问：
+1. MCP tool call 从哪里进入？
+2. permission/Guardian 在哪里决定？
+3. tool dispatch trace 在哪里记录？
 
-- Query Rewrite 为什么有用？
-- 多跳问题怎么做？
-- Self-RAG / Corrective RAG / Agentic RAG 大概是什么？
+每一跳的证据成为下一跳输入。Agentic RAG 允许模型决定是否继续查，但必须限制跳数、
+query 数量和总证据预算，否则很容易变成昂贵的搜索循环。
 
-答题要点：
+## Context Packing：找到不等于模型看到了
 
-- Query Rewrite 把口语化问题改写成可检索表达。
-- 多跳检索要把复杂问题拆成多个子问题，并把中间证据带到下一跳。
-- Self-RAG / Corrective RAG 的核心是让模型检查检索是否足够，不够就改写或再次检索。
-- Agentic RAG 让 Agent 决定何时查、查什么、是否继续查，但要控制循环和成本。
+检索系统可能正确召回 20 个 chunks，但 context builder 只容纳 5 个；也可能把重复片段放
+在前面，把真正答案截掉。Packing 要处理：去重、按来源聚合、保留标题路径、分配 token、
+标记引用和防止外部内容成为高优先级指令。
 
-动手任务：为下面 query 写出拆解：
+一种简单预算：
 
 ```text
-Codex 的 MCP 工具调用失败时，权限和日志分别在哪里处理？
+总 RAG 预算 4000 tokens
+  -> 每个来源最多 2 chunks
+  -> 单 chunk 最多 800 tokens
+  -> 至少保留 3 个不同来源
+  -> 引用 metadata 单独计入
 ```
 
-要求输出：
+答案中的引用只能证明“系统指向了某来源”，不能证明来源正确、模型忠实或权限合规。
+
+## 一张排障决策树
 
 ```text
-subquery 1: Codex MCP tool call entry point
-subquery 2: MCP approval / permission handling
-subquery 3: tool dispatch trace / logging
+回答错误
+  -> 预期证据在知识库吗？
+       否：ingestion / freshness
+       是：候选集中出现吗？
+            否：chunk / embedding / BM25 / rewrite / permission filter
+            是：排在可打包范围内吗？
+                 否：fusion / rerank
+                 是：进入最终模型输入吗？
+                      否：dedupe / packing / budget
+                      是：回答忠实吗？
+                           否：prompt / generation / citation validation
 ```
 
-## Step 5：区分 RAG、Memory 和 Context
+这比“换更好的 embedding 模型”更有效，因为每个分支都有可观测证据。
 
-面试高频问法：
+## RAG、Memory 与微调怎么选
 
-```text
-RAG 是 Agent 记忆的一部分吗？
-```
+- 需要更新的外部事实和引用：RAG。
+- 跨任务保存用户偏好或已确认事实：Memory，可用检索实现读取。
+- 改变稳定行为、格式或领域模式：可能考虑微调。
+- 当前 turn 的临时证据：直接 Context，不必写长期 Memory。
 
-建议回答：
+同一系统可以同时使用三者。关键是知道信息从哪来、何时更新、能否删除，以及错误会污染
+多久。
 
-- RAG 是一种“按当前 query 检索外部知识”的机制。
-- Memory 是 Agent 跨 turn / thread 维护状态和偏好的系统。
-- Memory 可以用 RAG 技术实现读取，但还需要写入、更新、删除、过期、防污染和权限控制。
-- Context 是本次模型请求实际看到的内容，RAG 和 Memory 的结果都只是 context 的候选输入。
+## 动手实验：为课程本身做一个 RAG
 
-Codex 对照：
+对 `learning/codex/agent-course` 设计最小检索器：
 
-- `codex-rs/memories/read/src/lib.rs`
-- `codex-rs/memories/read/src/citations.rs`
-- `codex-rs/memories/write/src/phase1.rs`
-- `codex-rs/memories/write/src/phase2.rs`
-- `codex-rs/memories/write/src/guard.rs`
-- `codex-rs/core/src/context_manager/history.rs`
+1. 按 Markdown heading 切分，代码块保持完整。
+2. 保存文件、heading path 和课程编号。
+3. 实现关键词检索，再模拟一组语义候选。
+4. 合并去重并限制每课最多两个 chunks。
+5. 回答时输出引用文件与 heading。
 
-## Step 6：设计 RAG 评测
+建立五条 golden questions，每条保存：预期来源、答案要点、允许的替代来源和失败类型。
+分别测 retrieval recall@k、ranking、context inclusion、grounding 和 citation correctness。
 
-不要只评最终答案。至少拆成四类指标：
+故意删掉一个标题 metadata、缩小 chunk、关闭 BM25，观察哪些指标先变差。这样你学到的
+不是术语，而是不同设计选择怎样改变可测行为。
 
-| 维度 | 看什么 |
-| --- | --- |
-| Recall | 相关证据有没有被召回 |
-| Ranking | 相关证据是否排在前面 |
-| Grounding | 回答是否基于引用 |
-| Faithfulness | 有没有编造引用外的信息 |
+## 常见误区
 
-动手任务：写 5 条 golden questions，每条包含：
+- “接了向量库就是 RAG。” 解析、权限、重排、packing 和 eval 同样关键。
+- Chunk 越小越精准。缺少上下文会让证据不可解释。
+- Rerank 能修复一切。未召回的文档无法重排。
+- 引用存在就没有幻觉。引用可能不支持结论。
+- RAG 是 Memory。Memory 还需要写入、更新、过期、删除和防污染。
 
-```text
-question:
-expected_sources:
-expected_answer_points:
-failure_modes:
-```
+## 理解之后再对照 Codex
 
-## Codex 对照源码
+Codex 的长期记忆提供一个可观察案例：`memories/read/src/lib.rs` 和 `citations.rs` 处理
+读取与引用，`memories/write/src/phase1.rs`、`phase2.rs` 与 `guard.rs` 处理分阶段写入和
+过滤；模型实际看到的历史与压缩位于 `core/src/context_manager/history.rs` 和
+`core/src/tasks/compact.rs`。
 
-- `codex-rs/memories/README.md`
-- `codex-rs/memories/read/src/lib.rs`
-- `codex-rs/memories/read/src/citations.rs`
-- `codex-rs/memories/write/src/guard.rs`
-- `codex-rs/core/src/context_manager/history.rs`
-- `codex-rs/core/src/tasks/compact.rs`
+这里不是要把 Codex Memory 当通用 RAG 框架，而是用真实代码验证“检索结果最终只是
+有界 context candidate”这一原则。
 
-## 推荐资料
+## 本课验收
 
-- [JavaGuide AI 应用开发面试指南](https://javaguide.cn/ai/interview-questions/ai-interview-guide.html)
-- [小林面试笔记：RAG 面试专题](https://www.xiaolinnote.com/ai/)
-- [OpenAI File Search / Tools](https://platform.openai.com/docs/guides/tools)
-- [LlamaIndex Agents](https://developers.llamaindex.ai/python/framework/module_guides/deploying/agents/)
+你应该能：
 
-## 验收标准
-
-你完成本课时，应该能回答：
-
-- RAG 低召回如何按链路排查？
-- Chunk、Embedding、Hybrid Search、Rerank、Query Rewrite 各自解决什么问题？
-- RAG、Memory、Context 的边界是什么？
-- 如何设计一个可复现的 RAG eval？
-
+1. 沿供应链定位一次错误是 ingestion、retrieval、ranking、packing 还是 generation。
+2. 解释 Chunk、Hybrid Search、Rerank 和 Rewrite 各解决什么问题。
+3. 设计包含 retrieval 与 generation 分层指标的 RAG eval。
+4. 区分 RAG、Memory、Context 和微调的适用边界。

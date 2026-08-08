@@ -147,6 +147,8 @@ ThreadManager
 
 工具系统是 Agent 工程的核心。好工具不是“把函数暴露出去”这么简单，而是要让模型容易选对、容易填对参数、失败时容易恢复。
 
+这一主题先回答“模型提出动作后，系统怎样把它变成受控的工具调用”。如果工具启动的是 Shell 长进程，工具调用返回并不代表进程已经结束；进程的保存、轮询、输入、取消和回收应继续阅读 [15 Shell 与进程生命周期](agent-course/15-shell-process-lifecycle.md)。
+
 设计时关注：
 
 - Tool schema：名称、描述、参数、返回格式是否明确。
@@ -168,7 +170,7 @@ ThreadManager
 
 - `codex-rs/core/src/tools/router.rs`
 - `codex-rs/core/src/tools/registry.rs`
-- `codex-rs/core/src/tools/orchestrator.rs`
+- `codex-rs/core/src/tools/orchestrator.rs`（需要审批或沙箱准备的执行路径）
 - `codex-rs/core/src/tools/sandboxing.rs`
 - `codex-rs/tools/src/tool_spec.rs`
 - `codex-rs/tools/src/responses_api.rs`
@@ -179,11 +181,14 @@ ThreadManager
 ResponseItem::FunctionCall / CustomToolCall
   -> ToolRouter::build_tool_call
   -> ToolRegistry
-  -> ToolOrchestrator
-  -> concrete tool runtime
+  -> concrete tool handler
+  -> 按需进入 ToolOrchestrator 完成审批与沙箱准备
+  -> tool runtime
   -> ResponseInputItem
   -> conversation history
 ```
+
+读源码时先沿 `ToolRouter::build_tool_call`、`ToolRegistry` 的分派入口和具体 handler 跑通通用路径。只有看到 handler 需要构造受沙箱约束的执行请求时，再进入 `ToolOrchestrator`；不要把它误认为每一种工具都必须经过的总调度器。
 
 ### 练习
 
