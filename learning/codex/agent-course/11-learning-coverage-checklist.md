@@ -1,131 +1,173 @@
-# 11 学习覆盖自测：确认教程覆盖常见追问
+# 11 学习验收：把“我懂了”变成可验证的项目证据
 
-## 本课目标
+## 为什么要单独有一课做验收
 
-本课不是刷题，也不是背答案，而是用网络上常见 Agent 追问来检查你是否真的学懂了前面课程。目标是：每个问题都能回到工程实现、源码入口和自己的练习产出。
+看懂文章时产生的熟悉感，不等于能独立设计和排障。真正掌握一个 Agent 概念，至少能完成
+五层表达：定义边界、画出数据流、解释取舍、处理失败、拿出运行证据。
 
-## Step 1：准备项目证据
+本课不是再教新术语，而是把前面课程产出组成一份可以演示、复盘和面试表达的作品集。
 
-先准备一个 `mini-codex-agent` 或 Codex 源码阅读证据，至少包含：
+## 先准备证据，而不是准备答案
 
-- Agent loop 日志。
-- Thread / Session / Turn 状态图。
-- Tool registry 和 3 个工具 schema。
-- RAG / Memory 的引用样例。
-- Approval / sandbox 的拒绝样例。
-- MCP 或 Skill 的扩展示例。
-- Trace / replay / eval 样例。
+你的 `mini-codex-agent` 或源码阅读笔记至少应包含：
 
-这些证据不是为了背答案，而是为了让每个概念都能落回“我看过、做过、能解释失败路径”。
+1. 一次成功 Agent Loop 的事件 trace。
+2. Thread/Session/Turn/Item 状态图和一次 resume 记录。
+3. 三个工具的 schema、成功结果、错误结果与上限。
+4. Context Inspector 的预算报告和一次 compact 前后对比。
+5. Approval/Sandbox 拒绝且没有副作用的证据。
+6. MCP 或 Skill 的渐进加载例子。
+7. deferred tool discovery 与 App namespace 例子。
+8. PreToolUse、PermissionRequest、PostToolUse hook 的回放。
+9. Multi-Agent mailbox、follow-up 与 interrupt 的状态记录。
+10. 一个长进程从 initial yield、poll 到 exit/shutdown 的 trace。
+11. Plugin 从 Marketplace 搜索、策略判断、安装认证到能力生效的 trace。
+12. 至少十个 regression cases。
 
-## Step 2：核心 Agent 覆盖
+没有项目证据时，回答很容易停在定义；有证据后，你可以说“这是我怎样实现、怎样失败、
+怎样被测试抓住的”。
 
-| 常见追问 | 你应该能解释 |
-| --- | --- |
-| Agent 和 Workflow 有什么区别？ | 动态决策、工具反馈、适用场景、风险 |
-| ReAct 是什么？ | Reason/Act/Observe、工具结果回填、停止条件 |
-| Plan-and-Execute 和 ReAct 怎么选？ | 任务复杂度、计划可审核、动态修正 |
-| Reflection 有什么用？有什么风险？ | review、质量检查、成本、不能保证正确 |
-| 为什么有时要手搓 Agent？ | 状态、权限、trace、eval、成本控制 |
-| 什么时候用 Multi-Agent？ | 上下文隔离、并行探索、角色权限、通信和成本 |
+## 第一关：两分钟讲清核心链路
 
-如果这些问题答不出来，回到 [01](01-agent-loop.md)、[09](09-agent-patterns-interview.md) 和 [12](12-multi-agent-orchestration.md)。
-
-## Step 3：工具和 MCP 覆盖
-
-| 常见追问 | 你应该能解释 |
-| --- | --- |
-| Function Calling 和 MCP 有什么区别？ | 前者是模型调用工具的接口，后者是外部工具/资源协议 |
-| 工具 schema 怎么设计？ | 名称、描述、参数、返回、错误、大小上限 |
-| 工具调用失败怎么办？ | 结构化错误、回填模型、重试限制、降级 |
-| MCP Server 怎么做安全治理？ | tool allowlist、权限、审计、结果大小、防污染 |
-| Tool 和 Skill 有什么区别？ | 可执行接口 vs 可复用工作流知识 |
-
-如果这些问题答不出来，回到 [03](03-tool-system.md) 和 [06](06-mcp-skills-plugins.md)。
-
-## Step 4：RAG 和 Memory 覆盖
-
-| 常见追问 | 你应该能解释 |
-| --- | --- |
-| RAG 解决什么问题？ | 外部知识、降低幻觉、引用来源 |
-| RAG 和微调怎么选？ | 知识更新、行为风格、成本、可解释 |
-| 召回率低怎么排查？ | chunk、embedding、hybrid、rewrite、rerank |
-| RAG 是 Agent Memory 吗？ | RAG 可用于 memory 读取，但 memory 还要写入、删除、防污染 |
-| 长任务上下文溢出怎么办？ | sliding window、summary、重要性过滤、external memory |
-
-如果这些问题答不出来，回到 [04](04-context-memory-rag.md) 和 [08](08-rag-deep-dive.md)。
-
-## Step 5：安全、生产和评测覆盖
-
-| 常见追问 | 你应该能解释 |
-| --- | --- |
-| 工具调用怎么做权限控制？ | approval、sandbox、exec policy、guardian |
-| 为什么用户确认不能替代 sandbox？ | 用户不理解全部副作用，sandbox 是硬边界 |
-| 如何设计生产级 Agent 平台？ | app server、runtime、gateway、tools、memory、trace、eval |
-| Agent 很慢很贵怎么办？ | 请求次数、上下文、工具延迟、RAG、multi-agent、重试 |
-| 如何评估 Agent？ | task success、tool accuracy、grounding、safety、replay |
-
-如果这些问题答不出来，回到 [05](05-sandbox-permission.md)、[07](07-production-agent-patterns.md) 和 [10](10-production-ai-system-design.md)。
-
-## Step 6：系统设计复盘模板
-
-学完课程后，任选一个场景，按这个顺序复盘：
+不用看笔记，用白板画：
 
 ```text
-1. 需求澄清：用户是谁，任务是什么，成功标准是什么。
-2. 总体架构：入口、状态、模型、工具、RAG、权限、日志。
-3. 核心链路：一条 query 如何流动。
-4. 关键设计：context、tool、memory、eval、安全。
-5. 失败处理：模型失败、工具失败、RAG 失败、权限拒绝。
-6. 可观测：trace、metrics、replay、golden set。
-7. 取舍：成本、延迟、质量、安全。
+用户输入
+  -> Thread/Turn
+  -> Context + Tools
+  -> Model Stream
+  -> Tool Call
+  -> Permission/Sandbox
+  -> Tool Result
+  -> 下一次 Model Request
+  -> Final Item + Persistence + Trace
 ```
 
-这个模板的目的不是产出标准答案，而是检查你能否把课程中的模块连成一个真实系统。
+讲解必须包含：一次 turn 为什么有多次模型请求；tool call 为什么不等于已执行；错误如何
+回填；何时停止；哪些状态跨进程保留。
 
-## Step 7：自测评分
+如果两分钟内只能罗列模块，回到第 1、2、3 课，用同一个 query 重新串链路。
 
-每个追问按 5 分评分：
+## 第二关：现场诊断一个失败案例
 
-| 分数 | 标准 |
+案例：Agent 声称读过 README，但 trace 没有文件工具调用，最终答案还引用了错误安装命令。
+
+按顺序回答：
+
+1. 先核对哪几个事实？
+2. 是工具选择、context、RAG 还是 UI 显示问题？
+3. 需要补哪些 trace 字段？
+4. 修复后写什么 regression case？
+5. 哪个指标能监控同类问题？
+
+合格答案不能只说“优化 prompt”，而要从可观察证据定位到具体层。
+
+## 第三关：做四个架构取舍
+
+### 是否使用 Agent
+
+固定审批流程优先 Workflow；路径开放、需要工具反馈时用 Agent。说明不使用另一方案的
+具体理由。
+
+### 是否使用 Multi-Agent
+
+只有独立并行、上下文隔离或独立验收带来收益时才拆分。给出子任务边界、通信成本和失败
+恢复，不能只说“planner/coder/tester”。
+
+### 能力做成什么扩展
+
+外部执行接口选 MCP，工作方法选 Skill，分发组合选 Plugin，安全不变量留在 core 或受管
+policy。给一个反例说明错误选择会造成什么问题。
+
+### 怎样分发 Plugin
+
+区分 Marketplace、Plugin 和 Capability，再说明 listed、installed、enabled、authenticated、
+callable 五种状态。设计一次市场搜索、安装策略拒绝、App 待认证、catalog 刷新和卸载回放，
+证明 Marketplace 审核与安装成功都不能绕过运行时权限。
+
+## 第四关：安全桌面演练
+
+用户要求“把构建产物上传到公开链接”。你需要依次说明：
+
+- payload 中可能有什么敏感数据；
+- 用户授权是否覆盖具体内容和目的地；
+- permission profile 与 network policy；
+- exec policy/approval/Guardian 决策；
+- sandbox 怎样限制实际动作；
+- Hook 或 Plugin 为什么不能绕过这些边界；
+- Guardian 超时后为什么拒绝。
+
+再改变一个条件：用户明确指定某个无敏感信息的文件和目的地。说明哪些风险结论变化，
+哪些硬边界不变。
+
+## 第五关：系统设计压力测试
+
+设计一个支持本地与远程环境的团队 Agent 平台，并应对：
+
+1. 模型 provider 30 秒不可用。
+2. 远程 Windows environment 在工具执行中断线。
+3. 客户端停止消费流式事件。
+4. 单个用户启动 50 个子 Agent。
+5. RAG 返回包含 prompt injection 的文档。
+6. 长进程已返回 `session_id`，此时客户端取消 turn 或 remote environment 断线。
+
+每个故障都回答：用户看到什么、系统保留什么状态、能否重试、怎样避免重复副作用、trace
+记录什么、怎样加入 eval。
+
+## 25 个概念问题的使用方法
+
+[覆盖矩阵](interview-coverage-matrix.md)列出课程覆盖方向。不要逐题背答案；每题按五分制：
+
+| 分数 | 表现 |
 | --- | --- |
-| 1 | 只会背定义 |
-| 2 | 能说概念，但没有工程细节 |
-| 3 | 能讲模块和流程 |
-| 4 | 能讲失败处理和取舍 |
-| 5 | 能落到项目证据和源码对照 |
+| 1 | 只会复述定义 |
+| 2 | 能举例，但边界含糊 |
+| 3 | 能画模块和数据流 |
+| 4 | 能解释失败、取舍和安全 |
+| 5 | 能展示项目 trace、测试或源码证据 |
 
-通过标准：
+通过建议：25 题至少 20 题达到 4 分；Agent Loop、Tool、Shell Process、Context、RAG、
+安全、Plugin Marketplace、Eval、Multi-Agent 各至少一题达到 5 分。低分题不要先重读全文，
+先做对应实验，再回来解释。
 
-- 20 个追问里至少 16 个达到 4 分。
-- Agent Loop、Tool、RAG、Memory、安全、Eval 至少各有 1 道达到 5 分。
-- 能完整复盘一个生产级 Agent 平台设计，不超过 10 分钟。
+## 最终十分钟演示
 
-## Codex 对照源码
+按这个顺序演示 `mini-codex-agent`：
 
-- `codex-rs/core/src/session/turn.rs`
-- `codex-rs/core/src/thread_manager.rs`
-- `codex-rs/core/src/tools`
-- `codex-rs/core/src/context_manager`
-- `codex-rs/memories`
-- `codex-rs/sandboxing`
-- `codex-rs/codex-mcp`
-- `codex-rs/skills`
-- `codex-rs/otel/README.md`
-- `codex-rs/rollout-trace/README.md`
+```text
+1 分钟：需求和非目标
+2 分钟：一条 query 的主链路
+2 分钟：状态、context 和工具契约
+2 分钟：权限、sandbox 与失败恢复
+1 分钟：MCP/Skill/Plugin Marketplace/Hook 扩展
+1 分钟：Multi-Agent 与远程环境
+1 分钟：trace、replay、eval 和下一步
+```
 
-## 推荐资料
+演示中主动触发一次工具错误和一次权限拒绝。只展示 happy path 不能证明系统可生产化。
 
-- [Agent 常见追问覆盖矩阵](interview-coverage-matrix.md)
-- [JavaGuide AI 应用开发面试指南](https://javaguide.cn/ai/interview-questions/ai-interview-guide.html)
-- [小林面试笔记：Agent / RAG / 工具调用专题](https://www.xiaolinnote.com/ai/)
-- [Kamacoder Agent 面试题汇总](https://notes.kamacoder.com/interview/llm/agent_interview.html)
+## 常见误区
 
-## 验收标准
+- 能回答术语就算掌握。没有失败实验，很难理解边界。
+- 展示代码量而不是行为证据。Agent 项目价值在不变量和可恢复性。
+- 每题都硬套 Codex 设计。先解释一般原理，再用 Codex 作为一个实现证据。
+- 把“没有做”藏起来。清楚说明非目标和生产差距更可信。
 
-你完成本课时，应该能做到：
+## 源码证据怎样使用
 
-- 不看笔记解释 20 个常见追问背后的工程问题。
-- 每个追问能讲出项目证据。
-- 能把 Codex 源码里的设计转成清晰的工程表达。
-- 能解释你的 `mini-codex-agent` 和生产级 Codex 差在哪里。
+需要源码证据时，每个结论只选最小入口：Agent Loop 用
+`core/src/session/turn.rs`，状态用 `thread_manager.rs` 与 protocol v2，工具用
+`core/src/tools`，context 用 `core/src/context_manager`，Memory 用 `memories`，安全用
+`sandboxing` 与 `execpolicy`，MCP/Skills/Hooks 分别用 `codex-mcp`、`core-skills`、`hooks`，
+Plugin Marketplace 用 `core-plugins` 与 App Server v2 `plugin.rs`。
+
+证据形式是“这个类型/测试证明了什么”，不是“我读过这个目录”。
+
+## 本课验收
+
+你完成本课时应该有：
+
+1. 一次十分钟演示录像或演讲提纲。
+2. 六个压力场景的恢复方案。
+3. 25 题评分表和每道 5 分题的项目证据链接。
+4. 一份“教学版与生产 Codex 还差什么”的诚实清单。

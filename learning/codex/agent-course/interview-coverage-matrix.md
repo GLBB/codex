@@ -18,16 +18,23 @@
 | Planning / Reflection | Plan-and-Execute、Reflection 和 ReAct 怎么选？ | [09](09-agent-patterns-interview.md) | 已覆盖 |
 | Session / 状态 | Thread、Session、Turn 怎么设计？如何 resume？ | [02](02-session-thread-turn.md) | 已覆盖 |
 | Tool / Function Calling | 工具 schema 怎么设计？工具失败怎么处理？ | [03](03-tool-system.md) | 已覆盖 |
+| Shell / 进程管理 | 长命令为什么能跨工具调用？PTY、输出、stdin、取消和 shutdown 怎么设计？ | [15](15-shell-process-lifecycle.md) | 已覆盖 |
 | MCP | MCP 和 Function Calling 区别？MCP Server 怎么做安全治理？ | [06](06-mcp-skills-plugins.md)、[10](10-production-ai-system-design.md) | 已覆盖 |
+| Tool Discovery | 工具很多时如何按需暴露？如何控制 cache、冲突和发现质量？ | [13](13-tool-discovery-apps-connectors.md) | 已覆盖 |
+| Apps / Connectors | App、hosted MCP tools、resources 和 namespace 是什么关系？ | [06](06-mcp-skills-plugins.md)、[13](13-tool-discovery-apps-connectors.md) | 已覆盖 |
+| Plugin Marketplace | Marketplace、Plugin 和 Capability 如何分层？搜索、安装、认证、启用、分享和升级如何治理？ | [06](06-mcp-skills-plugins.md)、[16](16-plugin-marketplace-distribution.md) | 已覆盖 |
 | Context Engineering | Prompt Engineering 和 Context Engineering 区别？上下文爆了怎么办？ | [04](04-context-memory-rag.md)、[10](10-production-ai-system-design.md) | 已覆盖 |
 | Memory | 长短期记忆怎么设计？RAG 是记忆吗？记忆如何防污染？ | [04](04-context-memory-rag.md)、[08](08-rag-deep-dive.md) | 已覆盖 |
 | RAG 基础 | RAG 解决什么问题？和微调怎么选？ | [04](04-context-memory-rag.md)、[08](08-rag-deep-dive.md) | 已覆盖 |
 | RAG 工程排查 | 召回率低怎么排查？Chunk、Embedding、Rerank 怎么选？ | [08](08-rag-deep-dive.md) | 已覆盖 |
 | RAG 进阶 | Hybrid Search、Query Rewrite、GraphRAG、Self-RAG 是什么？ | [08](08-rag-deep-dive.md) | 已覆盖 |
 | 安全与权限 | 工具调用怎么做权限控制？为什么不能只靠用户确认？ | [05](05-sandbox-permission.md)、[07](07-production-agent-patterns.md) | 已覆盖 |
+| 动态权限与信任 | Permission profile 中途变化、项目 trust 和 policy amendment 怎么治理？ | [05](05-sandbox-permission.md)、[10](10-production-ai-system-design.md) | 已覆盖 |
+| Hooks | 生命周期自动化如何注入上下文、阻止动作又不绕过权限？ | [14](14-hooks-lifecycle-automation.md) | 已覆盖 |
 | Multi-Agent | 什么时候用多 Agent？怎么通信、路由和协作？ | [07](07-production-agent-patterns.md)、[09](09-agent-patterns-interview.md)、[12](12-multi-agent-orchestration.md) | 已覆盖 |
 | Eval / Observability | 怎么评估 Agent？trace 回放怎么做？ | [07](07-production-agent-patterns.md)、[10](10-production-ai-system-design.md) | 已覆盖 |
 | 生产系统设计 | 如何设计生产级 Agent 平台？模型网关怎么做？ | [10](10-production-ai-system-design.md) | 已覆盖 |
+| App Server / 远程执行 | Thread/Turn API、分页历史、远程 environment 和跨 OS 命令如何设计？ | [02](02-session-thread-turn.md)、[10](10-production-ai-system-design.md) | 已覆盖 |
 | 成本与延迟 | 如何降低 token 成本、工具延迟和失败重试成本？ | [10](10-production-ai-system-design.md) | 已覆盖 |
 | 结构化输出 | JSON/Structured output 失败怎么办？ | [10](10-production-ai-system-design.md) | 已覆盖 |
 | 学习验收 | 如何确认自己不是只会背概念，而是能解释工程取舍？ | [11](11-learning-coverage-checklist.md) | 已覆盖 |
@@ -57,6 +64,10 @@
 ## 覆盖自测顺序
 
 1. 先完成 [00](00-run-and-observe.md) 到 [07](07-production-agent-patterns.md)，建立工程主线。
-2. 再完成 [08](08-rag-deep-dive.md) 到 [10](10-production-ai-system-design.md)，补面试高频深挖题。
-3. 再完成 [12](12-multi-agent-orchestration.md)，把 Multi-Agent 从概念扩展到生命周期和状态边界。
-4. 最后用 [11](11-learning-coverage-checklist.md) 做自测，把每个追问都绑定到一个项目证据。
+2. 完成 [15](15-shell-process-lifecycle.md)，把 shell 工具继续追到真实进程、输出和清理；
+   再完成 [16](16-plugin-marketplace-distribution.md)、[13](13-tool-discovery-apps-connectors.md) 和
+   [14](14-hooks-lifecycle-automation.md)，把当前扩展与生命周期能力接回主链路。
+3. 再完成 [08](08-rag-deep-dive.md) 到 [10](10-production-ai-system-design.md)，补面试高频深挖题。
+4. 完成 [12](12-multi-agent-orchestration.md)，把 Multi-Agent 从概念扩展到 mailbox、
+   steer、turn 触发和中断。
+5. 最后用 [11](11-learning-coverage-checklist.md) 做自测，把每个追问都绑定到一个项目证据。
