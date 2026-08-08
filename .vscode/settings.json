@@ -3,6 +3,15 @@
     "rust-analyzer.check.command": "check",
     "rust-analyzer.check.extraArgs": ["--tests"],
     "rust-analyzer.rustfmt.extraArgs": ["--config", "imports_granularity=Item"],
+    // This workspace has 136 local crates and more than 1,200 resolved dependencies.
+    // Avoid priming every dependency on startup; rust-analyzer will analyze crates as they
+    // are opened instead.
+    "rust-analyzer.cachePriming.enable": false,
+    // Keep the language server's syntax-tree cache bounded for this large workspace.
+    "rust-analyzer.lru.capacity": 32,
+    // Test-only dependencies create valid Cargo cycles (for example, tui -> cli -> tui),
+    // which rust-analyzer reports as a persistent workspace health warning.
+    "rust-analyzer.cargo.allTargets": false,
     "rust-analyzer.cargo.targetDir": "${workspaceFolder}/codex-rs/target/rust-analyzer",
     "rust-analyzer.files.excludeDirs": [
         ".git",
