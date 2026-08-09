@@ -33,7 +33,7 @@ MCP 分支不使用 Shell 的 `ToolOrchestrator`，而是由 MCP handler 调用�
 
 ## 6.2 从模型 item 到 ToolInvocation
 
-[`handle_output_item_done`](</home/goulei1/code/codex/codex-rs/core/src/stream_events_utils.rs:288>) 先使用 [`ToolRouter::build_tool_call`](</home/goulei1/code/codex/codex-rs/core/src/tools/router.rs:154>) 解析 `FunctionCall`、`CustomToolCall` 或 client tool-search call。成功后：
+[`handle_output_item_done`](../../../codex-rs/core/src/stream_events_utils.rs#L288) 先使用 [`ToolRouter::build_tool_call`](../../../codex-rs/core/src/tools/router.rs#L154) 解析 `FunctionCall`、`CustomToolCall` 或 client tool-search call。成功后：
 
 1. 立即记录模型产生的 call item；
 2. 标记 `needs_follow_up`；
@@ -43,13 +43,13 @@ MCP 分支不使用 Shell 的 `ToolOrchestrator`，而是由 MCP handler 调用�
 
 ## 6.3 为什么 ToolCallRuntime 保留 StepContext
 
-[`ToolCallRuntime`](</home/goulei1/code/codex/codex-rs/core/src/tools/parallel.rs:41>) 持有产生该工具定义时的 `Arc<StepContext>`。它用该 Step 的 router dispatch，因此工具目录刷新不会改变已经发给模型的调用语义。
+[`ToolCallRuntime`](../../../codex-rs/core/src/tools/parallel.rs#L41) 持有产生该工具定义时的 `Arc<StepContext>`。它用该 Step 的 router dispatch，因此工具目录刷新不会改变已经发给模型的调用语义。
 
 它还控制并发：支持 parallel 的工具共享读锁，不支持的工具取得写锁。这个锁约束的是同一 sampling response 产生的工具 future；Session 层“最多一个活跃 task”的约束并未因此失效。
 
 ## 6.4 Router 与 Registry 的分工
 
-[`ToolRouter`](</home/goulei1/code/codex/codex-rs/core/src/tools/router.rs:85>) 负责协议解析和按名字定位；[`ToolRegistry::dispatch_any_with_terminal_outcome`](</home/goulei1/code/codex/codex-rs/core/src/tools/registry.rs:456>) 才进入执行生命周期：
+[`ToolRouter`](../../../codex-rs/core/src/tools/router.rs#L85) 负责协议解析和按名字定位；[`ToolRegistry::dispatch_any_with_terminal_outcome`](../../../codex-rs/core/src/tools/registry.rs#L456) 才进入执行生命周期：
 
 1. 校验 tool 是否注册、payload 是否匹配；
 2. 等待 runtime ready（MCP 可在此等待 server）；
@@ -62,23 +62,23 @@ MCP 分支不使用 Shell 的 `ToolOrchestrator`，而是由 MCP handler 调用�
 
 ## 6.5 Shell 主路径
 
-打开 [`run_exec_like`](</home/goulei1/code/codex/codex-rs/core/src/tools/handlers/shell.rs:63>)。它把 shell/exec 工具的参数转换为统一执行请求：
+打开 [`run_exec_like`](../../../codex-rs/core/src/tools/handlers/shell.rs#L63)。它把 shell/exec 工具的参数转换为统一执行请求：
 
 1. 规范化 additional permissions；
 2. 检查显式 escalation 是否被 policy 禁止；
 3. 识别是否应转交 apply-patch handler；
 4. 计算 `ExecApprovalRequirement`；
 5. 构造 `ShellRequest`；
-6. 调用 [`ToolOrchestrator::run`](</home/goulei1/code/codex/codex-rs/core/src/tools/orchestrator.rs:134>)；
+6. 调用 [`ToolOrchestrator::run`](../../../codex-rs/core/src/tools/orchestrator.rs#L134)；
 7. 把执行结果变成模型可见 tool output，并发出工具完成事件。
 
 Shell handler 不应自己散落实现审批和 sandbox retry；这些策略集中在 orchestrator。
 
 ## 6.6 审批插入在哪里
 
-[`ToolOrchestrator`](</home/goulei1/code/codex/codex-rs/core/src/tools/orchestrator.rs:38>) 的顺序是：审批 → 选择 sandbox → 首次尝试 → 必要时升级重试。
+[`ToolOrchestrator`](../../../codex-rs/core/src/tools/orchestrator.rs#L38) 的顺序是：审批 → 选择 sandbox → 首次尝试 → 必要时升级重试。
 
-当 `ApprovalPolicy` 与工具给出的 `ExecApprovalRequirement` 要求用户确认时，Session 发出 approval request event，并在 active turn 中登记一个 oneshot sender。外部 UI 返回 `Op::ExecApproval` 等决定后，[`Session::notify_approval`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:2891>) 找到 pending approval 并唤醒工具 future。
+当 `ApprovalPolicy` 与工具给出的 `ExecApprovalRequirement` 要求用户确认时，Session 发出 approval request event，并在 active turn 中登记一个 oneshot sender。外部 UI 返回 `Op::ExecApproval` 等决定后，[`Session::notify_approval`](../../../codex-rs/core/src/session/mod.rs#L2891) 找到 pending approval 并唤醒工具 future。
 
 审批发生在实际执行前，但它不是 Prompt 构建的一部分。Prompt 只公开工具；是否批准某次具体参数，在 call 已返回后决定。
 
@@ -96,13 +96,13 @@ Shell handler 不应自己散落实现审批和 sandbox retry；这些策略集�
 
 ## 6.8 MCP 对照路径
 
-MCP 工具在 [`build_tool_router`](</home/goulei1/code/codex/codex-rs/core/src/tools/spec_plan.rs:150>) 中由当前 `McpBinding` 转成 Responses `ToolSpec` 并注册 [`McpHandler`](</home/goulei1/code/codex/codex-rs/core/src/tools/handlers/mcp.rs:38>)。
+MCP 工具在 [`build_tool_router`](../../../codex-rs/core/src/tools/spec_plan.rs#L150) 中由当前 `McpBinding` 转成 Responses `ToolSpec` 并注册 [`McpHandler`](../../../codex-rs/core/src/tools/handlers/mcp.rs#L38)。
 
 执行时：
 
 1. `McpHandler::wait_until_ready` 等待目标 server；
 2. `McpHandler::handle_call` 解析 function arguments；
-3. 调用 [`handle_mcp_tool_call`](</home/goulei1/code/codex/codex-rs/core/src/mcp_tool_call.rs:110>)；
+3. 调用 [`handle_mcp_tool_call`](../../../codex-rs/core/src/mcp_tool_call.rs#L110)；
 4. 通过 StepContext 中的 MCP binding 发起远程 tool call；
 5. 把 MCP content、structured content 或错误包装为 `McpToolOutput`；
 6. 回到通用 Registry post hook 和 sampling loop。
@@ -111,7 +111,7 @@ MCP 工具不进入 shell sandbox，因为它不是本机 shell 子进程。其�
 
 ## 6.9 工具结果如何触发下一次采样
 
-[`drain_in_flight`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:2097>) 按序取回工具结果，将其转换成对应 call id 的 `ResponseItem`，然后调用 `record_conversation_items`。下一次 `ContextManager::for_prompt` 会得到：
+[`drain_in_flight`](../../../codex-rs/core/src/session/turn.rs#L2097) 按序取回工具结果，将其转换成对应 call id 的 `ResponseItem`，然后调用 `record_conversation_items`。下一次 `ContextManager::for_prompt` 会得到：
 
 ```text
 assistant/function call

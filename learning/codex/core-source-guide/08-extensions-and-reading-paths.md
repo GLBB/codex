@@ -18,16 +18,16 @@
 MCP 在三个时间尺度出现：
 
 1. Session 启动：根据配置与 Plugins 生成 runtime 配置；
-2. Turn 开始：[`required_mcp_servers_for_input`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:628>) 从 plugin/skill/tool mention 推导必须等待的 servers；
+2. Turn 开始：[`required_mcp_servers_for_input`](../../../codex-rs/core/src/session/turn.rs#L628) 从 plugin/skill/tool mention 推导必须等待的 servers；
 3. Step 捕获：固定当前 `McpBinding`，并由 tool plan 投影为本次请求的 tools。
 
 这解释了为什么 MCP 同时像“启动服务”又像“动态工具”：连接生命周期较长，但每次模型采样看到的是一个精确快照。
 
-阅读 MCP 时到 [`McpHandler::handle_call`](</home/goulei1/code/codex/codex-rs/core/src/tools/handlers/mcp.rs:154>) 返回 `McpToolOutput` 即停。server transport、OAuth、resource APIs 是 MCP 子系统支线。
+阅读 MCP 时到 [`McpHandler::handle_call`](../../../codex-rs/core/src/tools/handlers/mcp.rs#L154) 返回 `McpToolOutput` 即停。server transport、OAuth、resource APIs 是 MCP 子系统支线。
 
 ## 8.3 Skills
 
-Session 初始化在 [`session.rs`](</home/goulei1/code/codex/codex-rs/core/src/session/session.rs:970>) 并行预热 Plugins 与 Skills。Turn 开始时，[`build_skills_and_plugins`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:729>) 根据用户显式 mention、connector 名称和当前 snapshot 选择 skill。
+Session 初始化在 [`session.rs`](../../../codex-rs/core/src/session/session.rs#L970) 并行预热 Plugins 与 Skills。Turn 开始时，[`build_skills_and_plugins`](../../../codex-rs/core/src/session/turn.rs#L729) 根据用户显式 mention、connector 名称和当前 snapshot 选择 skill。
 
 Skill 的核心产物通常是模型可见的 `ResponseItem`，不是 Rust handler。Skill 声明的 MCP 依赖可以促使 runtime 安装/等待相应 server；这才把“说明书”与“工具能力”连接起来。
 
@@ -48,7 +48,7 @@ Plugin 是能力包，而不是一种独立的模型消息。它可以贡献：
 
 ## 8.5 Hooks
 
-[`build_hooks_for_config`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:4166>) 把 legacy notify、feature 设置、信任策略与 plugin hook sources 合成 `Hooks`。运行时可见两类调用：
+[`build_hooks_for_config`](../../../codex-rs/core/src/session/mod.rs#L4166) 把 legacy notify、feature 设置、信任策略与 plugin hook sources 合成 `Hooks`。运行时可见两类调用：
 
 - 生命周期 hooks：session start/stop、user prompt、Turn stop 等；
 - 工具 hooks：Registry 内的 pre-tool-use 与 post-tool-use。
@@ -59,17 +59,17 @@ Pre hook 可以拒绝调用或重写输入，所以它位于 handler 之前；po
 
 Extensions 是 typed contributor 机制。上层创建 `ExtensionRegistry<Config>` 并交给 ThreadManager/Session。当前主流程中的代表性接点有：
 
-- [`build_extension_turn_input_items`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:871>)：根据本轮用户输入和环境贡献上下文；
-- [`build_world_state_for_step`](</home/goulei1/code/codex/codex-rs/core/src/session/world_state.rs:31>)：追加可 diff 的 WorldState sections；
-- [`build_tool_router`](</home/goulei1/code/codex/codex-rs/core/src/tools/spec_plan.rs:159>)：注册 extension tool executors；
-- [`apply_turn_item_contributors`](</home/goulei1/code/codex/codex-rs/core/src/stream_events_utils.rs:210>)：在事件输出前丰富 `TurnItem`；
+- [`build_extension_turn_input_items`](../../../codex-rs/core/src/session/turn.rs#L871)：根据本轮用户输入和环境贡献上下文；
+- [`build_world_state_for_step`](../../../codex-rs/core/src/session/world_state.rs#L31)：追加可 diff 的 WorldState sections；
+- [`build_tool_router`](../../../codex-rs/core/src/tools/spec_plan.rs#L159)：注册 extension tool executors；
+- [`apply_turn_item_contributors`](../../../codex-rs/core/src/stream_events_utils.rs#L210)：在事件输出前丰富 `TurnItem`；
 - Session/Task 生命周期 contributor：在相应开始、结束边界运行。
 
 Extension data 分为 session、thread、turn/step 等 scope。阅读具体 extension 时先确认它拿到哪个 data store，避免误以为一次 Turn 写入的数据自动跨恢复持久化。
 
 ## 8.7 多 Agent
 
-多 Agent 对父 Agent 表现为一组工具，工具规格在 [`spec_plan.rs`](</home/goulei1/code/codex/codex-rs/core/src/tools/spec_plan.rs:38>) 引入，handlers 位于 `tools/handlers/multi_agents*`。执行 spawn 时，AgentControl 最终让 ThreadManager 创建子 Thread/Session；send/wait/resume 等通过 agent 状态和 inter-agent communication 协调。
+多 Agent 对父 Agent 表现为一组工具，工具规格在 [`spec_plan.rs`](../../../codex-rs/core/src/tools/spec_plan.rs#L38) 引入，handlers 位于 `tools/handlers/multi_agents*`。执行 spawn 时，AgentControl 最终让 ThreadManager 创建子 Thread/Session；send/wait/resume 等通过 agent 状态和 inter-agent communication 协调。
 
 从父 Turn 视角，它仍是普通工具循环：模型 call → handler → output → 再采样。从系统视角，handler 的副作用是启动另一个同构 Session。WorldState 的 multi-agent sections 负责告诉模型当前模式、用法和已有环境/子 Agent。
 
@@ -79,11 +79,11 @@ Extension data 分为 session、thread、turn/step 等 scope。阅读具体 exte
 
 目标：能画出请求主链，不追任何安全或恢复细节。
 
-1. 打开 [`CodexThread`](</home/goulei1/code/codex/codex-rs/core/src/codex_thread.rs:193>)，只看 `submit` 与 `next_event`。
-2. 打开 [`submission_loop`](</home/goulei1/code/codex/codex-rs/core/src/session/handlers.rs:703>)，只跟 `Op::UserInput`。
-3. 打开 [`RegularTask::run`](</home/goulei1/code/codex/codex-rs/core/src/tasks/regular.rs:38>)，确认 Turn 生命周期。
-4. 打开 [`run_turn`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:151>)，找出 Step 捕获、History、采样循环和 `needs_follow_up`。
-5. 打开 [`Prompt`](</home/goulei1/code/codex/codex-rs/core/src/client_common.rs:16>) 与 [`handle_output_item_done`](</home/goulei1/code/codex/codex-rs/core/src/stream_events_utils.rs:288>)。
+1. 打开 [`CodexThread`](../../../codex-rs/core/src/codex_thread.rs#L193)，只看 `submit` 与 `next_event`。
+2. 打开 [`submission_loop`](../../../codex-rs/core/src/session/handlers.rs#L703)，只跟 `Op::UserInput`。
+3. 打开 [`RegularTask::run`](../../../codex-rs/core/src/tasks/regular.rs#L38)，确认 Turn 生命周期。
+4. 打开 [`run_turn`](../../../codex-rs/core/src/session/turn.rs#L151)，找出 Step 捕获、History、采样循环和 `needs_follow_up`。
+5. 打开 [`Prompt`](../../../codex-rs/core/src/client_common.rs#L16) 与 [`handle_output_item_done`](../../../codex-rs/core/src/stream_events_utils.rs#L288)。
 
 到这里停止。你应能用两分钟口述“一次无工具请求”和“一次有工具请求”。
 
@@ -109,7 +109,7 @@ Extension data 分为 session、thread、turn/step 等 scope。阅读具体 exte
 
 在半天路线基础上：
 
-1. 阅读 [`core/tests/suite`](</home/goulei1/code/codex/codex-rs/core/tests/suite/mod.rs:1>) 的集成测试入口，理解 `test_codex` 和 mock Responses；
+1. 阅读 [`core/tests/suite`](../../../codex-rs/core/tests/suite/mod.rs#L1) 的集成测试入口，理解 `test_codex` 和 mock Responses；
 2. 阅读 `stream_events_utils` 与工具相关 `*_tests.rs`，确认 item/event 时序；
 3. 阅读 compaction 与 rollout reconstruction，尤其 replacement history 和 WorldState baseline；
 4. 针对修改点再进入具体扩展、MCP、sandbox 或 executor 子系统；
