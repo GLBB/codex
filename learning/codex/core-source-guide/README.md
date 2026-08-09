@@ -55,7 +55,7 @@ flowchart LR
 
 ## 建议的第一次阅读方式
 
-先打开 [`thread_manager.rs`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:807>) 的 `start_thread`，确认外部调用者拿到的是 `CodexThread`；然后跳到 [`session/handlers.rs`](</home/goulei1/code/codex/codex-rs/core/src/session/handlers.rs:703>) 的 `submission_loop`，再到 [`session/turn.rs`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:151>) 的 `run_turn`。当你能在 `run_turn` 中指出“历史在哪里取出、Prompt 在哪里构建、工具结果在哪里让循环继续”时，再进入 Prompt 和持久化专题。
+先打开 [`thread_manager.rs`](../../../codex-rs/core/src/thread_manager.rs#L807) 的 `start_thread`，确认外部调用者拿到的是 `CodexThread`；然后跳到 [`session/handlers.rs`](../../../codex-rs/core/src/session/handlers.rs#L703) 的 `submission_loop`，再到 [`session/turn.rs`](../../../codex-rs/core/src/session/turn.rs#L151) 的 `run_turn`。当你能在 `run_turn` 中指出“历史在哪里取出、Prompt 在哪里构建、工具结果在哪里让循环继续”时，再进入 Prompt 和持久化专题。
 
 第一次阅读无需理解 `core/src` 的所有模块。能解释这条链已经足够建立骨架：
 

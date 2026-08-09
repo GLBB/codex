@@ -22,7 +22,7 @@ flowchart LR
 
 ## 7.2 ContextManager 的职责
 
-打开 [`ContextManager`](</home/goulei1/code/codex/codex-rs/core/src/context_manager/history.rs:41>)。它保存：
+打开 [`ContextManager`](../../../codex-rs/core/src/context_manager/history.rs#L41)。它保存：
 
 - oldest-to-newest 的 `ResponseItem`；
 - `history_version`，在 compaction/rollback 等重写时递增；
@@ -34,9 +34,9 @@ flowchart LR
 
 ## 7.3 写入前处理与 Prompt 前规范化
 
-[`record_conversation_items`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:2994>) 是 durable history boundary。写入前会准备图像/音频、补 turn id 和 response item id，再按模型 truncation policy 记录。
+[`record_conversation_items`](../../../codex-rs/core/src/session/mod.rs#L2994) 是 durable history boundary。写入前会准备图像/音频、补 turn id 和 response item id，再按模型 truncation policy 记录。
 
-真正发送前，[`normalize_history`](</home/goulei1/code/codex/codex-rs/core/src/context_manager/history.rs:325>) 强制四个不变量：
+真正发送前，[`normalize_history`](../../../codex-rs/core/src/context_manager/history.rs#L325) 强制四个不变量：
 
 1. 每个 function/custom call 有 output；
 2. 每个 output 有 call；
@@ -47,7 +47,7 @@ flowchart LR
 
 ## 7.4 Rollout 记录什么
 
-[`RolloutItem`](</home/goulei1/code/codex/codex-rs/protocol/src/protocol.rs:3211>) 是恢复协议，而不只是聊天 JSON：
+[`RolloutItem`](../../../codex-rs/protocol/src/protocol.rs#L3211) 是恢复协议，而不只是聊天 JSON：
 
 - `SessionMeta`：thread/session 配置和环境元数据；
 - `ResponseItem`：模型上下文中的用户、assistant、tool call/output 等；
@@ -57,17 +57,17 @@ flowchart LR
 - `EventMsg`：Turn 生命周期、状态、token 等事件；
 - inter-agent communication 兼容/专用记录。
 
-[`persist_rollout_items`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:3629>) 将这些 item 追加到 `LiveThread`。具体文件/数据库物化策略由 thread-store 实现；core 不直接假设“永远就是某个裸 JSONL 文件”。调用者虽然常通过 rollout path 恢复，也应经 thread store 读取。
+[`persist_rollout_items`](../../../codex-rs/core/src/session/mod.rs#L3629) 将这些 item 追加到 `LiveThread`。具体文件/数据库物化策略由 thread-store 实现；core 不直接假设“永远就是某个裸 JSONL 文件”。调用者虽然常通过 rollout path 恢复，也应经 thread store 读取。
 
 ## 7.5 Token 统计与触发压缩
 
-模型流的 `Completed` 事件携带 token usage，Session 更新 ContextManager 并向客户端发 token count。没有精确服务端数据时，[`ContextManager::estimate_token_count`](</home/goulei1/code/codex/codex-rs/core/src/context_manager/history.rs:163>) 使用基于字节的粗略估算；源码明确说明它不是 tokenizer 精确计数。
+模型流的 `Completed` 事件携带 token usage，Session 更新 ContextManager 并向客户端发 token count。没有精确服务端数据时，[`ContextManager::estimate_token_count`](../../../codex-rs/core/src/context_manager/history.rs#L163) 使用基于字节的粗略估算；源码明确说明它不是 tokenizer 精确计数。
 
-[`run_turn`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:423>) 在采样循环中检查 token pressure。自动压缩既可能发生在用户输入进入主采样前，也可能在某次采样完成后、继续工具循环前发生。它是主流程的条件分支，不是 Session 启动步骤。
+[`run_turn`](../../../codex-rs/core/src/session/turn.rs#L423) 在采样循环中检查 token pressure。自动压缩既可能发生在用户输入进入主采样前，也可能在某次采样完成后、继续工具循环前发生。它是主流程的条件分支，不是 Session 启动步骤。
 
 ## 7.6 自动 Compaction 的真实行为
 
-打开 [`run_compact_task_inner_impl`](</home/goulei1/code/codex/codex-rs/core/src/compact.rs:235>)：
+打开 [`run_compact_task_inner_impl`](../../../codex-rs/core/src/compact.rs#L235)：
 
 1. 克隆当前 History，并加入 compaction 请求输入；
 2. 用相同 base instructions 发起一个专门的模型采样；
@@ -75,7 +75,7 @@ flowchart LR
 4. 保留必要用户消息，构造 replacement history；
 5. 如需要，在摘要前重新插入当前完整初始上下文；
 6. 推进 context-window id；
-7. 调用 [`replace_compacted_history`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:3263>)；
+7. 调用 [`replace_compacted_history`](../../../codex-rs/core/src/session/mod.rs#L3263)；
 8. 重算 token usage。
 
 `replace_compacted_history` 会：
@@ -89,7 +89,7 @@ flowchart LR
 
 ## 7.7 Resume 如何重建
 
-`ThreadManager::resume_thread_from_rollout` 经 thread store 读取历史，形成 [`InitialHistory::Resumed`](</home/goulei1/code/codex/codex-rs/protocol/src/protocol.rs:2575>)。Session 启动末尾的 `record_initial_history` 调用 [`reconstruct_history_from_rollout`](</home/goulei1/code/codex/codex-rs/core/src/session/rollout_reconstruction.rs:113>)。
+`ThreadManager::resume_thread_from_rollout` 经 thread store 读取历史，形成 [`InitialHistory::Resumed`](../../../codex-rs/protocol/src/protocol.rs#L2575)。Session 启动末尾的 `record_initial_history` 调用 [`reconstruct_history_from_rollout`](../../../codex-rs/core/src/session/rollout_reconstruction.rs#L113)。
 
 重建器从新到旧扫描，以便尽快找到：
 
@@ -101,7 +101,7 @@ flowchart LR
 
 找到基点后，它只正向重放仍有效的 suffix：ResponseItem 进入 ContextManager，`Compacted` 替换 History，rollback 删除最后 N 个用户 Turn。WorldState 记录则按时间顺序重放：full 建立基线，patch 应用 merge patch，compaction 清除旧窗口基线。
 
-输出 [`RolloutReconstruction`](</home/goulei1/code/codex/codex-rs/core/src/session/rollout_reconstruction.rs:430>) 包含 History、上一轮设置、reference context、WorldState baseline 和 window ids。Session 再用最后的 token event 初始化 UI 可见 token 信息。
+输出 [`RolloutReconstruction`](../../../codex-rs/core/src/session/rollout_reconstruction.rs#L430) 包含 History、上一轮设置、reference context、WorldState baseline 和 window ids。Session 再用最后的 token event 初始化 UI 可见 token 信息。
 
 ### 兼容分支
 
@@ -109,12 +109,12 @@ flowchart LR
 
 ## 7.8 Fork 如何重建
 
-[`ThreadManager::fork_thread`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:1031>) 先读取源 Thread，再按 `ForkSnapshot` 选择边界，最终以 `InitialHistory::Forked` 启动一个新 id。它复用与 resume 相同的 reconstruction 语义，但持久化有两种策略：
+[`ThreadManager::fork_thread`](../../../codex-rs/core/src/thread_manager.rs#L1031) 先读取源 Thread，再按 `ForkSnapshot` 选择边界，最终以 `InitialHistory::Forked` 启动一个新 id。它复用与 resume 相同的 reconstruction 语义，但持久化有两种策略：
 
 - `Copied`：把选定历史前缀复制到子 Thread 的本地 Rollout；
 - `Referenced`：用 `history_base` 引用祖先记录，只把子 Thread 的有效设置与后续记录写到本地。
 
-[`record_initial_history`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:1370>) 为 fork 补齐缺失 response ids、重建 History/token/baseline，再按策略持久化。Fork 的关键语义是“新 Thread id + 继承的模型上下文”，不是两个 Session 共享同一个可变 ContextManager。
+[`record_initial_history`](../../../codex-rs/core/src/session/mod.rs#L1370) 为 fork 补齐缺失 response ids、重建 History/token/baseline，再按策略持久化。Fork 的关键语义是“新 Thread id + 继承的模型上下文”，不是两个 Session 共享同一个可变 ContextManager。
 
 ## 7.9 取消、回滚与一致性
 
