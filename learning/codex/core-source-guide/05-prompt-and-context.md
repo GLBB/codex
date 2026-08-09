@@ -17,28 +17,28 @@ Developer context 是一个语义集合，不是单一字段：一部分来自 `
 
 ## 5.2 Base Instructions
 
-会话启动时，[`Session::spawn_internal`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:636>) 按以下优先级选择基础指令：
+会话启动时，[`Session::spawn_internal`](../../../codex-rs/core/src/session/mod.rs#L636) 按以下优先级选择基础指令：
 
 1. 配置显式 override；
 2. 恢复历史中的 Session metadata；
 3. 当前 `ModelInfo::get_model_instructions`。
 
-[`ModelInfo::get_model_instructions`](</home/goulei1/code/codex/codex-rs/protocol/src/openai_models.rs:487>) 还会按 personality 渲染模板。模型目录可以由服务刷新，所以“某个本地 Markdown 是唯一 base prompt”并不成立。
+[`ModelInfo::get_model_instructions`](../../../codex-rs/protocol/src/openai_models.rs#L487) 还会按 personality 渲染模板。模型目录可以由服务刷新，所以“某个本地 Markdown 是唯一 base prompt”并不成立。
 
-`run_sampling_request` 取得 Session 的 base instructions，[`build_prompt`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:1289>) 将其放入 `Prompt.base_instructions`。它与 History 分开保存，目的是维持 Responses API 的顶层 instructions 语义和提示词缓存稳定性。
+`run_sampling_request` 取得 Session 的 base instructions，[`build_prompt`](../../../codex-rs/core/src/session/turn.rs#L1289) 将其放入 `Prompt.base_instructions`。它与 History 分开保存，目的是维持 Responses API 的顶层 instructions 语义和提示词缓存稳定性。
 
 ## 5.3 Developer Messages
 
-Session 配置中的 developer instructions 会在初始上下文构建时变成 developer-role `ResponseItem`。插件指令的 fragment 也明确使用 developer role；可从 [`plugin_instructions.rs`](</home/goulei1/code/codex/codex-rs/core/src/context/plugin_instructions.rs:1>) 看其 marker 和渲染方式。
+Session 配置中的 developer instructions 会在初始上下文构建时变成 developer-role `ResponseItem`。插件指令的 fragment 也明确使用 developer role；可从 [`plugin_instructions.rs`](../../../codex-rs/core/src/context/plugin_instructions.rs#L1) 看其 marker 和渲染方式。
 
 Extensions 还可以贡献 thread/turn 范围的 developer fragments。它们最终都进入 History，而不是合并进 `Prompt.base_instructions` 字符串。这一点对于恢复很重要：History 中的 developer message 有明确时序，base instructions 则是请求级固定字段。
 
 ## 5.4 Contextual User Messages
 
-[`ContextualUserFragment`](</home/goulei1/code/codex/codex-rs/context-fragments/src/fragment.rs:14>) 给动态上下文定义统一接口：声明 role、marker、body，并渲染成 Responses item。常见来源包括：
+[`ContextualUserFragment`](../../../codex-rs/context-fragments/src/fragment.rs#L14) 给动态上下文定义统一接口：声明 role、marker、body，并渲染成 Responses item。常见来源包括：
 
-- AGENTS.md：[`user_instructions.rs`](</home/goulei1/code/codex/codex-rs/core/src/context/user_instructions.rs:1>)；
-- Skills：[`skill_instructions.rs`](</home/goulei1/code/codex/codex-rs/core-skills/src/skill_instructions.rs:22>)；
+- AGENTS.md：[`user_instructions.rs`](../../../codex-rs/core/src/context/user_instructions.rs#L1)；
+- Skills：[`fragments.rs`](../../../codex-rs/ext/skills/src/fragments.rs#L57)；
 - WorldState 中的模型、权限、环境、apps/plugins/tools、协作和多 Agent section；
 - 推荐插件、token budget、extension context。
 
@@ -46,7 +46,7 @@ Extensions 还可以贡献 thread/turn 范围的 developer fragments。它们最
 
 ## 5.5 首轮完整注入
 
-新 Thread 不在 `Session::new` 时立刻注入初始上下文，而是在首个真实 Turn 已经合并 per-turn override 后进行。打开 [`build_initial_context_with_world_state`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:3421>)，按以下顺序理解即可：
+新 Thread 不在 `Session::new` 时立刻注入初始上下文，而是在首个真实 Turn 已经合并 per-turn override 后进行。打开 [`build_initial_context_with_world_state`](../../../codex-rs/core/src/session/mod.rs#L3421)，按以下顺序理解即可：
 
 1. configured developer instructions；
 2. 推荐插件和 extension thread/turn fragments；
@@ -60,7 +60,7 @@ Extensions 还可以贡献 thread/turn 范围的 developer fragments。它们最
 
 ## 5.6 后续 WorldState 差量注入
 
-后续 Turn 或 Step 调用 [`record_context_updates_and_set_reference_context_item`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:3713>)。它比较当前 `TurnContextItem` 和 `ContextManager` 保存的 reference context，再调用 [`ContextManager::update_world_state`](</home/goulei1/code/codex/codex-rs/core/src/context_manager/history.rs:92>)：
+后续 Turn 或 Step 调用 [`record_context_updates_and_set_reference_context_item`](../../../codex-rs/core/src/session/mod.rs#L3713)。它比较当前 `TurnContextItem` 和 `ContextManager` 保存的 reference context，再调用 [`ContextManager::update_world_state`](../../../codex-rs/core/src/context_manager/history.rs#L92)：
 
 - 没有 baseline：渲染完整 fragments，并持久化 `WorldStateItem::full`；
 - 有 baseline：对 section snapshot 做比较，只渲染模型应看到的变化，并持久化 JSON merge patch；
@@ -70,7 +70,7 @@ Extensions 还可以贡献 thread/turn 范围的 developer fragments。它们最
 
 ## 5.7 Conversation History
 
-模型输入由 [`ContextManager::for_prompt`](</home/goulei1/code/codex/codex-rs/core/src/context_manager/history.rs:141>) 产生。调用前 Session clone 一个快照，随后规范化：
+模型输入由 [`ContextManager::for_prompt`](../../../codex-rs/core/src/context_manager/history.rs#L141) 产生。调用前 Session clone 一个快照，随后规范化：
 
 - 缺 tool output 的 call 被补齐；
 - orphan output 被删除；
@@ -81,7 +81,7 @@ Extensions 还可以贡献 thread/turn 范围的 developer fragments。它们最
 
 ## 5.8 Tool Specifications
 
-[`build_tool_router`](</home/goulei1/code/codex/codex-rs/core/src/tools/spec_plan.rs:119>) 先注册 core tools，再附加 MCP、extension 和 dynamic runtimes，最后加入 hosted model tools。Router 同时保存 spec 与 executor registry；[`build_prompt`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:1289>) 读取 `router.model_visible_specs()`，并设置 `parallel_tool_calls`。
+[`build_tool_router`](../../../codex-rs/core/src/tools/spec_plan.rs#L119) 先注册 core tools，再附加 MCP、extension 和 dynamic runtimes，最后加入 hosted model tools。Router 同时保存 spec 与 executor registry；[`build_prompt`](../../../codex-rs/core/src/session/turn.rs#L1289) 读取 `router.model_visible_specs()`，并设置 `parallel_tool_calls`。
 
 工具定义不写入 Conversation History。它们是当前 Step 的请求字段，因此 MCP server 或环境变化后可以重新构建，而无需伪造一条聊天消息。
 
@@ -95,7 +95,7 @@ app-server 的 `turn/start` 可把输出 schema 放入 Turn settings，最终进
 
 ## 5.10 映射到 Responses API
 
-打开 [`client.rs`](</home/goulei1/code/codex/codex-rs/core/src/client.rs:840>) 的请求构造，不要继续跟 HTTP transport。标准 Responses 路径的映射是：
+打开 [`client.rs`](../../../codex-rs/core/src/client.rs#L840) 的请求构造，不要继续跟 HTTP transport。标准 Responses 路径的映射是：
 
 ```text
 Prompt.base_instructions -> request.instructions
@@ -111,13 +111,13 @@ Prompt.output_schema     -> request.text/format 配置
 
 `core/` 根下可见若干 `gpt*_prompt.md`。在当前仓库的 Rust/Bazel 运行引用中，它们没有进入上述 `Session -> build_prompt -> ModelClient` 主链；不要仅凭文件名把它们当成当前 base prompt 入口。
 
-`prompt_with_apply_patch_instructions.md` 当前可见引用位于 [`session/tests.rs`](</home/goulei1/code/codex/codex-rs/core/src/session/tests.rs:1424>)，用于测试期望，而非生产请求构建。这个判断限定于当前仓库可见实现；仓库外的打包或发布流程不在本教程证据范围内。
+`prompt_with_apply_patch_instructions.md` 当前可见引用位于 [`session/tests.rs`](../../../codex-rs/core/src/session/tests.rs#L1424)，用于测试期望，而非生产请求构建。这个判断限定于当前仓库可见实现；仓库外的打包或发布流程不在本教程证据范围内。
 
 真正需要追的是：启动时解析出的 `BaseInstructions`、模型目录提供的 instructions、以及写进 ContextManager 的 contextual fragments。
 
 ## 5.12 Prompt 调试入口
 
-[`prompt_debug.rs`](</home/goulei1/code/codex/codex-rs/core/src/prompt_debug.rs:26>) 的隐藏辅助入口可以构建模型可见 input，适合测试或调试上下文。但它返回的不是完整网络请求；工具字段、top-level instructions 和 transport metadata 仍应从正常 ModelClient 路径理解。
+[`prompt_debug.rs`](../../../codex-rs/core/src/prompt_debug.rs#L26) 的隐藏辅助入口可以构建模型可见 input，适合测试或调试上下文。但它返回的不是完整网络请求；工具字段、top-level instructions 和 transport metadata 仍应从正常 ModelClient 路径理解。
 
 ## 5.13 本章阅读停点
 

@@ -4,7 +4,7 @@
 
 ## 3.1 外部准备 ThreadManager
 
-app-server 在 [`message_processor.rs`](</home/goulei1/code/codex/codex-rs/app-server/src/message_processor.rs:271>) 构造 `ThreadManager`。输入不是一份简单 `Config`，还包括 `AuthManager`、`ModelsManager`、apps 缓存、环境管理器、扩展注册表、用户指令 provider、thread store 和 agent store 等共享服务。
+app-server 在 [`message_processor.rs`](../../../codex-rs/app-server/src/message_processor.rs#L271) 构造 `ThreadManager`。输入不是一份简单 `Config`，还包括 `AuthManager`、`ModelsManager`、apps 缓存、环境管理器、扩展注册表、用户指令 provider、thread store 和 agent store 等共享服务。
 
 输出是进程级 manager。它不立即创建模型会话；这些服务会在 spawn Session 时注入。
 
@@ -12,32 +12,32 @@ app-server 在 [`message_processor.rs`](</home/goulei1/code/codex/codex-rs/app-s
 
 ## 3.2 `start_thread` 只统一入口参数
 
-打开 [`ThreadManager::start_thread`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:807>)。它接收 `StartThreadOptions`，为“新 Thread”选择 `InitialHistory::New`，再进入内部 spawn 路径。resume 和 fork 最终也复用同一套 Session spawn，只是初始历史与持久化语义不同：
+打开 [`ThreadManager::start_thread`](../../../codex-rs/core/src/thread_manager.rs#L807)。它接收 `StartThreadOptions`，为“新 Thread”选择 `InitialHistory::New`，再进入内部 spawn 路径。resume 和 fork 最终也复用同一套 Session spawn，只是初始历史与持久化语义不同：
 
-- [`resume_thread_from_rollout`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:871>) 先获得已有 Rollout；
-- [`resume_thread_with_history`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:891>) 使用 `InitialHistory::Resumed`；
-- [`fork_thread`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:1031>) 选取源 Thread 的历史边界；
-- [`fork_thread_from_history`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:1074>) 使用 `InitialHistory::Forked`。
+- [`resume_thread_from_rollout`](../../../codex-rs/core/src/thread_manager.rs#L871) 先获得已有 Rollout；
+- [`resume_thread_with_history`](../../../codex-rs/core/src/thread_manager.rs#L891) 使用 `InitialHistory::Resumed`；
+- [`fork_thread`](../../../codex-rs/core/src/thread_manager.rs#L1031) 选取源 Thread 的历史边界；
+- [`fork_thread_from_history`](../../../codex-rs/core/src/thread_manager.rs#L1074) 使用 `InitialHistory::Forked`。
 
 这些函数的输出都是 `NewThread`，调用者由此拿到 thread id、`CodexThread` 和初始配置事件。
 
 ## 3.3 `spawn_thread` 组装 SessionSpawnArgs
 
-继续到 [`ThreadManagerState::spawn_thread`](</home/goulei1/code/codex/codex-rs/core/src/thread_manager.rs:1607>)。这是 ThreadManager 与 Session 的真正交界：
+继续到 [`ThreadManagerState::spawn_thread`](../../../codex-rs/core/src/thread_manager.rs#L1607)。这是 ThreadManager 与 Session 的真正交界：
 
 1. 解析本地/远程执行环境；
 2. 对 resume 做活跃 Thread 去重；
 3. 从 user instructions provider 获取调用者级指令；
 4. 推导 multi-agent 版本和 originator；
 5. 把 manager 中的共享服务、启动配置和 `InitialHistory` 放入 `SessionSpawnArgs`；
-6. 调用 [`Session::spawn`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:493>)；
+6. 调用 [`Session::spawn`](../../../codex-rs/core/src/session/mod.rs#L493)；
 7. 用返回的 `Session` 与 I/O 构造 `CodexThread`，登记到 manager。
 
 这里的输入是“上层依赖 + 本 Thread 的启动选择”，输出是“已经运行 submission loop 的 Session”。看到 `Session::spawn` 调用后先停，不要在 ThreadManager 内继续研究列表或归档 API。
 
 ## 3.4 `Session::spawn_internal` 冻结会话级配置
 
-打开 [`Session::spawn_internal`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:517>)。初始化顺序很重要：
+打开 [`Session::spawn_internal`](../../../codex-rs/core/src/session/mod.rs#L517)。初始化顺序很重要：
 
 1. 创建 bounded submission channel 和 event channel；
 2. 加载 exec policy；
@@ -54,11 +54,11 @@ Base Instructions 的优先级在此明确：配置中的 override 优先，其�
 
 ## 3.5 `Session::new` 并行初始化持久化与能力
 
-打开 [`Session::new`](</home/goulei1/code/codex/codex-rs/core/src/session/session.rs:511>)。这个函数很长，第一次只读五段：
+打开 [`Session::new`](../../../codex-rs/core/src/session/session.rs#L511)。这个函数很长，第一次只读五段：
 
 ### A. 确定身份和持久化
 
-Session 根据 `InitialHistory` 确定 thread/session id。新建和 fork 使用 [`LiveThread::create`](</home/goulei1/code/codex/codex-rs/core/src/session/session.rs:682>) 或带继承上下文的创建路径；resume 使用 [`LiveThread::resume`](</home/goulei1/code/codex/codex-rs/core/src/session/session.rs:701>)。这里建立了后续 Rollout append 的落点。
+Session 根据 `InitialHistory` 确定 thread/session id。新建和 fork 使用 [`LiveThread::create`](../../../codex-rs/core/src/session/session.rs#L682) 或带继承上下文的创建路径；resume 使用 [`LiveThread::resume`](../../../codex-rs/core/src/session/session.rs#L701)。这里建立了后续 Rollout append 的落点。
 
 ### B. 初始化 auth、MCP 和插件投影
 
@@ -66,7 +66,7 @@ Session 根据 `InitialHistory` 确定 thread/session id。新建和 fork 使用
 
 ### C. 初始化 shell、环境和项目指令管理器
 
-Session 建立 shell/environment 相关状态，并创建 [`AgentsMdManager`](</home/goulei1/code/codex/codex-rs/core/src/agents_md_manager.rs:11>)。AGENTS.md 在启动期有缓存/预热，但真正用于某一步的内容由 `capture_step_context` 刷新，所以不能把它理解成只读取一次的静态字符串。
+Session 建立 shell/environment 相关状态，并创建 [`AgentsMdManager`](../../../codex-rs/core/src/agents_md_manager.rs#L11)。AGENTS.md 在启动期有缓存/预热，但真正用于某一步的内容由 `capture_step_context` 刷新，所以不能把它理解成只读取一次的静态字符串。
 
 ### D. 预热 Skills 与 Plugins，组装 Hooks/Extensions
 
@@ -76,7 +76,7 @@ Session 建立 shell/environment 相关状态，并创建 [`AgentsMdManager`](</
 
 ### E. 发布配置并开始接收命令
 
-Session 构造完成后发送 `SessionConfigured`，安装初始 MCP runtime，启动 worker/prewarm，最后调用 [`record_initial_history`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:1294>)。`Session::spawn_internal` 随后启动 [`submission_loop`](</home/goulei1/code/codex/codex-rs/core/src/session/handlers.rs:703>)。
+Session 构造完成后发送 `SessionConfigured`，安装初始 MCP runtime，启动 worker/prewarm，最后调用 [`record_initial_history`](../../../codex-rs/core/src/session/mod.rs#L1294)。`Session::spawn_internal` 随后启动 [`submission_loop`](../../../codex-rs/core/src/session/handlers.rs#L703)。
 
 至此外部可通过 `CodexThread` 提交命令。
 

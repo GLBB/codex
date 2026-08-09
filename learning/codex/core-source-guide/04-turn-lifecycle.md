@@ -27,21 +27,21 @@ turn/start
 
 | 步骤 | 文件与入口 | 输入 → 输出 | 下一步 | 暂停点 |
 | --- | --- | --- | --- | --- |
-| 1. 外部请求 | [`turn_start_inner`](</home/goulei1/code/codex/codex-rs/app-server/src/request_processors/turn_processor.rs:474>) | JSON-RPC params → core `UserInput` 与 per-turn settings | `CodexThread::submit_user_input_with_client_user_message_id` | 看见 `Op::UserInput` 后停，不读事件映射 |
-| 2. 进入 core | [`Submission`](</home/goulei1/code/codex/codex-rs/protocol/src/protocol.rs:174>)、[`CodexThread::submit`](</home/goulei1/code/codex/codex-rs/core/src/codex_thread.rs:236>) | `Op` + submission id → channel message | `submission_loop` | 不进入其他 `Op` 分支 |
-| 3. 分派命令 | [`submission_loop`](</home/goulei1/code/codex/codex-rs/core/src/session/handlers.rs:703>) | `Submission` → 对应 handler | `user_input_or_turn` | 只跟 `Op::UserInput` |
-| 4. 建立 Turn | [`user_input_or_turn_inner`](</home/goulei1/code/codex/codex-rs/core/src/session/handlers.rs:189>) | 用户输入 + settings → `TurnContext`/`TurnInput` | steer 活跃 Turn，或 `spawn_task` | 首读跳过 steer 细节 |
-| 5. 启动任务 | [`Session::spawn_task`](</home/goulei1/code/codex/codex-rs/core/src/tasks/mod.rs:276>) | `RegularTask` + TurnContext + input | `start_task` 建立 ActiveTurn 并 spawn | 看到取消 token 和 ActiveTurn 即停 |
-| 6. 生命周期外壳 | [`RegularTask::run`](</home/goulei1/code/codex/codex-rs/core/src/tasks/regular.rs:38>) | Turn 输入 → `TurnStarted` + 主循环结果 | `run_turn` | 跳过 startup prewarm 实现 |
-| 7. 准备首 Step | [`run_turn`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:151>) | TurnContext + input + Session state → StepContext | 记录上下文和用户输入 | 看完第一次 `capture_step_context` |
+| 1. 外部请求 | [`turn_start_inner`](../../../codex-rs/app-server/src/request_processors/turn_processor.rs#L474) | JSON-RPC params → core `UserInput` 与 per-turn settings | `CodexThread::submit_user_input_with_client_user_message_id` | 看见 `Op::UserInput` 后停，不读事件映射 |
+| 2. 进入 core | [`Submission`](../../../codex-rs/protocol/src/protocol.rs#L174)、[`CodexThread::submit`](../../../codex-rs/core/src/codex_thread.rs#L236) | `Op` + submission id → channel message | `submission_loop` | 不进入其他 `Op` 分支 |
+| 3. 分派命令 | [`submission_loop`](../../../codex-rs/core/src/session/handlers.rs#L703) | `Submission` → 对应 handler | `user_input_or_turn` | 只跟 `Op::UserInput` |
+| 4. 建立 Turn | [`user_input_or_turn_inner`](../../../codex-rs/core/src/session/handlers.rs#L189) | 用户输入 + settings → `TurnContext`/`TurnInput` | steer 活跃 Turn，或 `spawn_task` | 首读跳过 steer 细节 |
+| 5. 启动任务 | [`Session::spawn_task`](../../../codex-rs/core/src/tasks/mod.rs#L276) | `RegularTask` + TurnContext + input | `start_task` 建立 ActiveTurn 并 spawn | 看到取消 token 和 ActiveTurn 即停 |
+| 6. 生命周期外壳 | [`RegularTask::run`](../../../codex-rs/core/src/tasks/regular.rs#L38) | Turn 输入 → `TurnStarted` + 主循环结果 | `run_turn` | 跳过 startup prewarm 实现 |
+| 7. 准备首 Step | [`run_turn`](../../../codex-rs/core/src/session/turn.rs#L151) | TurnContext + input + Session state → StepContext | 记录上下文和用户输入 | 看完第一次 `capture_step_context` |
 | 8. 记录输入 | 同一 `run_turn` | user input、skill/plugin/extension 注入 → History + Rollout | sampling loop | 暂不跟各注入构造器 |
-| 9. 取模型历史 | [`ContextManager::for_prompt`](</home/goulei1/code/codex/codex-rs/core/src/context_manager/history.rs:141>) | History snapshot + 模型模态 → 规范化 `Vec<ResponseItem>` | `run_sampling_request` | 看完 normalization 不读截断算法 |
-| 10. 构造 Prompt | [`build_prompt`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:1289>) | history + router specs + base instructions + schema → `Prompt` | `run_sampling_request` | 不进入各 ToolSpec |
-| 11. 发起采样 | [`run_sampling_request`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:1317>) | Prompt + metadata + ModelClientSession | retry loop | 跟一次成功路径即可 |
-| 12. 消费流 | [`try_run_sampling_request`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:2146>) | Responses stream → 增量事件、完成 item、token info | `handle_output_item_done` | 先跳过所有 stream event 变体 |
-| 13A. 普通输出 | [`handle_output_item_done`](</home/goulei1/code/codex/codex-rs/core/src/stream_events_utils.rs:288>) | assistant item → History、Rollout、UI item event | 等待 `Completed` | 看见 record 即停 |
+| 9. 取模型历史 | [`ContextManager::for_prompt`](../../../codex-rs/core/src/context_manager/history.rs#L141) | History snapshot + 模型模态 → 规范化 `Vec<ResponseItem>` | `run_sampling_request` | 看完 normalization 不读截断算法 |
+| 10. 构造 Prompt | [`build_prompt`](../../../codex-rs/core/src/session/turn.rs#L1289) | history + router specs + base instructions + schema → `Prompt` | `run_sampling_request` | 不进入各 ToolSpec |
+| 11. 发起采样 | [`run_sampling_request`](../../../codex-rs/core/src/session/turn.rs#L1317) | Prompt + metadata + ModelClientSession | retry loop | 跟一次成功路径即可 |
+| 12. 消费流 | [`try_run_sampling_request`](../../../codex-rs/core/src/session/turn.rs#L2146) | Responses stream → 增量事件、完成 item、token info | `handle_output_item_done` | 先跳过所有 stream event 变体 |
+| 13A. 普通输出 | [`handle_output_item_done`](../../../codex-rs/core/src/stream_events_utils.rs#L288) | assistant item → History、Rollout、UI item event | 等待 `Completed` | 看见 record 即停 |
 | 13B. 工具输出 | 同一函数 | tool-call item → `ToolCallRuntime` future | drain tool results | 暂不进入 handler |
-| 14. 工具回填 | [`drain_in_flight`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:2097>) | tool future result → call output `ResponseItem` | record 到 History，再次采样 | 看见 `record_conversation_items` |
+| 14. 工具回填 | [`drain_in_flight`](../../../codex-rs/core/src/session/turn.rs#L2097) | tool future result → call output `ResponseItem` | record 到 History，再次采样 | 看见 `record_conversation_items` |
 | 15. 完成 Turn | `run_turn` 返回，`RegularTask` 收尾 | 最终文本/token/status → `TurnComplete` 等 Event | event channel → `CodexThread` | 到此主链闭环 |
 
 ## 4.3 接收输入与创建 TurnContext
@@ -52,19 +52,19 @@ app-server 把 v2 输入映射成协议层 `UserInput`，把 model、cwd、appro
 
 ## 4.4 创建 StepContext
 
-`run_turn` 在真正写入本轮输入前先处理必要的预采样 compaction，并检测用户是否显式需要某些 MCP servers/plugins。随后调用 [`capture_step_context_with_required_mcp_servers`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:3076>)：
+`run_turn` 在真正写入本轮输入前先处理必要的预采样 compaction，并检测用户是否显式需要某些 MCP servers/plugins。随后调用 [`capture_step_context_with_required_mcp_servers`](../../../codex-rs/core/src/session/mod.rs#L3076)：
 
 1. 刷新环境 readiness 和 AGENTS.md；
 2. 解析 capability roots；
 3. 并行准备 MCP binding 和工具推荐；
-4. 调用 [`built_tools`](</home/goulei1/code/codex/codex-rs/core/src/session/turn.rs:1474>)；
+4. 调用 [`built_tools`](../../../codex-rs/core/src/session/turn.rs#L1474)；
 5. 生成绑定该 router 的 `StepContext`。
 
 输入是 TurnContext 和本次要求的 capability；输出是一次采样的完整运行快照。下一步 `record_step_world_state_if_changed` 保证模型可见 WorldState 与这个 Step 使用同一份状态。
 
 ## 4.5 注入上下文并写入用户输入
 
-首轮或上下文基线丢失时，Session 写入完整初始上下文；后续 Turn/Step 只写配置与 WorldState 差量。接着 Turn 选择显式 Skills/Plugins，运行 session-start/user-prompt hooks 和 extension contributors，把形成的 `ResponseItem` 与用户输入一起交给 [`record_conversation_items`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:2994>)。
+首轮或上下文基线丢失时，Session 写入完整初始上下文；后续 Turn/Step 只写配置与 WorldState 差量。接着 Turn 选择显式 Skills/Plugins，运行 session-start/user-prompt hooks 和 extension contributors，把形成的 `ResponseItem` 与用户输入一起交给 [`record_conversation_items`](../../../codex-rs/core/src/session/mod.rs#L2994)。
 
 这个函数同时做三件事：追加内存 History、持久化 `RolloutItem::ResponseItem`、向客户端发送 raw response item 事件。它是“模型上下文”和“可恢复记录”保持一致的重要写边界。
 
@@ -95,7 +95,7 @@ app-server 把 v2 输入映射成协议层 `UserInput`，把 model、cwd、appro
 
 ## 4.8 Event 如何返回
 
-Session 的 [`send_event_raw`](</home/goulei1/code/codex/codex-rs/core/src/session/mod.rs:2061>) 默认先把 `EventMsg` 持久化为 Rollout，再把 `Event` 发送到 event channel。`CodexThread::next_event` 读取该 channel；app-server 再把 core event 映射成 JSON-RPC notification。
+Session 的 [`send_event_raw`](../../../codex-rs/core/src/session/mod.rs#L2061) 默认先把 `EventMsg` 持久化为 Rollout，再把 `Event` 发送到 event channel。`CodexThread::next_event` 读取该 channel；app-server 再把 core event 映射成 JSON-RPC notification。
 
 因此 UI 事件不是模型流的原样透传。core 会把模型增量、Turn item、工具 begin/end、审批请求、token 信息和生命周期状态统一成协议事件。
 
