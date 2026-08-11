@@ -9,9 +9,9 @@
     "rust-analyzer.cachePriming.enable": false,
     // Keep the language server's syntax-tree cache bounded for this large workspace.
     "rust-analyzer.lru.capacity": 32,
-    // Test-only dependencies create valid Cargo cycles (for example, tui -> cli -> tui),
-    // which rust-analyzer reports as a persistent workspace health warning.
-    "rust-analyzer.cargo.allTargets": false,
+    // This workspace intentionally has test-only dependency cycles. rust-analyzer exposes
+    // those as a workspace-health warning even though Cargo resolves and tests them correctly.
+    "rust-analyzer.statusBar.showStatusBar": "never",
     "rust-analyzer.cargo.targetDir": "${workspaceFolder}/codex-rs/target/rust-analyzer",
     "rust-analyzer.files.excludeDirs": [
         ".git",
