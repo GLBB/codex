@@ -55,18 +55,101 @@ flowchart LR
 
 ## 建议的第一次阅读方式
 
-先打开 [`thread_manager.rs`](../../../codex-rs/core/src/thread_manager.rs#L807) 的 `start_thread`，确认外部调用者拿到的是 `CodexThread`；然后跳到 [`session/handlers.rs`](../../../codex-rs/core/src/session/handlers.rs#L703) 的 `submission_loop`，再到 [`session/turn.rs`](../../../codex-rs/core/src/session/turn.rs#L151) 的 `run_turn`。当你能在 `run_turn` 中指出“历史在哪里取出、Prompt 在哪里构建、工具结果在哪里让循环继续”时，再进入 Prompt 和持久化专题。
+先打开 [`thread_manager.rs`](../../../codex-rs/core/src/thread_manager.rs#L845) 的 `start_thread`，确认外部调用者拿到的是 `CodexThread`；然后跳到 [`session/handlers.rs`](../../../codex-rs/core/src/session/handlers.rs#L706) 的 `submission_loop`，再到 [`session/turn.rs`](../../../codex-rs/core/src/session/turn.rs#L153) 的 `run_turn`。当你能在 `run_turn` 中指出“历史在哪里取出、Prompt 在哪里构建、工具结果在哪里让循环继续”时，再进入 Prompt 和持久化专题。
 
-第一次阅读无需理解 `core/src` 的所有模块。能解释这条链已经足够建立骨架：
+### 不迷路版：一条普通文本请求实际经过什么
+
+下面按当前源码的函数边界展开。缩进表示调用或异步任务的归属；方括号表示分支，而不是每次都会发生的调用。首次阅读只沿着标有“主线”的那一列向下走。
 
 ```text
-start_thread
-  -> Session::spawn / Session::new
-  -> submission_loop
-  -> user_input_or_turn
-  -> RegularTask::run
-  -> run_turn
-  -> run_sampling_request
-  -> try_run_sampling_request
-  -> ToolRouter / Event
+ThreadManager::start_thread                         主线：创建长期存活的 Thread
+  -> start_thread_inner
+  -> ThreadManagerState::spawn_thread
+  -> Session::spawn                                 建立 Session、submission channel、event channel
+       -> tokio::spawn(submission_loop(...))         此时还没有用户 Turn；循环等待 Submission
+  -> NewThread { CodexThread, ... }
+
+CodexThread::submit(Op::UserInput)                  主线：一次用户提交
+  -> SessionIo::submit
+  -> tx_sub.send(Submission { op, id, ... })
+  -> submission_loop                                从 channel 收到 Submission，按 Op 分派
+       -> user_input_or_turn
+          -> user_input_or_turn_inner
+             -> Session::new_turn_with_sub_id       将本轮 settings 固化成 TurnContext
+             -> Session::steer_input
+                [已有 ActiveTurn] -> 把输入放入 input queue，当前 Turn 之后吸收它
+                [没有 ActiveTurn] -> Session::spawn_task(RegularTask::new())
+                   -> Session::start_task
+                   -> tokio::spawn(SessionTask::run)
+                      -> RegularTask::run            发 TurnStarted，并处理 startup prewarm
+                         -> run_turn                  一个 Turn 的采样循环
 ```
+
+`Session::spawn` 与 `Session::new` 不应被理解为一次用户请求的前后两步：在当前实现中，`Session::spawn` 负责构造 Session 并启动 `submission_loop`；新用户 Turn 由 `new_turn_with_sub_id` 创建 `TurnContext`。所以先把边界记成“**Thread/Session 只创建一次，Turn 可以创建很多次**”。
+
+### `run_turn` 内部：每一次采样如何回来
+
+`run_turn` 最容易让人迷路，因为它包含一个外层的“本轮继续吗”循环，而 `run_sampling_request` 又包含一个“流失败要重试吗”循环。先按下面的成功路径读：
+
+```text
+run_turn
+  -> run_pre_sampling_compact                         [必要时]
+  -> required_mcp_servers_for_input                   [用户明确提到 MCP/Plugin 时]
+  -> capture_step_context...                          为本次采样冻结 StepContext
+       -> built_tools -> ToolRouter                   生成“模型看见哪些工具、实际由谁执行”的快照
+  -> record_context_updates... / run_hooks_and_record_inputs
+       -> record_conversation_items                   把上下文、注入项、用户输入写入 History + Rollout
+
+  -> loop {                                           每一轮 loop 最多得到一次模型 response stream
+       -> clone_history().for_prompt(...)
+       -> build_prompt(history, ToolRouter, ...)
+       -> run_sampling_request
+          -> loop {                                   只处理可重试的流错误
+               -> try_run_sampling_request
+                  -> ModelClientSession::stream(prompt, ...)
+                  -> loop { ResponseEvent }           消费 Responses API 的流
+                       -> OutputTextDelta / Reasoning... -> Session::send_event(...)
+                       -> OutputItemDone(item)
+                          -> handle_output_item_done(item)
+                  }
+          }
+       -> [有 tool call 或待处理输入] -> 下一次外层 loop
+       -> [没有] -> 返回最后一条 assistant message
+     }
+```
+
+其中 `StepContext` 是“**一次采样**”的快照，`TurnContext` 是“**整个用户 Turn**”的快照。外层 loop 因工具结果、steer 输入、压缩等原因再次采样时，可能重新捕获 `StepContext`；不要把它和 `TurnContext` 当成同一个对象。
+
+### 在 `OutputItemDone` 处分叉：文本结束还是工具闭环
+
+`try_run_sampling_request` 收到完整 item 后进入 [`handle_output_item_done`](../../../codex-rs/core/src/stream_events_utils.rs#L288)。这正是“模型输出”转为“core 行为”的边界：
+
+```text
+OutputItemDone(item)
+  -> ToolRouter::build_tool_call(item.clone())
+     |
+     +-- None：普通 message / reasoning
+     |     -> parse/finalize TurnItem
+     |     -> emit_turn_item_started / emit_turn_item_completed
+     |     -> record_completed_response_item
+     |          -> Session::record_conversation_items
+     |             -> History + Rollout + raw item Event
+     |
+     +-- Some(call)：模型请求调用工具
+           -> 先 record_completed_response_item(call)  保留模型发出的 tool call
+           -> ToolCallRuntime::handle_tool_call(call)
+              -> ToolRouter::dispatch_tool_call...     到 registry 中找到具体 handler
+              -> approval / sandbox / MCP / shell ...  具体工具各自的执行支线
+           -> future 放入 in_flight，needs_follow_up = true
+
+ResponseEvent::Completed
+  -> drain_in_flight
+     -> tool future 的 ResponseInputItem
+     -> record_conversation_items(tool output)         tool output 写回 History
+  -> 返回 run_turn 的外层 loop
+  -> 下一次 clone_history().for_prompt(...)           原 call + output 都已在 Prompt 中
+```
+
+因此，`ToolRouter` 不是“收到模型输出后直接发送 Event”的终点。它一方面在 `build_prompt` 时提供 model-visible tool specs，另一方面在工具调用时定位 runtime handler；工具结果回写 History 后，才促成下一次模型采样。普通文本则通过 `Session::send_event` 及 Turn-item 事件回到 `CodexThread::next_event`，最终由 app-server/UI 消费。
+
+第一次跟读建议只设六个停点：`start_thread`（创建 Session）、`submission_loop`（收到 `Op::UserInput`）、`user_input_or_turn_inner`（创建 Turn）、`RegularTask::run`（启动 Turn）、`run_turn`（构造下一次 Prompt）、`handle_output_item_done`（文本与工具分叉）。每到一个停点，先回答“输入是什么、状态写到哪里、下一跳由谁启动”，再进入下一层。更完整的逐函数表和 StepContext 构造细节见[第 4 章](04-turn-lifecycle.md)。
