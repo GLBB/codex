@@ -74,6 +74,19 @@ Turn 是一次用户请求驱动的 Agent 工作周期。它从 `TurnStarted` �
 
 为什么不能只用 `TurnContext`？因为一个 Turn 可能在工具调用后继续采样，而 MCP 工具目录、环境就绪状态、AGENTS.md 或可用工具可能已变化。`Session::capture_step_context` 会为采样刷新这些状态。尤其重要的是，模型看见某一版工具定义后，返回的调用必须由**同一个 StepContext 的 router**执行，避免“广告的是 A 版工具、执行时却切到 B 版”。
 
+### 边界：什么固定，什么刷新
+
+| 边界 | `TurnContext` | `StepContext` |
+| --- | --- | --- |
+| 创建时机 | Turn 开始时创建一次 | 每次模型采样前捕获；同一 Turn 可以有多份 |
+| 固定的东西 | 本次请求的策略与身份：模型、provider、推理设置、权限、开发者指令、动态工具等 | 这一采样请求实际可用的运行时对象：环境就绪状态、MCP catalog、AGENTS.md、router |
+| 覆盖范围 | 整个用户请求驱动的 Agent 工作周期 | 一次采样，以及该次响应产生的工具调用 |
+| 不负责的内容 | 不保存模型历史，也不决定某次调用最终由哪个 router 分派 | 不重新定义 Turn 的模型、审批策略或其他长期策略；它通过 `turn` 引用继承这些内容 |
+
+这里的“刷新”有一个容易混淆的边界：环境**选择**属于 Turn，所以不会在同一 Turn 内任意改选另一个环境；但被选环境的**就绪状态**会在捕获 Step 时刷新。类似地，`TurnContext` 可以声明动态工具等 Turn 级输入，但本次真正展示给模型、并在收到调用后执行的完整工具计划属于 `StepContext::tool_router`。
+
+`StepContext` 也不是 History、Prompt 或 Rollout。它不保存对话历史，不是直接发往模型的请求对象，也不是对称于 Turn 的持久化领域实体；它是把一个稳定的 Turn 策略和当时可用的运行时依赖绑定起来的短生命周期快照。
+
 ## 2.8 Prompt
 
 [`Prompt`](../../../codex-rs/core/src/client_common.rs#L16) 是一次模型采样的请求模型，包含：
