@@ -12,12 +12,19 @@
 | [Langfuse 本地搭建与 Codex 接入](langfuse-local-action-plan.md)            | 本地部署、原生 OTel 与 session plugin 对照、实际验收及千万级用户容量分析                   |
 | [用 Langfuse 看懂 Codex](langfuse-trace-reading-guide.md)                  | Session Plugin 与原生 trace 的技术机制、噪音来源、实际任务分析、attributes 和 CLI 阅读教程 |
 | [Langfuse 最佳实践中文译文](langfuse-best-practices.zh-CN.md)              | 官方关于 trace 范围、树结构、命名、输入输出和属性的完整正文译文，以及 Codex 对照           |
+| [Rollout Trace：从生成到 Langfuse 导入](rollout-to-langfuse-tutorial.md)   | 跟读诊断 bundle 与 session JSONL 的产生、插件解析、OTLP 导出，并用最小样例练习导入与对账   |
+| [四种 Trace：定位、必要性与价值](trace-roles-and-value.md)                 | 区分会话恢复、Agent 行为视图、诊断运行证据和原生性能链路，解释互补与可替代边界             |
+| [Rollout Trace README 中文译文](rollout-trace.zh-CN.md)                   | 完整翻译本地诊断追踪的设计、bundle 布局、语义图、多智能体关联与 reducer 不变量             |
 
 第二篇固定了 Codex 与 GenAI 规范的阅读版本，并包含源码对照表、关系图和调用时间线。规范仓库已 clone 到 `/home/goulei1/code/semantic-conventions-genai`，可以与 Codex 源码并排阅读。
 
 第三篇以当前 Codex harness 为研究对象，核对 `StepContext`、任务生命周期、工具并发、事件出口和诊断归约，并记录现有 Viewer 的实时刷新与 Prompt 展示边界。第四篇配套实际 Langfuse 环境，验证两种采集路径的展示内容与边界。
 
 想先学会使用 Langfuse，可以直接从第五篇的安装任务实战开始：同一轮任务在插件中有 34 个节点，在原生项目中有 16,586 个节点。按问题选择证据后，再读第六篇理解怎样设计有用的 trace。真实统计附有[离线证据摘要](assets/langfuse-install-turn-evidence.json)，官方译文保留固定来源版本和 MIT 许可。
+
+想先明确为什么保留多种记录、遇到问题该看哪条路径，读[四种 Trace 的定位与价值](trace-roles-and-value.md)。文章区分执行事实与展示能力，用同一排障场景解释各条路径的作用，并给出源码阅读入口。
+
+想跟清楚数据从 Codex 到 Langfuse 的完整路径，读[生成与导入教程](rollout-to-langfuse-tutorial.md)。先辨认两种 rollout 文件，再沿源码跟到上传边界，最后使用人工 JSONL 样例练习导入。教程同时标明诊断 bundle 尚需适配器，以及实际二进制的能力检查与本地录制验证方法。
 
 ## 建议学习路线
 
@@ -39,7 +46,7 @@
 
 ### 4. 区分历史恢复与数据图归约
 
-先读 `codex-rs/rollout/src/recorder.rs` 与 `codex-rs/core/src/session/rollout_reconstruction.rs`，理解会话恢复。再进入 `codex-rs/rollout-trace/README.md`、`src/raw_event.rs`、`src/model/mod.rs` 与 `src/reducer/conversation.rs`，理解本地诊断录制和逻辑模型输入重建。
+先读 `codex-rs/rollout/src/recorder.rs` 与 `codex-rs/core/src/session/rollout_reconstruction.rs`，理解会话恢复。再读 [Rollout Trace 中文译文](rollout-trace.zh-CN.md)，对照 `codex-rs/rollout-trace/README.md`；随后进入该 crate 的 `src/raw_event.rs`、`src/model/mod.rs` 与 `src/reducer/conversation.rs`，理解本地诊断录制和逻辑模型输入重建。
 
 完成这一阶段后，应能解释为什么终端原始输出、JS 收到的结果和下一次模型请求里的工具结果可以不同，以及为什么 reducer replay 不等于重新执行 Agent。
 

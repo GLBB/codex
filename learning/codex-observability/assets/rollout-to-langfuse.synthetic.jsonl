@@ -1,0 +1,13 @@
+{"timestamp":"2026-09-29T08:00:00.000Z","type":"session_meta","payload":{"id":"tutorial-synthetic-session","cli_version":"tutorial-fixture","model_provider":"openai","base_instructions":{"text":"You are a coding assistant."}}}
+{"timestamp":"2026-09-29T08:00:00.100Z","type":"event_msg","payload":{"type":"task_started","turn_id":"tutorial-synthetic-turn"}}
+{"timestamp":"2026-09-29T08:00:00.200Z","type":"turn_context","payload":{"model":"tutorial-model","effort":"high"}}
+{"timestamp":"2026-09-29T08:00:00.300Z","type":"event_msg","payload":{"type":"user_message","message":"读取 values.txt，输出三个整数的和。"}}
+{"timestamp":"2026-09-29T08:00:00.300Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"读取 values.txt，输出三个整数的和。"}]}}
+{"timestamp":"2026-09-29T08:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"我先读取文件。"}]}}
+{"timestamp":"2026-09-29T08:00:02.000Z","type":"response_item","payload":{"type":"function_call","call_id":"tutorial-call-1","name":"exec_command","arguments":"{\"cmd\":\"cat values.txt\"}"}}
+{"timestamp":"2026-09-29T08:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"tutorial-call-1","output":"3 5 8"}}
+{"timestamp":"2026-09-29T08:00:03.100Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":20,"reasoning_output_tokens":10,"total_tokens":120},"total_token_usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":20,"reasoning_output_tokens":10,"total_tokens":120}}}}
+{"timestamp":"2026-09-29T08:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"三个整数是 3、5、8，和为 16。"}]}}
+{"timestamp":"2026-09-29T08:00:04.100Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":160,"cached_input_tokens":100,"output_tokens":30,"reasoning_output_tokens":10,"total_tokens":190},"total_token_usage":{"input_tokens":260,"cached_input_tokens":180,"output_tokens":50,"reasoning_output_tokens":20,"total_tokens":310}}}}
+{"timestamp":"2026-09-29T08:00:04.200Z","type":"event_msg","payload":{"type":"agent_message","message":"三个整数是 3、5、8，和为 16。"}}
+{"timestamp":"2026-09-29T08:00:04.300Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"tutorial-synthetic-turn"}}

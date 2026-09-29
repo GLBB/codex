@@ -1,0 +1,185 @@
+{
+  "experiment": "live Codex inference and real local shell execution; not a mocked trace",
+  "started_at_utc": "2026-09-29T14:55:03.699000+00:00",
+  "cli_version": "0.156.1",
+  "model": "gpt-6-sol",
+  "thread_id": "01a0eda9-7fec-7982-aacf-ee1500b26e69",
+  "turn_id": "01a0eda9-80cd-7973-aadb-da3d2b78696c",
+  "counts": {
+    "user_turns": 1,
+    "inference_started_events": 2,
+    "nested_tool_calls": 1,
+    "diagnostic_events": 22,
+    "session_lines": 22
+  },
+  "execution": {
+    "sandbox": "read-only",
+    "working_directory": "/tmp/codex-rollout-real-6tcb28jx/work",
+    "hooks": false,
+    "plugins": false,
+    "code_mode": true,
+    "tool_command": "cat sample.txt",
+    "requested_output_budget": 40000
+  },
+  "source_files": {
+    "session_rollout": "/home/goulei1/.codex/sessions/2026/09/29/rollout-2026-09-29T22-55-03-01a0eda9-7fec-7982-aacf-ee1500b26e69.jsonl",
+    "diagnostic_bundle": "/tmp/codex-rollout-real-6tcb28jx/traces/trace-71f852f4-0750-401e-843e-f02bff8a9d62-01a0eda9-7fec-7982-aacf-ee1500b26e69",
+    "reduced_state": "/tmp/codex-rollout-real-6tcb28jx/traces/trace-71f852f4-0750-401e-843e-f02bff8a9d62-01a0eda9-7fec-7982-aacf-ee1500b26e69/state.json"
+  },
+  "evidence_locations": {
+    "terminal_stdout": {
+      "event_seq": 12,
+      "file": "payloads/9.json",
+      "field": "stdout"
+    },
+    "nested_tool_return": {
+      "event_seq": 13,
+      "file": "payloads/10.json",
+      "field": "value.output"
+    },
+    "outer_code_cell_text": {
+      "event_seq": 14,
+      "file": "payloads/11.json",
+      "field": "response.Result.content_items"
+    },
+    "session_tool_output": {
+      "line": 16,
+      "field": "payload.output",
+      "metadata": {
+        "client_authored": false,
+        "fallback_token_limit_override": 12000
+      }
+    },
+    "second_request_tool_output": {
+      "event_seq": 16,
+      "file": "payloads/13.json",
+      "field": "input[0].output",
+      "previous_response_id": "resp_0d480c7bc9fa95ae016abbd14b87d087d0a312020aa565f01b",
+      "note": "WebSocket incremental request; combine first request and completed response to recover full logical context."
+    }
+  },
+  "observations": {
+    "sample_file": {
+      "utf8_bytes": 110458,
+      "sha256": "47ca3c9f6ffabfca35be1fa10ec9d89811736a77a1dee0842754098d6982cce6",
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": true,
+        "TAIL_RECORD=charlie": true
+      },
+      "marker_excerpts": {
+        "HEAD_RECORD=alpha": "HEAD_RECORD=alpha\nrow 0000 apple river stone cloud amber viole",
+        "MIDDLE_RECORD=bravo": "iver stone cloud amber violet\nMIDDLE_RECORD=bravo\nrow 1200 apple river stone cloud amber viole",
+        "TAIL_RECORD=charlie": "iver stone cloud amber violet\nTAIL_RECORD=charlie\n"
+      },
+      "truncation_lines": []
+    },
+    "terminal_stdout": {
+      "utf8_bytes": 110458,
+      "sha256": "47ca3c9f6ffabfca35be1fa10ec9d89811736a77a1dee0842754098d6982cce6",
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": true,
+        "TAIL_RECORD=charlie": true
+      },
+      "marker_excerpts": {
+        "HEAD_RECORD=alpha": "HEAD_RECORD=alpha\nrow 0000 apple river stone cloud amber viole",
+        "MIDDLE_RECORD=bravo": "iver stone cloud amber violet\nMIDDLE_RECORD=bravo\nrow 1200 apple river stone cloud amber viole",
+        "TAIL_RECORD=charlie": "iver stone cloud amber violet\nTAIL_RECORD=charlie\n"
+      },
+      "truncation_lines": []
+    },
+    "nested_tool_return": {
+      "utf8_bytes": 110458,
+      "sha256": "47ca3c9f6ffabfca35be1fa10ec9d89811736a77a1dee0842754098d6982cce6",
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": true,
+        "TAIL_RECORD=charlie": true
+      },
+      "marker_excerpts": {
+        "HEAD_RECORD=alpha": "HEAD_RECORD=alpha\nrow 0000 apple river stone cloud amber viole",
+        "MIDDLE_RECORD=bravo": "iver stone cloud amber violet\nMIDDLE_RECORD=bravo\nrow 1200 apple river stone cloud amber viole",
+        "TAIL_RECORD=charlie": "iver stone cloud amber violet\nTAIL_RECORD=charlie\n"
+      },
+      "truncation_lines": []
+    },
+    "outer_code_cell_text": {
+      "utf8_bytes": 110458,
+      "sha256": "47ca3c9f6ffabfca35be1fa10ec9d89811736a77a1dee0842754098d6982cce6",
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": true,
+        "TAIL_RECORD=charlie": true
+      },
+      "marker_excerpts": {
+        "HEAD_RECORD=alpha": "HEAD_RECORD=alpha\nrow 0000 apple river stone cloud amber viole",
+        "MIDDLE_RECORD=bravo": "iver stone cloud amber violet\nMIDDLE_RECORD=bravo\nrow 1200 apple river stone cloud amber viole",
+        "TAIL_RECORD=charlie": "iver stone cloud amber violet\nTAIL_RECORD=charlie\n"
+      },
+      "truncation_lines": []
+    },
+    "session_tool_output": {
+      "utf8_bytes": 110505,
+      "sha256": "8141d60a7346c4b006ae11b0aac5cb61a01bedee48fefc86d5f7a58648c3a51b",
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": true,
+        "TAIL_RECORD=charlie": true
+      },
+      "marker_excerpts": {
+        "HEAD_RECORD=alpha": "Wall time 0.3 seconds\nOutput:\nHEAD_RECORD=alpha\nrow 0000 apple river stone cloud amber viole",
+        "MIDDLE_RECORD=bravo": "iver stone cloud amber violet\nMIDDLE_RECORD=bravo\nrow 1200 apple river stone cloud amber viole",
+        "TAIL_RECORD=charlie": "iver stone cloud amber violet\nTAIL_RECORD=charlie\n"
+      },
+      "truncation_lines": []
+    },
+    "second_request_tool_output": {
+      "utf8_bytes": 48027,
+      "sha256": "4975e366bc626cc7d88322906f597cdb8b0715f72902be32c06093b293db0c6d",
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": false,
+        "TAIL_RECORD=charlie": true
+      },
+      "marker_excerpts": {
+        "HEAD_RECORD=alpha": "Wall time 0.3 seconds\nOutput:\nHEAD_RECORD=alpha\nrow 0000 apple river stone cloud amber viole",
+        "MIDDLE_RECORD=bravo": null,
+        "TAIL_RECORD=charlie": "iver stone cloud amber violet\nTAIL_RECORD=charlie\n"
+      },
+      "truncation_lines": [
+        "row 0520 apple river stone cloud amber…15627 tokens truncated…pple river stone cloud amber violet"
+      ]
+    }
+  },
+  "plugin_local_reconstruction": {
+    "pluginVersion": "0.4.0",
+    "pluginCommit": "f4be3a47ac2c9c43721223a8f2e5d13f12e676c7",
+    "sourceFunctions": [
+      "parseSession",
+      "generationInput",
+      "toolMessages",
+      "toText"
+    ],
+    "execution": "local parse and generationInput, no upload",
+    "turns": 1,
+    "steps": 2,
+    "tools": [
+      {
+        "name": "exec",
+        "callId": "call_cxGAN3rr1sgajHwd8gmhlSGh"
+      }
+    ],
+    "secondGenerationToolMessage": {
+      "bytes": 112976,
+      "markers": {
+        "HEAD_RECORD=alpha": true,
+        "MIDDLE_RECORD=bravo": true,
+        "TAIL_RECORD=charlie": true
+      },
+      "format": "serialized JSON content parts"
+    }
+  },
+  "model_final_answer": "HEAD_RECORD=alpha\nMIDDLE_RECORD=not visible\nTAIL_RECORD=charlie",
+  "scope": "Byte counts are concatenated input_text UTF-8 bytes, not JSON file sizes or billing tokens. Only synthetic file content was sampled. Global prompts, credentials and client metadata are not copied. Plugin parsing and generationInput were executed locally without Langfuse upload."
+}
