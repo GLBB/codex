@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="556" viewBox="0 0 1260 556" role="img" aria-labelledby="title description">
+  <title id="title">示例执行时间线（示意数据）</title>
+  <desc id="description">以 turn/start 请求到达为零秒。RPC 在 0.1 秒返回，turn task 持续到 9 秒。第一次模型调用为 0.2 至 3 秒，读取代码的工具调用为 2.5 至 3.1 秒，二者有重叠。启动测试的工具调用在 3.6 秒返回，测试进程持续到 6 秒；write_stdin 在 5.8 至 6.2 秒收集输出。第二次模型调用在 6.3 至 8.8 秒生成回答。所有条形共用一秒八十像素的时间尺度。</desc>
+  <rect width="1260" height="556" rx="12" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif" fill="#172033">
+    <text x="24" y="36" font-size="22" font-weight="700">示例执行时间线（示意数据）</text>
+    <text x="24" y="62" font-size="14" fill="#526076">从 turn/start 请求到达起计时；所有条形共用同一时间尺度。</text>
+    <g font-size="13" fill="#526076">
+      <text x="24" y="94">操作 / 资源</text>
+      <text x="350" y="94">经过时间（秒）</text>
+      <text x="1100" y="94">起止时间（秒）</text>
+    </g>
+    <g fill="#f4f7fb">
+      <rect x="16" y="130" width="1228" height="40" rx="4"/>
+      <rect x="16" y="218" width="1228" height="40" rx="4"/>
+      <rect x="16" y="306" width="1228" height="40" rx="4"/>
+      <rect x="16" y="394" width="1228" height="40" rx="4"/>
+    </g>
+    <g stroke="#d9e0eb" stroke-width="1">
+      <path d="M350 124V488 M430 124V488 M510 124V488 M590 124V488 M670 124V488 M750 124V488 M830 124V488 M910 124V488 M990 124V488 M1070 124V488"/>
+    </g>
+    <g font-size="13" fill="#526076" text-anchor="middle">
+      <text x="350" y="117">0</text>
+      <text x="430" y="117">1</text>
+      <text x="510" y="117">2</text>
+      <text x="590" y="117">3</text>
+      <text x="670" y="117">4</text>
+      <text x="750" y="117">5</text>
+      <text x="830" y="117">6</text>
+      <text x="910" y="117">7</text>
+      <text x="990" y="117">8</text>
+      <text x="1070" y="117">9</text>
+    </g>
+    <g font-size="12" font-weight="600">
+      <text x="24" y="155" fill="#475569">入口</text>
+      <text x="24" y="199" fill="#475569">任务</text>
+      <text x="24" y="243" fill="#4f46e5">模型</text>
+      <text x="24" y="287" fill="#4f46e5">模型</text>
+      <text x="24" y="331" fill="#0f766e">工具</text>
+      <text x="24" y="375" fill="#0f766e">工具</text>
+      <text x="24" y="419" fill="#0f766e">工具</text>
+      <text x="24" y="463" fill="#a04d09">资源</text>
+    </g>
+    <g font-size="14">
+      <text x="70" y="155">turn/start RPC</text>
+      <text x="70" y="199">session_task.turn</text>
+      <text x="70" y="243">sampling 1 · 接收工具调用</text>
+      <text x="70" y="287">sampling 2 · 生成回答</text>
+      <text x="70" y="331">exec_command · 读取代码</text>
+      <text x="70" y="375">exec_command · 启动测试 / 首次返回</text>
+      <text x="70" y="419">write_stdin · 收集完成输出</text>
+      <text x="70" y="463">测试进程</text>
+    </g>
+    <g>
+      <rect id="rpc" x="350" y="139" width="8" height="22" rx="3" fill="#475569"><title>turn/start RPC：0.0–0.1 秒，时长 0.1 秒</title></rect>
+      <rect id="task" x="358" y="183" width="712" height="22" rx="4" fill="#475569"><title>session_task.turn：0.1–9.0 秒，时长 8.9 秒</title></rect>
+      <rect id="sampling-1" x="366" y="227" width="224" height="22" rx="4" fill="#6366f1"><title>sampling 1：0.2–3.0 秒，时长 2.8 秒</title></rect>
+      <rect id="sampling-2" x="854" y="271" width="200" height="22" rx="4" fill="#6366f1"><title>sampling 2：6.3–8.8 秒，时长 2.5 秒</title></rect>
+      <rect id="read-code" x="550" y="315" width="48" height="22" rx="4" fill="#0f9488"><title>读取代码：2.5–3.1 秒，时长 0.6 秒</title></rect>
+      <rect id="start-test" x="598" y="359" width="40" height="22" rx="4" fill="#0f9488"><title>启动测试并首次返回：3.1–3.6 秒，时长 0.5 秒</title></rect>
+      <rect id="collect-output" x="814" y="403" width="32" height="22" rx="4" fill="#0f9488"><title>收集完成输出：5.8–6.2 秒，时长 0.4 秒</title></rect>
+      <rect id="test-process" x="606" y="447" width="224" height="22" rx="4" fill="#e9922e"><title>测试进程：3.2–6.0 秒，时长 2.8 秒</title></rect>
+    </g>
+    <g font-size="14" fill="#334155">
+      <text x="1100" y="155">0.0–0.1</text>
+      <text x="1100" y="199">0.1–9.0</text>
+      <text x="1100" y="243">0.2–3.0</text>
+      <text x="1100" y="287">6.3–8.8</text>
+      <text x="1100" y="331">2.5–3.1</text>
+      <text x="1100" y="375">3.1–3.6</text>
+      <text x="1100" y="419">5.8–6.2</text>
+      <text x="1100" y="463">3.2–6.0</text>
+    </g>
+    <path d="M24 502H1236" stroke="#d9e0eb"/>
+    <text x="24" y="532" font-size="14" fill="#526076">工具返回时间与进程结束时间不同；横向重叠表示同时存在的执行区间，各行时长不能直接相加。</text>
+  </g>
+</svg>
