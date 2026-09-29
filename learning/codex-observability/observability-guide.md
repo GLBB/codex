@@ -1,6 +1,10 @@
 # Codex 可观测性导读
 
-这篇文档帮助你在读 Codex 源码或排查问题时选择合适的观测面。Codex 的可观测性不是一个单独系统，而是一组互补证据：日志解释“代码怎么走”，协议事件解释“用户和客户端看到了什么”，OTEL 指标和 trace 解释“系统整体表现如何”，rollout trace 解释“历史会话如何回放和重建”，analytics 解释“产品行为发生了什么”。
+[返回专项索引](README.md)
+
+这篇文档帮助你在读 Codex 源码或排查问题时选择合适的观测面。Codex 的可观测性不是一个单独系统，而是一组互补证据：日志解释“代码怎么走”，协议事件解释“用户和客户端看到了什么”，OTEL 指标和 trace 解释“系统整体表现如何”，持久化 rollout 提供会话恢复材料，Rollout Trace 解释“模型看见了什么、运行数据如何流转”，analytics 解释“产品行为发生了什么”。
+
+关于 GenAI 语义约定、瀑布图、Rollout Trace 和 trajectory 的具体关系，见 [Trace、GenAI、Rollout 与 Trajectory](trace-genai-rollout-trajectory.md)。
 
 阅读时先记住一个原则：不要只问“有没有日志”。更好的问题是：你想观察的是代码路径、业务事件、性能趋势、分布式链路、用户反馈、历史回放，还是产品行为。
 
@@ -16,7 +20,8 @@
 | OTEL metrics | API/tool/SSE/WebSocket/startup/TTFT 等计数和耗时 | 性能趋势、报警、版本回归分析 | `codex-rs/otel/src/metrics`、`codex-rs/otel/src/events/session_telemetry.rs` |
 | 协议事件流 | turn、message、tool、approval、token、warning/error 等业务事件 | UI 渲染、客户端订阅、集成测试、实时观察 | `codex-rs/protocol/src/protocol.rs`、`codex-rs/core/src/session/mod.rs` |
 | raw response item | 模型 Responses API 原始输出项 | 调试模型流式响应映射、兼容 raw event consumer | `codex-rs/core/src/stream_events_utils.rs` |
-| rollout/thread trace | turn 和工具运行边界的可回放 trace | 历史会话复盘、resume/fork/compact 调试 | `codex-rs/rollout-trace/src/protocol_event.rs` |
+| 持久化 rollout | 会话历史和上下文 checkpoint | resume、历史重建 | `codex-rs/rollout/src/recorder.rs`、`codex-rs/core/src/session/rollout_reconstruction.rs` |
+| Rollout Trace | 本地 raw events、payload 和归约后的运行语义图 | 模型输入、嵌套工具、compaction 和多 Agent 数据流复盘 | `codex-rs/rollout-trace/README.md`、`codex-rs/rollout-trace/src/model/mod.rs` |
 | analytics | 产品行为事实，如 skill/plugin/hook/compaction/guardian | 产品分析、功能采用率、行为漏斗 | `codex-rs/analytics/src/client.rs`、`codex-rs/analytics/src/facts.rs` |
 | TUI session JSONL | TUI 收到的 AppEvent 和发出的 AppCommand 简化记录 | TUI 状态机和渲染顺序问题 | `codex-rs/tui/src/session_log.rs` |
 
@@ -54,7 +59,7 @@ OTEL 是 Codex 面向集中式观测平台的出口。配置类型在 `codex-rs/
 
 `codex-rs/core/src/otel_init.rs` 把应用配置转换成 `codex_otel::OtelSettings`。读 `build_provider` 时注意两个细节：一是 analytics 关闭时 metrics exporter 会被关掉；二是 service name 默认来自 originator，也可以由调用方覆盖，例如 exec-server 用 `codex-exec-server`。
 
-真正安装 provider 的逻辑在 `codex-rs/otel/src/provider.rs`。`OtelProvider::from` 会分别构造 logger provider、tracer provider 和 metrics client，再通过 `logger_layer`、`tracing_layer` 暴露给各入口安装到 subscriber。这里还有两个重要过滤器：logs 只导出允许的 target，traces 只导出 span 或 trace-safe target。
+真正安装 provider 的逻辑在 `codex-rs/otel/src/provider.rs`。`OtelProvider::try_new` 会分别构造 logger provider、tracer provider 和 metrics client，再通过 `logger_layer`、`tracing_layer` 暴露给各入口安装到 subscriber。这里还有两个重要过滤器：logs 只导出允许的 target，traces 允许大部分 spans（过滤 `h2` 的导出递归风险），events 则只导出 trace-safe target。
 
 适合用 OTEL 的问题包括：生产环境请求耗时在哪个阶段变长、app-server 请求和 core turn 如何关联、某个版本的 TTFT 是否回归、网络策略拦截量是否异常。
 
@@ -86,13 +91,15 @@ raw response item 适合调试模型流到协议事件之间的映射。例如�
 
 这层也要注意边界：raw item 可能包含较大或较敏感的模型内容，所以任何新增注入或导出都要考虑大小上限和隐私。
 
-## Rollout 和 thread trace
+## 持久化 rollout 与 Rollout Trace
 
-rollout/thread trace 是历史复盘和回放的证据链。`codex-rs/rollout-trace/src/protocol_event.rs` 把协议事件映射到更小的 trace vocabulary。文件顶部注释已经说明设计意图：session 层已经有协议事件，rollout trace 复用这些观察，而不是在 core 里再增加一套 hook。
+持久化 rollout 由 `codex-rs/rollout/src/recorder.rs` 保存会话记录，`codex-rs/core/src/session/rollout_reconstruction.rs` 利用这些记录重建会话历史。这是 resume 的阅读主线。
+
+Rollout Trace 是显式开启的本地诊断录制，保存 raw events 和 payload，随后由 reducer 构建运行语义图。`codex-rs/rollout-trace/src/protocol_event.rs` 把协议事件映射到更小的 trace vocabulary。文件顶部注释说明：session 层已经有协议事件，rollout trace 复用这些观察。
 
 读这个文件时先看 `codex_turn_trace_event`，它只关心 turn started、turn complete、turn aborted。然后看 `ToolRuntimeTraceEvent` 和 `ToolRuntimePayload`，它们覆盖 exec、patch、MCP、collaboration 和 sub-agent activity 的 begin/end 或 runtime payload。
 
-适合用 rollout trace 的问题包括：某个历史会话里到底执行了哪些工具、resume 后为什么能或不能重建历史、compact 前后 turn 边界如何保留、sub-agent 或 collaboration 工具的运行序列是什么。
+适合用 Rollout Trace 的问题包括：哪次推理产生了哪个工具调用、运行时输出是否进入模型输入、compaction 安装了什么历史、sub-agent 的信息如何流转。这里的离线回放是重建数据图，不是重新执行模型与工具，也不替代持久化 rollout 的会话恢复接口。
 
 ## Analytics
 
@@ -130,7 +137,8 @@ analytics 是产品行为事实，不是低层日志，也不是 OTEL metrics �
 | 模型原始输出如何变成 UI 事件 | raw response item、stream mapping |
 | 某次请求跨 app-server/core/tool 卡在哪里 | OTEL traces |
 | 一类请求或工具最近是否变慢 | OTEL metrics、SessionTelemetry |
-| 历史会话如何回放或恢复 | rollout/thread trace |
+| 历史会话如何恢复 | 持久化 rollout、rollout reconstruction |
+| 模型上下文、嵌套工具和跨 thread 数据流如何形成 | Rollout Trace、离线 reducer |
 | 功能采用率或行为分布如何 | analytics |
 | 网络访问为什么被拦或放行 | 网络代理审计事件 |
 | TUI 本地状态顺序是否异常 | TUI session JSONL |
@@ -141,7 +149,7 @@ analytics 是产品行为事实，不是低层日志，也不是 OTEL metrics �
 
 如果 query 调用了 shell 或 apply_patch，再进入 `codex-rs/core/src/tools/events.rs` 看 begin/end 事件如何创建。若问题出在 UI，继续读 `codex-rs/tui/src/app/thread_events.rs` 和相关 history cell 渲染代码。若问题出在 app-server 客户端，转到 `codex-rs/app-server` 的 outgoing message 和 event mapping。
 
-最后根据问题类型补充观测面：性能问题读 `SessionTelemetry` 和 OTEL metrics；链路问题读 app-server tracing span 和 W3C trace context；历史恢复问题读 rollout trace；产品行为问题读 analytics reducer 和 fact 类型。
+最后根据问题类型补充观测面：性能问题读 `SessionTelemetry` 和 OTEL metrics；链路问题读 app-server tracing span 和 W3C trace context；历史恢复问题读持久化 rollout 和 rollout reconstruction；运行数据流问题读 Rollout Trace；产品行为问题读 analytics reducer 和 fact 类型。
 
 ## 常见误区
 
