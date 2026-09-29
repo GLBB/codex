@@ -12,6 +12,7 @@
 6. [codex-rs 深度研究专题](codex/deep-research/README.md)
 7. [Codex 源码分析专库](codex/codex-source-analysis/README.md)
 8. [codex-core 源码阅读指南](codex/core-source-guide/README.md)
+9. [Codex 可观测性专项](codex-observability/README.md)
 
 ## 目录结构
 
@@ -21,6 +22,7 @@
 | `roadmaps/` | 主线学习路线和阶段安排 |
 | `resources/` | 外部课程、文档、规范和补充材料 |
 | `codex/` | Codex 源码阅读地图和工程化笔记 |
+| `codex-observability/` | Codex 日志、OTel、GenAI 规范、Rollout Trace 与 trajectory 专项 |
 | `references/` | PDF 等原始参考材料 |
 | `assets/` | Markdown 正文引用的图片资源 |
 
@@ -38,6 +40,7 @@
 | [codex-rs 深度研究覆盖矩阵](codex/codex-rs-deep-research-coverage.md) | 对照深度研究主题检查 `learning/` 的覆盖范围和缺口 |
 | [Codex 源码分析专库](codex/codex-source-analysis/README.md) | 独立维护的 25 章源码分析、专题附录与最新源码研究材料 |
 | [Codex Query 处理流程](codex/query-processing-flow.md) | 跟踪一条用户 query 从入口到模型、工具、日志和持久化的执行过程 |
+| [Codex 可观测性专项](codex-observability/README.md) | 集中研究日志、OTel、GenAI、Rollout Trace、瀑布图与任务轨迹 |
 | [codex-core 源码阅读指南](codex/core-source-guide/README.md) | 面向 Rust 开发者，按启动、Turn、Prompt、工具循环、Rollout 与恢复系统跟读 `codex-rs/core/` |
 | [ThreadManager Sample Debug 源码跟读](codex/thread-manager-sample-debug-flow.md) | 以 `thread-manager-sample` 为最小 debug 入口，梳理 `ThreadManager`、`CodexThread`、`Session`、`RegularTask` 和 `run_turn` 调用链 |
 | [AI 素养与 Agent 学习资源](resources/ai-agent-learning-resources.md) | 补齐外部课程和官方文档 |
