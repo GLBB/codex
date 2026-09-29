@@ -1,0 +1,10 @@
+<clickhouse>
+  <timezone>UTC</timezone>
+  <max_server_memory_usage>2147483648</max_server_memory_usage>
+  <trace_log remove="1"/>
+  <text_log remove="1"/>
+  <opentelemetry_span_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <metric_log remove="1"/>
+  <latency_log remove="1"/>
+</clickhouse>
