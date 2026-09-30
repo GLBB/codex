@@ -4,6 +4,8 @@
 
 ## 已有文档
 
+当前独立专题：[云端 Agent Trace 信息展示：大纲与框架](agent-trace-display/README.md)。按工程 OTel 展示、算法展示、demo 核对和两套 trace 双向关联逐步完成。
+
 | 文档                                                                       | 解决的问题                                                                                 |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | [可观测性导读](observability-guide.md)                                     | 建立日志、反馈、协议事件、OTel、持久化 rollout、Rollout Trace 和 analytics 的总体地图      |
@@ -15,6 +17,9 @@
 | [Rollout Trace：从生成到 Langfuse 导入](rollout-to-langfuse-tutorial.md)   | 跟读诊断 bundle 与 session JSONL 的产生、插件解析、OTLP 导出，并用最小样例练习导入与对账   |
 | [四种 Trace：定位、必要性与价值](trace-roles-and-value.md)                 | 区分会话恢复、Agent 行为视图、诊断运行证据和原生性能链路，解释互补与可替代边界             |
 | [Rollout Trace README 中文译文](rollout-trace.zh-CN.md)                   | 完整翻译本地诊断追踪的设计、bundle 布局、语义图、多智能体关联与 reducer 不变量             |
+| [云端 Agent Trace 展示调研报告](agent-trace-research-2026-09.html)         | 面向领导和同事的 HTML：工程与算法展示分层、Codex/DSH/demo 对照、规模判断及待确认问题     |
+| [云端 Agent Trace 展示技术方案](agent-trace-technical-proposal-2026-09.html) | 面向方案评审的 HTML：Java/Rust 采集边界、Hera/Langfuse 架构、数据契约和分阶段验收       |
+| [云端 Agent Trace 调研工作台](agent-trace-worklog.md)                    | 本轮子任务、证据版本、已知条件和后续验证清单                                           |
 
 第二篇固定了 Codex 与 GenAI 规范的阅读版本，并包含源码对照表、关系图和调用时间线。规范仓库已 clone 到 `/home/goulei1/code/semantic-conventions-genai`，可以与 Codex 源码并排阅读。
 
