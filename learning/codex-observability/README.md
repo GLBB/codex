@@ -20,6 +20,8 @@
 | [云端 Agent Trace 展示调研报告](agent-trace-research-2026-09.html)         | 面向领导和同事的 HTML：工程与算法展示分层、Codex/DSH/demo 对照、规模判断及待确认问题     |
 | [云端 Agent Trace 展示技术方案](agent-trace-technical-proposal-2026-09.html) | 面向方案评审的 HTML：Java/Rust 采集边界、Hera/Langfuse 架构、数据契约和分阶段验收       |
 | [云端 Agent Trace 调研工作台](agent-trace-worklog.md)                    | 本轮子任务、证据版本、已知条件和后续验证清单                                           |
+| [Demo 观测清单与两套 Trace 对照](agent-trace-display/demo-observability-mapping.md) | 核对 Java demo 的 spans、上下文/请求快照、消息、时序、指标和反馈，区分已有采集与算法平台承载建议 |
+| [工程 Trace 与算法 Trace 如何互查](agent-trace-display/trace-cross-lookup-design.md) | 用共享 turn/request/调用身份关联 Hera 与 Langfuse，说明整轮查询、精确匹配及双向跳转 |
 
 第二篇固定了 Codex 与 GenAI 规范的阅读版本，并包含源码对照表、关系图和调用时间线。规范仓库已 clone 到 `/home/goulei1/code/semantic-conventions-genai`，可以与 Codex 源码并排阅读。
 

@@ -1,0 +1,44 @@
+{
+  "verified_on": "2026-09-30",
+  "plugin_version": "0.4.0",
+  "plugin_source_commit": "f4be3a47ac2c9c43721223a8f2e5d13f12e676c7",
+  "codex_source_commit": "1a222927b4b640de4b76f5ed9f7020447fb0db13",
+  "langfuse_cli_version": "1.2.4",
+  "synthetic_import": {
+    "input": "../../assets/rollout-to-langfuse.synthetic.jsonl",
+    "destination": "temporary local HTTP receiver, not the Langfuse project",
+    "entrypoint": "installed tracing/0.4.0/dist/index.mjs",
+    "endpoint": "/api/public/otel/v1/traces",
+    "ingestion_version_header": "4",
+    "observations": 4,
+    "names": {"Codex Turn": 1, "LLM": 2, "exec_command": 1},
+    "same_trace_id": true,
+    "generation_and_tool_parents_match_root": true,
+    "second_generation_contains_tool_output": true,
+    "sidecar_contains_turn_id": true,
+    "repeat_export_http_requests": 0
+  },
+  "existing_langfuse_trace": {
+    "project": "codex-session-plugin",
+    "trace_id": "bcbcd917bfbfa99a965d33cd0af1d08c",
+    "session_id": "01a0eaf7-f025-7001-a324-36b75305ce83",
+    "turn_id": "01a0eb02-70de-7c13-9ae5-884152c9fe77",
+    "root_observation_id": "2a9767ba72b02993",
+    "recorded_codex_version": "0.155.0-alpha.16.3",
+    "from_start_time": "2026-09-29T02:33:20Z",
+    "to_start_time": "2026-09-29T02:40:00Z",
+    "fields": "core,basic,model,usage,metrics,metadata",
+    "limit": 100,
+    "http_status": 200,
+    "observations": 34,
+    "types": {"AGENT": 1, "GENERATION": 15, "TOOL": 18},
+    "next_cursor": null,
+    "all_generation_and_tool_parents_match_root": true
+  },
+  "limitations": [
+    "Synthetic validation proves conversion and local HTTP delivery, not real project ingestion.",
+    "The existing trace was read from Langfuse; no real session was uploaded by this task.",
+    "Reconstructed generation input does not prove exact model-visible request content.",
+    "No production capacity, self-developed Agent integration, or quality evaluation was tested."
+  ]
+}
