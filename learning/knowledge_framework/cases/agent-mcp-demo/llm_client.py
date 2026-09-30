@@ -59,9 +59,7 @@ class OpenAICompatibleClient:
                 f"unsupported LLM provider {provider!r}; choose one of: {supported}"
             ) from error
 
-        api_key = os.environ.get("LLM_API_KEY") or os.environ.get(
-            preset.api_key_env
-        )
+        api_key = os.environ.get("LLM_API_KEY") or os.environ.get(preset.api_key_env)
         if not api_key:
             raise ModelApiError(
                 f"{preset.api_key_env} or LLM_API_KEY is required for provider {provider}"
