@@ -20,6 +20,14 @@
 
 span 不放内容原文，内容原文体积大，进 trace 拖垮可观测后端存储和可能有隐私合规问题
 
+## 设计原则
+
+本文参考 OpenTelemetry GenAI 语义规范设计，优先遵循 GenAI 及相关 OTel 领域规范的 span、属性和状态约定，对齐版本见「参考资料」。
+
+- 规范已定义且语义一致的属性，复用其名称、类型和含义。
+- 规范未定义、但本项目确有观测需求的属性，使用 `corojaw.*` 命名空间，并说明含义、取值及采集条件。
+- 不改变标准属性的语义来承载项目自定义概念；项目补充或收紧的约定应明确说明。
+
 ## 系统架构
 
 ```Plaintext
@@ -108,12 +116,11 @@ RPC server span（gateway.request）     WS JSON-RPC 入口
 |---|---|---|
 |`corojaw.turn.id`|哪一次执行：一次用户输入触发的完整 agent 执行，一个 ULID，粒度是「一轮」|turn 内所有 span|
 |`gen_ai.conversation.id`|哪个会话：这轮执行属于哪段对话，粒度是「会话」，跨多轮复用，`sha256(session_key)[:16]`|GenAI 与自创 span<br>|
-|`corojaw.turn.epoch`|第几代执行：turn 被接管时 \+1，区分同一 turn 的两段执行|`invoke_agent` 及其直接子 span|
-|`corojaw.turn.kind`|前台对话（`TURN`）还是后台任务（`TASK`）|同上|
+|`corojaw.turn.kind`|前台对话（`TURN`）还是后台任务（`TASK`）|`invoke_agent` 及其直接子 span|
 |`corojaw.step.seq`|第几步：turn 内循环的轮次，从 1 开始|step 粒度 span|
 |`corojaw.trajectory.seq`|对齐到哪条轨迹事件|有轨迹事件的 span|
 
-turn 与 conversation 的关系：一个会话（conversation\.id 不变）包含多个 turn（turn\.id 各不相同）；一个 turn 正常只有一段执行，被接管后出现 epoch 不同的两段执行、两个 `invoke_agent` span。
+turn 与 conversation 的关系：一个会话（conversation\.id 不变）包含多个 turn（turn\.id 各不相同）；执行接管与多次 attempt 的关联方式待确认。
 
 不把 `trace_id` / `span_id` 再写成属性，span 元数据里本来就有。
 
@@ -129,36 +136,52 @@ turn 与 conversation 的关系：一个会话（conversation\.id 不变）包�
 
 #### invoke\_agent
 
+> TODO：确认是否存在租约机制，以及租约获取、续租、失效和执行接管如何在 trace 中展示；epoch 暂不纳入属性。
+
+> TODO：确认主动取消的记录方式，以及是否需要通过 span 属性区分取消与正常完成。
+
+表示一次本地 Agent 调用，覆盖上下文准备、模型与工具循环，直到调用结束。
+
 |项|值|
 |---|---|
-|name / kind / op|`invoke_agent {gen_ai.agent.name}`，`gen_ai.agent.name` 取 agent id；<br>INTERNAL；<br>`invoke_agent`|
-|父 / 子|父Span为请求入口；子为上下文、模型、工具三类 span|
+|name / kind / op|`invoke_agent {gen_ai.agent.name}`；INTERNAL；`invoke_agent`|
+|父|当前 active span：主 Agent 通常为请求入口，子 Agent 为发起调用的 span|
+|子|上下文、模型、工具及子 Agent 调用|
 
 属性定义逻辑：
 
-- agent 名称、描述
-
-- Session id 、Turn Id
-
-- Turn 异常结束：Think 死循环、工具调用循环、到达最大调用次数
-
-> `corojaw.turn.exit_reason`  和 `error.type` 有什么区别
-> 
-> 
+- Agent 身份：名称、描述。
+- 执行关联：Session ID、Turn ID。
+- 执行类型：前台对话、后台任务。
+- 失败信息：错误分类、错误描述。
+- 执行统计与限制：实际 step 数、最大 step 数。
 
 |字段|是否必须|值类型|描述|值示例|
 |---|---|---|---|---|
 |`gen_ai.operation.name`|必须|string|操作名，同时决定 span name 前缀|`invoke_agent`|
-|`gen_ai.agent.name`|必须|string|发起本轮执行的 agent profile id，闭集 5 个，见「实体描述」|`main`|
-|`gen_ai.conversation.id`|必须|string|会话标识，取 `sha256(session_key)` 小写 hex 的前 16 位；每 turn 都有 `session_key`，见「关联键」|`3f9a1c8b7d2e4051`|
-|`corojaw.turn.id`|必须|string|turn 标识，ULID，见「关联键」|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
-|`error.type`<br>|条件必填|string|失败时的错误分类，取值见「状态与错误」|<br>|
-|`gen_ai.agent.description`|条件必填|string|该 profile 的一句话职责，见「实体描述」|`主 agent，负责工具编排与最终答复`|
-|`corojaw.turn.kind`|必须|string|turn 类型，取值 `TURN` / `TASK`|`TURN`|
-|`corojaw.turn.exit_reason`<br>|条件必填|string|turn 结束分类<br>- DONE<br>- STEP\_LIMIT<br>- ABORTED<br>- ERROR|`STEP_LIMIT`|
-|`corojaw.step.count`|可选|int|实际执行的 step 数，用计数代替 step span|`4`|
+|`gen_ai.agent.name`|必须|string|本次被调用 Agent 的稳定 profile 名，不使用运行实例 ID|`main`|
+|`gen_ai.conversation.id`|有会话时必填|string|所属会话标识，生成规则见「关联键」|`3f9a1c8b7d2e4051`|
+|`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn；同一 turn 的子 Agent 调用沿用此值|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+|`corojaw.turn.kind`|必须|string|`TURN`：处理用户当前对话并完成本轮回复，如问答、对话内工具调用；`TASK`：由任务系统独立调度和管理的后台执行，如定时日报、提交后返回任务 ID 并异步通知结果的任务|`TURN`|
+|`error.type`|失败时必填|string|本次调用最终失败的分类，见下表|`step_limit`|
+|`gen_ai.agent.description`|有配置时必填|string|该 Agent 的职责描述|`负责工具编排与最终答复`|
+|`corojaw.step.count`|可选|int|本次调用实际启动的主循环 step 数；不含摘要调用、模型自动重试和子 Agent 内部 step|`4`|
+|`corojaw.step.limit`|有上限时必填|int|本次调用实际生效的最大 step 数，计数范围与 `step.count` 一致|`20`|
+
+失败时 status 设为 `ERROR`，description 按通用「状态与错误」填写。以下 `step_limit`、`thinking_loop`、`loop_detected` 为本项目定义的错误分类值。
+
+|失败情况|`error.type`|
+|---|---|
+|达到主循环 step 上限，被强制终止|`step_limit`|
+|思考死循环：运行时检测到持续重复的思考输出或无进展的思考循环并终止|`thinking_loop`|
+|其他循环：运行时检测到重复工具调用等循环并终止|`loop_detected`|
+|本次 Agent 调用整体超时|`timeout`|
+|无法分类的失败|`_OTHER`|
+
 
 ### 上下文
+
+> TODO：学习上下文的构建、加载与压缩机制后，再考虑本节的 span 划分和属性设计。
 
 三个 span 都是自创的，上游没有对应形态。与 xiaoaiclaw 现网（`session.load` \+ `system_prompt.build` \+ compaction）的差异：
 
