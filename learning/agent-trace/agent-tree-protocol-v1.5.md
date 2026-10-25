@@ -474,23 +474,61 @@ turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后�
 
 ### 记忆
 
-7 个操作共用一个 span 形态，靠 `gen_ai.operation.name` 区分：`search_memory` / `create_memory` / `update_memory` / `upsert_memory` / `delete_memory` / `create_memory_store` / `delete_memory_store`。
+表示一次记忆操作，覆盖记忆库管理、记录搜索与读写。
 
-name 是 `{gen_ai.operation.name}`，不带目标。kind `CLIENT`（进程内实现可用 `INTERNAL`）。父是 `assemble_context`（召回）或 `execute_tool`（显式记忆工具）。
+|项|定义|
+|---|---|
+|name / op|`{gen_ai.operation.name}`，取值见下表|
+|kind|外部调用为 `CLIENT`，同进程记忆系统可用 `INTERNAL`|
+|何时创建|每次逻辑记忆调用，批量记录对应一次调用|
+|父|发起调用的 active span，如 `assemble_context`、`execute_tool`、`invoke_agent`|
+|子|可观测的模型、向量生成、检索、存储或 HTTP 请求 span|
 
-属性照上游：
+自动重试不另建记忆操作 span。
 
-|字段|是否必须|说明|
-|---|---|---|
-|`gen_ai.memory.store.id`|条件必填|记忆库 id|
-|`gen_ai.memory.record.id`|条件必填|单条记录操作时|
-|`gen_ai.provider.name`|条件必填|外部记忆服务时|
-|`gen_ai.memory.record.count`|可选|操作涉及的记录数|
-|`server.address` / `server.port`|可选|外部记忆服务地址|
+**操作类型**
 
-查询原文与记录内容不进 span（含用户原文与 PII）。
+|操作|含义|
+|---|---|
+|`create_memory_store`|创建或初始化记忆库|
+|`delete_memory_store`|删除记忆库|
+|`search_memory`|搜索记忆记录|
+|`create_memory`|明确创建新记忆记录|
+|`update_memory`|明确修改已有记忆记录|
+|`upsert_memory`|由被调用接口决定创建、更新或合并记录|
+|`delete_memory`|删除记忆记录；未指定记录 ID 时，可表示删除指定库中的全部记录|
 
-消费方是 `l0-context` 的 `long_term_memory` / `memory_recall` 段。
+**属性**
+
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|本次记忆操作类型|`search_memory`|
+||`gen_ai.provider.name`|外部具名服务处理时必填|string|记忆服务 Provider 标识|`memory_service`|
+|操作目标|`gen_ai.memory.store.id`|适用时填写|string|被操作的记忆库标识|`user-preferences-store`|
+||`gen_ai.memory.record.id`|针对特定记录时必填|string|被操作的记忆记录标识|`mem_123`|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属会话，生成规则见「关联键」|`conv_123`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step；上下文准备或独立维护任务不伪造序号|`2`|
+|操作规模|`gen_ai.memory.record.count`|涉及记录且数量可获得时填写|int|搜索时为返回记录数；创建、更新、upsert、删除时为尝试操作的记录数|`3`|
+|服务地址|`server.address`|外部服务地址可获得时填写|string|记忆服务地址|`memory.internal`|
+||`server.port`|设置地址时填写|int|服务端口|`443`|
+|重试|`corojaw.retry.count`|发生重试时填写|int|自动重试次数，不含首次请求|`1`|
+|状态与错误|`error.type`|失败时必填|string|最终失败分类，见下表|`timeout`|
+
+**失败分类**
+
+优先使用记忆服务或客户端已定义的低基数错误码；没有适用错误码时，使用以下项目分类。
+
+|失败情况|`error.type`|
+|---|---|
+|操作超时|`timeout`|
+|无效凭据或权限不足|`auth`|
+|请求被限流|`rate_limit`|
+|服务容量不足|`overloaded`|
+|请求或响应格式不符合协议|`format`|
+|无法分类的失败|`_OTHER`|
+
+查询原文与记忆内容不放入 span，通过内容引用记录。
 
 ### 工具
 
