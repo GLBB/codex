@@ -140,6 +140,8 @@ turn 与 conversation 的关系：一个会话（conversation\.id 不变）包�
 
 > TODO：确认主动取消的记录方式，以及是否需要通过 span 属性区分取消与正常完成。
 
+> TODO：研究 steer 场景的 trace 结构，确认追加 query 的请求入口与当前 Agent 执行如何关联，以及 steer 收到、生效的记录方式。
+
 表示一次本地 Agent 调用，覆盖上下文准备、模型与工具循环，直到调用结束。
 
 |项|值|
@@ -148,25 +150,17 @@ turn 与 conversation 的关系：一个会话（conversation\.id 不变）包�
 |父|当前 active span：主 Agent 通常为请求入口，子 Agent 为发起调用的 span|
 |子|上下文、模型、工具及子 Agent 调用|
 
-属性定义逻辑：
-
-- Agent 身份：名称、描述。
-- 执行关联：Session ID、Turn ID。
-- 执行类型：前台对话、后台任务。
-- 失败信息：错误分类、错误描述。
-- 执行统计与限制：实际 step 数、最大 step 数。
-
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`gen_ai.operation.name`|必须|string|操作名，同时决定 span name 前缀|`invoke_agent`|
-|`gen_ai.agent.name`|必须|string|本次被调用 Agent 的稳定 profile 名，不使用运行实例 ID|`main`|
-|`gen_ai.conversation.id`|有会话时必填|string|所属会话标识，生成规则见「关联键」|`3f9a1c8b7d2e4051`|
-|`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn；同一 turn 的子 Agent 调用沿用此值|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
-|`corojaw.turn.kind`|必须|string|`TURN`：处理用户当前对话并完成本轮回复，如问答、对话内工具调用；`TASK`：由任务系统独立调度和管理的后台执行，如定时日报、提交后返回任务 ID 并异步通知结果的任务|`TURN`|
-|`error.type`|失败时必填|string|本次调用最终失败的分类，见下表|`step_limit`|
-|`gen_ai.agent.description`|有配置时必填|string|该 Agent 的职责描述|`负责工具编排与最终答复`|
-|`corojaw.step.count`|可选|int|本次调用实际启动的主循环 step 数；不含摘要调用、模型自动重试和子 Agent 内部 step|`4`|
-|`corojaw.step.limit`|有上限时必填|int|本次调用实际生效的最大 step 数，计数范围与 `step.count` 一致|`20`|
+|分类|字段|是否必须|值类型|描述|值示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `invoke_agent`|`invoke_agent`|
+||`gen_ai.agent.name`|必须|string|本次被调用 Agent 的稳定 profile 名，不使用运行实例 ID|`main`|
+||`gen_ai.agent.description`|有配置时必填|string|该 Agent 的职责描述|`负责工具编排与最终答复`|
+|执行关联|`gen_ai.conversation.id`|有会话时必填|string|所属会话标识，生成规则见「关联键」|`3f9a1c8b7d2e4051`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn；同一 turn 的子 Agent 调用沿用此值|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+|执行类型|`corojaw.turn.kind`|必须|string|`TURN`：处理用户当前对话并完成本轮回复，如问答、对话内工具调用；`TASK`：由任务系统独立调度和管理的后台执行，如定时日报、提交后返回任务 ID 并异步通知结果的任务|`TURN`|
+|执行统计|`corojaw.step.count`|可选|int|本次调用实际启动的主循环 step 数；不含摘要调用、模型自动重试和子 Agent 内部 step|`4`|
+|执行限制|`corojaw.step.limit`|有上限时必填|int|本次调用实际生效的最大 step 数，计数范围与 `step.count` 一致|`20`|
+|状态与错误|`error.type`|失败时必填|string|本次调用最终失败的分类，见下表|`step_limit`|
 
 失败时 status 设为 `ERROR`，description 按通用「状态与错误」填写。以下 `step_limit`、`thinking_loop`、`loop_detected` 为本项目定义的错误分类值。
 
@@ -287,67 +281,196 @@ turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后�
 
 #### chat
 
+> TODO：确认 mify Provider 的请求与响应映射，包括 Provider 标识、模型与参数、响应结束原因、usage，以及重试场景的用量统计口径。
+
+> TODO：与项目设计同学确认是否需要模型配置指纹、参与计算的配置及其用途；`corojaw.model.fingerprint` 暂不纳入属性。
+
+表示一次逻辑模型调用，覆盖请求发起、自动重试、退避等待，直到完整响应接收结束或调用终止。
+
 |项|值|
 |---|---|
 |name / kind / op|`chat {gen_ai.request.model}`；CLIENT；`chat`|
-|何时发|每个 step 一次|
-|父 / 子|`invoke_agent`，或工具内部调用时的 `execute_tool`；|
+|何时创建|每次逻辑模型调用|
+|父|发起调用的 active span，如 `invoke_agent`、`execute_tool`、`compact_context`、`assemble_context`|
+|子|实际 HTTP 请求 span，每次发送尝试分别记录|
 
-一次逻辑模型调用一个 span，自动重试不另起，次数记 `corojaw.retry.attempt`。
+自动重试不另建 `chat` span；应用切换模型并重新发起调用时，创建新的 `chat` span。
 
-1. 请求参数：provider、model
+|分类|字段|是否必须|值类型|描述|值示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `chat`|`chat`|
+||`gen_ai.provider.name`|必须|string|按接入服务及对应 GenAI 语义填写，mify 映射待确认|`mify`|
+||`gen_ai.request.model`|可获得时必填|string|请求发送的模型标识|`mify-large`|
+|执行关联|`gen_ai.conversation.id`|有会话时必填|string|所属会话标识，生成规则见「关联键」|`3f9a1c8b7d2e4051`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step；摘要等独立调用不伪造序号|`2`|
+|请求配置|`gen_ai.request.stream`|已知时填写|boolean|是否请求流式响应|`true`|
+||`gen_ai.request.temperature`|请求设置时填写|double|采样温度|`0.7`|
+||`gen_ai.request.top_p`|请求设置时填写|double|核采样阈值|`0.95`|
+||`gen_ai.request.top_k`|请求设置时填写|int|采样候选数量|`40`|
+||`gen_ai.request.seed`|请求设置时填写|int|随机种子|`42`|
+||`gen_ai.request.choice.count`|请求设置时填写|int|请求生成的候选数量|`1`|
+||`gen_ai.request.max_tokens`|请求设置时填写|int|输出 token 上限|`4096`|
+||`gen_ai.request.stop_sequences`|请求设置时填写|string[]|停止序列|`["</answer>"]`|
+||`gen_ai.request.frequency_penalty`|请求设置时填写|double|频率惩罚|`0.1`|
+||`gen_ai.request.presence_penalty`|请求设置时填写|double|存在惩罚|`0.1`|
+||`gen_ai.request.reasoning.level`|请求设置时填写|string|发给 Provider 的原始思考级别|`medium`|
+||`gen_ai.request.previous_response.id`|请求引用时填写|string|延续的前序响应标识|`resp_previous`|
+|响应结果|`gen_ai.response.model`|可获得时填写|string|实际生成响应的模型|`mify-large-2026-09`|
+||`gen_ai.response.id`|可获得时填写|string|Provider 响应标识|`resp_123`|
+||`gen_ai.response.finish_reasons`|可获得时填写|string[]|各候选的结束原因；预期但未收到的异常结束原因按规范记为 `error`|`["stop"]`|
+|Token 用量|`gen_ai.usage.input_tokens`|用量可获得时填写|int|输入总 token，包含缓存命中部分|`8210`|
+||`gen_ai.usage.output_tokens`|用量可获得时填写|int|输出总 token，包含 reasoning 部分|`310`|
+||`gen_ai.usage.cache_read.input_tokens`|可获得时填写|int|缓存读取 token，属于输入总数的子集|`7680`|
+||`gen_ai.usage.cache_write.input_tokens`|可获得时填写|int|缓存写入 token，按 Provider 用量定义采集|`512`|
+||`gen_ai.usage.reasoning.output_tokens`|可获得时填写|int|reasoning token，属于输出总数的子集|`128`|
+|上下文状态|`gen_ai.conversation.compacted`|确认生效时填写|boolean|使用压缩上下文时设 `true`，否则不设置|`true`|
+|性能|`gen_ai.response.time_to_first_chunk`|流式且收到首块时填写|double|从逻辑请求发起到首次收到响应 chunk 的秒数；首块不一定包含可见文字|`3.42`|
+|重试|`corojaw.retry.count`|发生重试时填写|int|自动重试次数，不含首次请求|`1`|
+|模型切换|`corojaw.fallback.from`|切换模型时填写|string|前一次调用使用的模型，通过 Link 关联该调用|`mify-small`|
+|状态与错误|`error.type`|失败时必填|string|最终失败分类，见下表|`timeout`|
 
-2. 响应: usage
+失败分类：优先使用 Provider 或客户端已定义的低基数错误码；没有适用错误码时，使用以下项目分类。
 
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`gen_ai.operation.name`|必须|string|操作名，同时决定 span name 前缀|`chat`|
-|`gen_ai.provider.name`|必须|string|填代理侧 provider 值（当前接入 `mify`，闭集以 `l0-llm` 的 provider 枚举为准），不是 `openai` / `anthropic` 这类上游厂商名|`mify`|
-|`gen_ai.conversation.id`|必须|string|会话标识，取 `sha256(session_key)` 小写 hex 的前 16 位，与父 `invoke_agent` 同值|`3f9a1c8b7d2e4051`|
-|`corojaw.step.seq`|必须|int|本次调用属于第几步|`2`|
-|`error.type`|条件必填|string|失败时的错误分类，取值见「状态与错误」|`rate_limit`|
-|`gen_ai.request.model`|条件必填|string|本次请求的模型别名；被路由改写时实际模型看 `gen_ai.response.model`|`mify-large`|
-|`gen_ai.request.stream`|条件必填|boolean|请求是否为流式，流式时必填|`true`|
-|`gen_ai.usage.input_tokens`|条件必填|int|本次调用的输入 token 数（含缓存命中部分），provider 返回 usage 时必填|`8210`|
-|`gen_ai.usage.output_tokens`|条件必填|int|本次调用的输出 token 数，provider 返回 usage 时必填|`310`|
-|`gen_ai.conversation.compacted`|条件必填|boolean|只在输入取自压缩视图时填 `true`；非压缩视图不发，不得填 `false`|`true`|
-|`corojaw.retry.attempt`|条件必填|int|本 span 内已发生的重试次数，大于 0 时填|`1`|
-|`corojaw.fallback.from`|条件必填|string|降级前的模型，配合 Link 指向被降级的那次调用|`mify-small`|
-|`gen_ai.request.temperature`|可选|double|采样温度|`0.7`|
-|`gen_ai.request.top_p`|可选|double|核采样阈值|`0.95`|
-|`gen_ai.request.max_tokens`|可选|int|输出 token 上限|`4096`|
-|`gen_ai.request.stop_sequences`|可选|string\[\]|停止词|`["</answer>"]`|
-|`gen_ai.request.reasoning.level`|可选|string|思考深度，取发给 provider 的原始字符串（各厂商不统一）|`medium`|
-|`gen_ai.response.model`<br>|可选|string|实际服务的模型|`mify-large-2026-09`|
-|`gen_ai.response.id`<br>|可选|string|响应 id|`resp_01J9ZK3Q7X5B2M8N`|
-|`gen_ai.response.finish_reasons`|可选|string\[\]|模型停止生成的原因，provider 返回什么记什么，常见 `stop` / `length` / `error`|`["stop"]`|
-|`gen_ai.response.time_to_first_chunk`|可选|double|首块到达耗时，单位秒，流式时填|`0.42`|
-|`gen_ai.usage.cache_read.input_tokens`<br>|可选|int|命中缓存的输入 token，非零时填（现网 cache\_read 占 93\.4%）|`7680`|
-|`gen_ai.usage.cache_write.input_tokens`|可选|int|写入缓存的输入 token，非零时填|`512`|
-|`gen_ai.usage.reasoning.output_tokens`|可选|int|思考过程消耗的 token，非零时填|`128`|
-|`corojaw.model.fingerprint`|可选|string|模型指纹，与 `tools_hash` 一起参与 `effective_render_hash`|`mify-large:2026-09`|
+|失败情况|`error.type`|
+|---|---|
+|请求或流式等待超时|`timeout`|
+|无效凭据或权限不足|`auth`|
+|请求被限流|`rate_limit`|
+|服务容量不足|`overloaded`|
+|欠费或额度耗尽|`billing`|
+|请求或响应不符合协议|`format`|
+|安全策略拦截并导致调用失败|`content_filter`|
+|无法分类的失败|`_OTHER`|
 
-> 有些字段漏了，需要补充：
-> 
-> `gen_ai.request.seed` / `top_k` / `choice.count`  参考 genai 补充
-> 
-> `gen_ai.request.frequency_penalty` / `presence_penalty`
-> 
-> - 分模态 usage（`text.*` / `image.*` / `audio.*`）——本仓只有 text 且不区分模态
-> 
-> - `gen_ai.prompt.name` / `version` / `request.previous_response.id`
-> 
-> 
+#### embeddings
 
-#### embeddings / retrieval / fetch\_response
+表示一次向量生成调用，如将用户问题转换为查询向量，或为知识库文档生成索引向量。
 
-三个都是 CLIENT span
+|项|定义|
+|---|---|
+|name / kind / op|`embeddings {gen_ai.request.model}`；CLIENT；`embeddings`|
+|何时创建|每次逻辑向量生成调用，批量输入对应一次调用|
+|父|发起调用的 active span，如 `assemble_context`、`execute_tool`、`retrieval`|
+|子|实际 HTTP 请求 span|
 
-|项|name|触发|关键属性|
-|---|---|---|---|
-|`embeddings`|`embeddings {model}`|出现向量化链路（语义检索、记忆 embedding）|`gen_ai.request.model`\(条件必填\)、`gen_ai.embeddings.dimension.count`、`gen_ai.request.encoding_formats`、`gen_ai.response.model`、`gen_ai.usage.input_tokens`|
-|`retrieval`|`retrieval {gen_ai.data_source.id}`|RAG / 知识库检索|`gen_ai.data_source.id`\(条件必填，同时用于 name\)、`gen_ai.request.model`\(条件必填\)、`gen_ai.retrieval.top_k`|
-|`fetch_response`|`fetch_response`<br>|异步或长任务响应的轮询取回|`gen_ai.response.id`\(必须\)、`gen_ai.request.stream_cursor`\(条件必填\)、`gen_ai.response.status`、`gen_ai.response.finish_reasons`|
+自动重试不另建 `embeddings` span。
+
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `embeddings`|`embeddings`|
+||`gen_ai.provider.name`|必须|string|向量生成服务的 Provider 标识|`mify`|
+||`gen_ai.request.model`|可获得时必填|string|请求的向量模型|`mify-embedding`|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属会话，生成规则见「关联键」|`conv_123`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn；离线索引任务不伪造 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step；上下文准备阶段不填写|`2`|
+|请求配置|`gen_ai.embeddings.dimension.count`|可获得时填写|int|生成向量的维度|`1024`|
+||`gen_ai.request.encoding_formats`|请求设置时填写|string[]|向量编码格式|`["float"]`|
+|响应结果|`gen_ai.response.model`|可获得时填写|string|实际生成向量的模型|`mify-embedding-v2`|
+|Token 用量|`gen_ai.usage.input_tokens`|用量可获得时填写|int|本次调用的输入 token 数|`100`|
+|服务地址|`server.address`|可获得时填写|string|向量生成服务地址|`embedding.internal`|
+||`server.port`|设置地址时填写|int|服务端口|`443`|
+|重试|`corojaw.retry.count`|发生重试时填写|int|自动重试次数，不含首次请求|`1`|
+|状态与错误|`error.type`|失败时必填|string|最终失败分类，见下表|`timeout`|
+
+失败分类：优先使用 Provider 或客户端已定义的低基数错误码；没有适用错误码时，使用以下项目分类。
+
+|失败情况|`error.type`|
+|---|---|
+|请求超时|`timeout`|
+|无效凭据或权限不足|`auth`|
+|请求被限流|`rate_limit`|
+|服务容量不足|`overloaded`|
+|欠费或额度耗尽|`billing`|
+|输入、请求或响应格式不符合协议|`format`|
+|无法分类的失败|`_OTHER`|
+
+输入原文和输出向量不放入 span。
+
+#### retrieval
+
+表示一次从知识库、向量库或搜索系统获取相关信息的调用，输入可以是文本、向量或两者组合。
+
+|项|定义|
+|---|---|
+|name / kind / op|`retrieval {gen_ai.data_source.id}`；CLIENT；`retrieval`|
+|何时创建|每次逻辑检索调用|
+|父|发起调用的 active span，如 `assemble_context`、`execute_tool`|
+|子|可观测的向量生成、存储或网络请求 span|
+
+自动重试不另建 `retrieval` span。向量化发生在不可观测的外部服务内部时，不推测创建 `embeddings` 子 span。
+
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `retrieval`|`retrieval`|
+||`gen_ai.provider.name`|适用时填写|string|检索服务 Provider 标识|`search_service`|
+||`gen_ai.data_source.id`|适用时填写|string|被检索的数据源；不可获得时 span name 退为 `retrieval`|`kb_main`|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属会话，生成规则见「关联键」|`conv_123`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step；上下文准备阶段不填写|`2`|
+|请求配置|`gen_ai.retrieval.top_k`|可获得时填写|int|请求召回的文档数量，不是实际返回数量|`10`|
+|服务地址|`server.address`|可获得时填写|string|检索服务地址|`search.internal`|
+||`server.port`|设置地址时填写|int|服务端口|`443`|
+|重试|`corojaw.retry.count`|发生重试时填写|int|自动重试次数，不含首次请求|`1`|
+|状态与错误|`error.type`|失败时必填|string|最终失败分类，见下表|`timeout`|
+
+失败分类：优先使用检索服务或客户端已定义的低基数错误码；没有适用错误码时，使用以下项目分类。
+
+|失败情况|`error.type`|
+|---|---|
+|请求超时|`timeout`|
+|无效凭据或权限不足|`auth`|
+|请求被限流|`rate_limit`|
+|服务容量不足|`overloaded`|
+|请求或响应格式不符合协议|`format`|
+|无法分类的失败|`_OTHER`|
+
+正常完成但未找到匹配结果，不作为错误。查询原文和文档正文通过内容引用记录，不放入 span。
+
+#### fetch_response
+
+> TODO：确认 mify 是否提供按响应 ID 查询、取回或恢复响应流的接口；按实际支持能力启用本类 span。
+
+表示一次取回已有模型响应的请求，用于后台生成状态查询、结果获取或流式响应续取，不重新发起生成。
+
+|项|定义|
+|---|---|
+|name / kind / op|`fetch_response`；CLIENT；`fetch_response`|
+|何时创建|每次逻辑取回调用；轮询时每次查询分别创建|
+|父|发起取回调用的 active span|
+|子|实际 HTTP 请求 span|
+
+单次取回调用的自动重试不另建 `fetch_response` span。
+
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `fetch_response`|`fetch_response`|
+||`gen_ai.provider.name`|必须|string|Provider 标识|`mify`|
+|执行关联|`gen_ai.response.id`|必须|string|被取回的响应标识，同一生成的多次查询沿用此值|`resp_123`|
+||`gen_ai.conversation.id`|有会话时填写|string|项目补充：所属会话|`conv_123`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step；独立后台轮询不伪造序号|`2`|
+|请求配置|`gen_ai.request.stream_cursor`|从已有位置续取时必填|string|上次已收到的流事件游标|`event_42`|
+|响应结果|`gen_ai.response.model`|可获得时填写|string|原生成使用的模型|`mify-large`|
+||`gen_ai.response.status`|可获得时填写|string|原生成的生命周期状态|`in_progress`、`completed`、`failed`|
+||`gen_ai.response.finish_reasons`|可获得时填写|string[]|原生成的结束原因，按规范映射|`["stop"]`|
+|服务地址|`server.address`|可获得时填写|string|Provider 服务地址|`model.internal`|
+||`server.port`|设置地址时填写|int|服务端口|`443`|
+|重试|`corojaw.retry.count`|发生重试时填写|int|本次取回调用的自动重试次数，不含正常轮询次数|`1`|
+|状态与错误|`error.type`|取回操作失败时必填|string|最终失败分类，见下表|`timeout`|
+
+失败分类：优先使用 Provider 或客户端已定义的低基数错误码；没有适用错误码时，使用以下项目分类。
+
+|失败情况|`error.type`|
+|---|---|
+|取回请求超时|`timeout`|
+|无效凭据或权限不足|`auth`|
+|请求被限流|`rate_limit`|
+|服务容量不足|`overloaded`|
+|请求或响应格式不符合协议|`format`|
+|无法分类的失败|`_OTHER`|
+
+不重复记录原生成的 token 用量。span status 表示取回操作是否成功；`gen_ai.response.status` 表示原生成的状态，返回 `in_progress` 或 `failed` 不直接代表取回操作失败。
 
 ### 记忆
 
