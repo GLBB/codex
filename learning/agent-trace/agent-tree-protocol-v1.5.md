@@ -18,11 +18,13 @@
 
 记录请求执行过程，快速发现：哪里慢、错在哪
 
-span 不放内容原文，内容原文体积大，进 trace 拖垮可观测后端存储和可能有隐私合规问题
+span 默认不放大体积内容原文；工具入参和成功返回值按「execute_tool」约定默认记录脱敏、限长的副本，完整内容通过引用关联外部存储。
 
 ## 设计原则
 
 本文参考 OpenTelemetry GenAI 语义规范设计，优先遵循 GenAI 及相关 OTel 领域规范的 span、属性和状态约定，对齐版本见「参考资料」。
+
+遵循规范可以统一不同 Agent、模型和工具的观测语义，便于跨服务查询与比较；减少接入可观测平台时的字段转换和专有适配，并复用标准插桩、查询和展示能力。
 
 - 规范已定义且语义一致的属性，复用其名称、类型和含义。
 - 规范未定义、但本项目确有观测需求的属性，使用 `corojaw.*` 命名空间，并说明含义、取值及采集条件。
@@ -534,29 +536,71 @@ turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后�
 
 #### execute\_tool
 
-|项|值|
+表示一次逻辑工具调用，从工具执行入口开始，到结果交付、失败或终止结束。
+
+|项|定义|
 |---|---|
 |name / kind / op|`execute_tool {gen_ai.tool.name}`；INTERNAL；`execute_tool`|
-|父 / 子|父 `invoke_agent`；子为工具内部的 `chat`、MCP span、HTTP client span|
+|何时创建|每次逻辑工具调用；并行调用分别创建|
+|父|发起调用的 active span，如 `invoke_agent`、外层 `execute_tool`|
+|子|工具内部可观测的模型、记忆、检索、存储或网络调用|
 
-并行工具调用每个工具一个 span，用 `corojaw.step.seq` 归组。
+同一逻辑调用的内部自动重试不另建 `execute_tool` span；Agent 再次决定调用工具时，创建新的 span。
 
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`gen_ai.operation.name`|必须|string|操作名，同时决定 span name 前缀|`execute_tool`|
-|`gen_ai.tool.name`<br>|必须|string|工具名，取自 `ToolManifest.spec.name`；注册工具是有限集合，可以进 span name|`weather_query`|
-|`gen_ai.agent.name`|必须|string|发起本次调用的 agent profile id|`main`|
-|`gen_ai.conversation.id`|必须|string|会话标识，取 `sha256(session_key)` 小写 hex 的前 16 位，与父 `invoke_agent` 同值|`3f9a1c8b7d2e4051`|
-|`gen_ai.tool.call.id`|必须|string|本次调用的唯一 id，取自 `ToolInvocation.call_id`（必有）|`call_01J9ZK3Q7X`|
-|`corojaw.step.seq`|必须|int|本次调用属于第几步|`2`|
-|`corojaw.tool.status`|必须|string|执行结果，取值 `OK` / `ERROR` / `UNKNOWN` / `CANCELLED` / `TIMEOUT`，取自 `ToolOutcome.status`。`UNKNOWN` 表示结果未知（进程崩溃等，可能已执行），不算失败|`OK`|
-|`error.type`|条件必填|string|失败时的错误分类，取值见「状态与错误」|`tool_timeout`|
-|`corojaw.tool.truncated`|条件必填|boolean|返回被截断时填 `true`|`true`|
-|`gen_ai.tool.description`|可选|string|模型可见的工具说明，取自 `ToolManifest.spec.description`|`查询指定城市的实时天气`|
-|`gen_ai.tool.type`|可选|string|工具形态，取值 `function` / `extension` / `datastore`|`function`|
-|`corojaw.tool.kind`|可选|string|工具类型，取值 `READ` / `WRITE` / `EXEC` / `NET`，取自 `ToolManifest.kind`|`READ`|
-|`corojaw.tool.idempotent`|可选|boolean|是否幂等，来自 `ToolManifest`，影响重试决策|`true`|
-|`corojaw.tool.risk_level`|可选|string|风险等级，取值 `LOW` / `MEDIUM` / `HIGH`，来自 `ToolManifest`；`UNSPECIFIED` 按 `HIGH` 处理|`LOW`|
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `execute_tool`|`execute_tool`|
+|工具定义|`gen_ai.tool.name`|必须|string|注册工具的稳定名称|`weather_query`|
+||`gen_ai.tool.description`|可获得时填写|string|工具职责描述|`查询指定城市的天气`|
+||`gen_ai.tool.type`|可获得时填写|string|工具执行形态，含义见下表|`function`|
+||`corojaw.tool.idempotent`|可获得时填写|boolean|工具是否幂等|`true`|
+|执行关联|`gen_ai.tool.call.id`|模型或 Provider 提供时填写|string|模型或 Provider 提供的工具调用 ID，原样记录|`call_abc`|
+||`gen_ai.agent.name`|可获得时填写|string|发起本次调用的 Agent profile 名|`main`|
+||`gen_ai.conversation.id`|有会话时填写|string|所属会话，生成规则见「关联键」|`conv_123`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step，并行工具沿用相同序号|`2`|
+|执行结果|`corojaw.tool.cancelled`|因主动取消而结束时填写|boolean|调用方主动取消导致本次调用结束时设为 `true`；超时触发的内部取消不属于此类|`true`|
+||`corojaw.tool.result_known`|调用结束时填写|boolean|是否能确认业务执行结果；确认未执行或结果已明确时为 `true`，可能已执行但结果不明时为 `false`|`false`|
+||`corojaw.tool.truncated`|交付结果被截断时填写|boolean|Agent 运行时在工具结果交付阶段按输出限制截断内容时设为 `true`；不包含后续上下文组装时的裁剪|`true`|
+|调用内容|`gen_ai.tool.call.arguments`|入参可获得时默认填写|object / JSON string|脱敏后的工具入参；超过采集上限时截断|`{"city":"北京"}`|
+||`gen_ai.tool.call.result`|执行成功且有结果时默认填写|object / JSON string|脱敏后的工具返回值；超过采集上限时截断|`{"temperature":20}`|
+|采集状态|`corojaw.tool.arguments.truncated`|入参采集副本被截断时填写|boolean|遥测中记录的入参不完整时设为 `true`|`true`|
+||`corojaw.tool.result.truncated`|返回值采集副本被截断时填写|boolean|遥测中记录的返回值不完整时设为 `true`|`true`|
+|重试|`corojaw.retry.count`|发生重试时填写|int|当前逻辑调用的内部自动重试次数，不含首次执行|`1`|
+|状态与错误|`error.type`|失败时必填|string|最终失败分类，见下表|`timeout`|
+
+**工具执行形态**
+
+以下为 `gen_ai.tool.type` 的标准示例值，不作为封闭枚举。
+
+|值|含义|示例|
+|---|---|---|
+|`function`|模型返回调用参数，由调用模型的应用执行工具并回填结果|Agent 应用执行天气查询函数|
+|`extension`|外部 API 已集成到 Agent 执行平台，由平台调用并将结果交给模型|平台执行 API 扩展|
+|`datastore`|用于访问、查询外部数据的工具|知识库查询工具|
+
+**失败分类**
+
+`error.type` 取值见下表；对应 OTel 领域规范另有规定时，遵循该规范。
+
+|失败情况|`error.type`|
+|---|---|
+|工具执行超时|`timeout`|
+|无权限执行工具或访问目标资源|`auth`|
+|工具参数不符合要求|`invalid_argument`|
+|工具报告执行失败|`tool_error`|
+|无法分类的失败|`_OTHER`|
+
+调用方主动取消不标记为错误，通过 `corojaw.tool.cancelled=true` 记录。
+
+**内容采集**
+
+- 工具入参和成功返回值默认采集，记录前脱敏。
+- 入参、返回值分别设置大小上限，并限制单个 span 的内容总量。
+- SDK 和后端支持结构化属性时记录对象，否则序列化为 JSON string。
+- 超限时裁剪对象中的字符串、数组等内容，保留合法 JSON 结构。
+- 采集截断仅作用于遥测副本，不改变实际执行参数、工具结果及模型输入。
+- 需要完整内容时，通过内容引用关联外部存储。
 
 #### 工具调用变体
 
