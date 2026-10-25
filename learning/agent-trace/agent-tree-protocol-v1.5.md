@@ -33,7 +33,7 @@ span 默认不放大体积内容原文；工具入参和成功返回值按「exe
 ## 系统架构
 
 ```Plaintext
-Gateway 入口（gateway.request，WS JSON-RPC）
+请求入口（agent.request）
 → 执行策略：排队 / 打断 / 取消 / step 级租约（不建 span，用属性与轨迹事件承载）
 → 构建上下文：load_session → assemble_context
 → 循环执行 step：
@@ -69,14 +69,14 @@ Gateway 入口（gateway.request，WS JSON-RPC）
 ||规划|`plan {agent}`|`plan main`|INTERNAL|独立规划阶段|
 |G MCP|MCP 客户端|`{mcp.method.name} {target}`|`tools/call weather_query`|CLIENT|本仓作为 MCP client 发起调用|
 ||MCP 服务端|`{mcp.method.name} {target}`|`prompts/get summarize`|SERVER|本仓作为 MCP server 接到请求|
-|H 入口|请求入口|`{rpc.method}`（`gateway.request`）|`gateway.request`|SERVER|网关收到一条 WS JSON\-RPC 请求并处理到完成|
+|H 入口|请求入口|`agent.request`|`agent.request`|SERVER|接收用户请求，覆盖 Agent 执行和结果交付|
 
 ### Span 父子关系
 
 有入口时的标准树。没有入口 span 时 `invoke_agent` 就是根（父 = 当时的 active span，OTel 上下文规则，上游不规定这一层）。
 
 ```Plaintext
-RPC server span（gateway.request）     WS JSON-RPC 入口
+请求入口 span（agent.request）         接收用户请求
 └─ invoke_agent main            [INTERNAL]  一次 turn attempt
    ├─ load_session              [INTERNAL]  每 turn 1 次
    ├─ assemble_context          [INTERNAL]  turn 级 1 次
@@ -642,29 +642,27 @@ turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后�
 
 #### 创建 Agent（create_agent）
 
-表示向远程 Agent 服务创建一个托管 Agent 资源；本地对象实例化或启动一次 Agent 调用不使用此 span。
+表示一次独立的 Agent 创建操作，例如为新用户创建专属助手，或向远程服务创建托管 Agent。普通运行对象初始化不单独记录；执行已有 Agent 使用 `invoke_agent`。
 
 |项|定义|
 |---|---|
-|name / kind / op|`create_agent {gen_ai.agent.name}`；CLIENT；`create_agent`|
-|何时创建|每次逻辑托管 Agent 资源创建调用|
+|name / kind / op|`create_agent {gen_ai.agent.name}`；远程创建为 `CLIENT`，同进程创建为 `INTERNAL`；`create_agent`|
+|何时创建|每次独立创建可管理的 Agent 实体时|
 |父|发起创建调用的 active span|
-|子|实际 HTTP 请求 span|
+|子|实际发生的存储、HTTP 等调用 span|
 
 |分类|字段|是否必须|类型|描述|示例|
 |---|---|---|---|---|---|
 |调用身份|`gen_ai.operation.name`|必须|string|固定为 `create_agent`|`create_agent`|
-||`gen_ai.provider.name`|必须|string|托管 Agent 服务的 Provider 标识|`gcp.vertex_ai`|
+||`gen_ai.provider.name`|远程标准形态必填|string|托管 Agent 服务的 Provider 标识；本项目同进程扩展无 Provider 时不填写|`gcp.vertex_ai`|
 |Agent 定义|`gen_ai.agent.name`|应用提供时填写|string|被创建 Agent 的名称|`research`|
 ||`gen_ai.agent.description`|应用提供时填写|string|Agent 职责描述|`检索资料并生成研究报告`|
 ||`gen_ai.agent.version`|应用提供时填写|string|Agent 版本|`1.0.0`|
 ||`gen_ai.request.model`|可获得时填写|string|创建请求指定的模型|`model-name`|
-|创建结果|`gen_ai.agent.id`|适用时填写|string|服务分配的稳定 Agent 资源 ID，不使用进程内实例 ID|`agent_123`|
-|服务地址|`server.address`|可获得时填写|string|Agent 服务地址|`agent.internal`|
-||`server.port`|设置地址时填写|int|服务端口|`443`|
-|状态与错误|`error.type`|失败时必填|string|Provider 或客户端的低基数错误码，无法分类时为 `_OTHER`|`timeout`|
-
-系统指令原文不放入 span，通过内容引用记录。
+|创建结果|`gen_ai.agent.id`|适用时填写|string|托管服务分配的稳定 Agent 资源 ID；不使用临时实例 ID，本地业务 ID 的记录方式另行定义|`agent_123`|
+|服务地址|`server.address`|远程创建且地址可获得时填写|string|被调用的远程 Agent 服务地址，不含协议和路径|`agents.example.com`|
+||`server.port`|设置远程服务地址时填写|int|被调用的远程 Agent 服务端口，如 HTTPS 使用 `443`|`443`|
+|状态与错误|`error.type`|失败时必填|string|创建操作的低基数错误分类，无法分类时为 `_OTHER`|`timeout`|
 
 #### 调用同进程 Agent（invoke_agent）
 
@@ -684,60 +682,104 @@ turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后�
 
 ### MCP
 
-|项|值|
+表示一次 MCP 请求或通知。发起方记录 `CLIENT` span，接收方记录 `SERVER` span；角色按本次消息方向判断，MCP 服务端主动发起请求时也属于发起方。
+
+|项|定义|
 |---|---|
-|name|`{mcp.method.name} {target}`，target 是工具 / 资源 / prompt 名|
-|kind|客户端 CLIENT，服务端 SERVER|
-|父|`execute_tool`（工具走 MCP 时）或 `invoke_agent`|
+|name|`{mcp.method.name} {target}`；target 使用工具名、prompt 名等低基数标识，没有合适目标时仅使用方法名|
+|kind|发起方 `CLIENT`，接收方 `SERVER`|
+|调用边界|请求从发起到响应接收完成；通知不等待业务响应|
+|客户端父节点|发起调用的 active span|
+|服务端父节点|从 MCP 消息中提取的远程上下文；已有传输上下文通过 Link 关联|
 
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`mcp.method.name`|必须|string|MCP 方法名，如 `tools/call` / `resources/read` / `prompts/get`，同时拼进 span name|`tools/call`|
-|`error.type`|条件必填|string|失败时的错误分类，取值见「状态与错误」|`tool_error`|
-|`gen_ai.tool.name`|条件必填|string|工具调用时的目标工具名|`weather_query`|
-|`gen_ai.prompt.name`|条件必填|string|prompt 获取时的 prompt 名|`summarize`|
-|`jsonrpc.request.id`|条件必填|string|JSON\-RPC 请求 id；客户端 span 由本端生成，服务端 span 取收到的值|`"42"`|
-|`mcp.resource.uri`|条件必填|string|读取资源时的资源 uri|`file:///docs/api.md`|
-|`rpc.response.status_code`|条件必填|string|JSON\-RPC 错误响应的 error\.code（如 `"-32602"`）；只有错误响应带码，正常响应不发，不要填 HTTP 状态码|`"-32602"`|
-|`gen_ai.operation.name`|可选|string|工具调用时等于 execute\_tool|`execute_tool`|
-|`mcp.session.id`|可选|string|MCP 会话 id|`8f2c1d9e4b7a`|
-|`mcp.protocol.version`|可选|string|MCP 协议版本|`2025-06-18`|
-|`jsonrpc.protocol.version`|可选|string|JSON\-RPC 版本|`2.0`|
-|`network.transport`|可选|string|传输层，如 `pipe` / `tcp`|`tcp`|
-|`network.protocol.name`|可选|string|应用层协议|`http`|
-|`network.protocol.version`|可选|string|应用层协议版本|`1.1`|
-|`server.address`|可选|string|服务端地址|`10.12.0.9`|
-|`server.port`|可选|int|服务端端口|`8443`|
-|`client.address`|可选|string|客户端地址|`10.12.0.7`|
-|`client.port`|可选|int|客户端端口|`51234`|
+已有 `execute_tool` span 完整覆盖同一次 MCP 工具执行时，优先补充 MCP 属性，避免重复创建工具执行 span。
 
-MCP 请求必须透传 W3C `traceparent` / `tracestate`（`mcp.md:43` 的 `_meta` 约定）。不透传的话 MCP server 侧的 span 会成为新 trace 的根，调用链断开。
+**属性**
+
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`mcp.method.name`|必须|string|MCP 方法名|`tools/call`|
+||`gen_ai.operation.name`|工具调用时填写|string|固定为 `execute_tool`；其他操作不填写|`execute_tool`|
+|操作目标|`gen_ai.tool.name`|工具调用时必填|string|被调用的工具名|`weather_query`|
+||`gen_ai.prompt.name`|获取 prompt 时必填|string|被获取的 prompt 名|`summarize`|
+||`mcp.resource.uri`|请求涉及资源 URI 时填写|string|目标资源 URI，不默认拼入 span name|`file:///docs/api.md`|
+|协议关联|`jsonrpc.request.id`|请求携带非空 ID 时填写|string|当前请求 ID 的字符串表示；通知或 ID 为 null 时不填写|`"42"`|
+||`mcp.session.id`|属于 MCP 会话时填写|string|MCP 会话标识|`8f2c1d9e4b7a`|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|项目补充：所属对话|`conv_123`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|所属主循环 step|`2`|
+|协议版本|`mcp.protocol.version`|可获得时填写|string|MCP 协议版本|`2025-11-25`|
+||`jsonrpc.protocol.version`|不为 `2.0` 时填写|string|JSON-RPC 版本|`2.0`|
+|传输信息|`network.transport`|可获得时填写|string|实际传输方式|`tcp`、`pipe`|
+||`network.protocol.name`|适用时填写|string|小写应用层协议名|`http`|
+||`network.protocol.version`|可获得时填写|string|应用层协议版本|`1.1`|
+|服务地址|`server.address`|适用且可获得时填写|string|服务端地址|`mcp.example.com`|
+||`server.port`|地址已填写且端口可获得时填写|int|服务端端口|`443`|
+|客户端地址|`client.address`|服务端可获得时填写|string|发起请求的客户端地址|`10.12.0.7`|
+||`client.port`|服务端可获得时填写|int|客户端端口|`51234`|
+|响应结果|`rpc.response.status_code`|收到或返回 JSON-RPC 错误码时填写|string|JSON-RPC `error.code`，不是 HTTP 响应码|`"-32602"`|
+|状态与错误|`error.type`|操作判定失败时必填|string|按下述错误规则填写|`tool_error`|
+
+工具入参、返回值及其采集截断标记复用 `execute_tool` 的定义，不在重复的 span 中再次记录。stdio 调用不伪造网络协议和地址。
+
+**错误规则**
+
+|情况|客户端 span|服务端 span|
+|---|---|---|
+|JSON-RPC 错误响应|标记错误，`error.type` 为错误码字符串|按下述错误码规则判断|
+|工具结果 `isError=true`|标记错误，`error.type=tool_error`|标记错误，`error.type=tool_error`|
+|超时或传输失败|标记错误，使用 `timeout` 等适用分类|按本端实际操作结果判断|
+
+以下 JSON-RPC 错误码不作为服务端错误；其他错误码应作为服务端错误：
+
+|错误码|含义|
+|---|---|
+|`-32700`|解析错误|
+|`-32600`|无效请求|
+|`-32601`|方法不存在|
+|`-32602`|参数无效，包括请求的工具不存在|
+|`-32002`|资源不存在|
+
+`rpc.response.status_code` 仍记录这些错误码。span 标记为 `ERROR` 且有 JSON-RPC 错误消息时，description 使用脱敏后的错误消息。
+
+**上下文传播**
+
+通过 MCP 消息的 `params._meta` 注入和提取 OTel 上下文：
+
+- `traceparent`：关联本次 MCP 调用。
+- `tracestate`：存在时传播。
+- `baggage`：启用时按配置传播。
+
+接收方优先使用消息上下文作为远程父节点；仅传播 HTTP header 不能保证 MCP 消息级关联。
 
 ### 入口
 
-#### RPC 入口（gateway\.request）
+#### 请求入口
 
-入口是 `gateway.request`：网关收到一条 WS JSON\-RPC 请求并处理到完成。用上游通用 RPC server span 承载，不自造 span 类型与 span 名：
+> TODO：待二次分析，确认请求入口与 Agent 执行的覆盖边界，以及 steer、异步执行场景下的 span 关联和生命周期。
 
-- name：`{rpc.method}`，即 `gateway.request`；方法不可识别时退为 `{rpc.system.name}`。
+表示一次用户请求的完整处理过程，覆盖请求接收、Agent 执行和最终结果交付。
 
-- kind：SERVER，trace 根，子为 `invoke_agent`。
+|项|定义|
+|---|---|
+|name|`agent.request`|
+|kind|`SERVER`，表示接收外部请求|
+|调用边界|从接收请求开始，到 Agent 执行结束并交付结果，或请求失败、取消结束|
+|父|有效的上游 trace context；没有时创建新 trace|
+|子|`invoke_agent` 及请求处理过程中实际发生的其他调用|
 
-- `rpc.system.name`：必须，JSON\-RPC 2\.0 传 `jsonrpc`。
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|请求标识|`corojaw.request.id`|必须|string|本次请求的唯一标识，贯穿入口及后续执行|`req_123`|
+|请求内容|`corojaw.request.query`|可获得时默认填写|string|用户本次输入，脱敏、限长后记录|`帮我分析今天的错误日志`|
+|采集状态|`corojaw.request.query.truncated`|query 采集副本被截断时填写|boolean|遥测中的 query 不完整时设为 `true`|`true`|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属对话|`conv_123`|
+||`corojaw.turn.id`|所属 turn 确定后填写|string|本次请求关联的逻辑执行|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+|状态与错误|`error.type`|请求最终失败时必填|string|本次请求最终失败的分类|`timeout`|
 
-- `rpc.method`：条件必填，值即方法名（本仓 agent 入口当前只有 `gateway.request`，xiaoaiclaw 侧另有 `chat.send` 等，是同一个约定的不同方法）。
+`corojaw.request.id` 标识一次输入请求，`corojaw.turn.id` 标识一次逻辑 Agent 执行；steer 场景下，两次请求可能关联同一个 turn。
 
-- `rpc.response.status_code`：条件必填，JSON\-RPC 错误响应的 error\.code。
-
-- `error.type`：条件必填。
-
-- `network.*`、`server.address` / `port`、`client.address` / `port`：可选。
-
-WS 长连接是否给每条消息建 per\-message server span，由业务语义决定，协议只规定 name 与 kind。
-
-
-
-
+`agent.request` 和 `corojaw.request.*` 为项目定义；query 是用户原始请求，不等同于经过上下文组装后的模型输入。
 
 ## 参考资料
 
