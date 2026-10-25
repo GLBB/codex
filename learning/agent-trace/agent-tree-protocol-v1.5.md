@@ -35,9 +35,9 @@ span 默认不放大体积内容原文；工具入参和成功返回值按「exe
 ```Plaintext
 请求入口（agent.request）
 → 执行策略：排队 / 打断 / 取消 / step 级租约（不建 span，用属性与轨迹事件承载）
-→ 构建上下文：load_session → assemble_context
+→ 按需加载或恢复历史：load_session
 → 循环执行 step：
-     chat（模型请求）→ execute_tool ×N（有 tool_call 时）
+     assemble_context（准备本次模型输入）→ chat（模型请求）→ execute_tool ×N（有 tool_call 时）
      工具结果追加进历史，进入下一 step
 → 历史超预算时触发压缩：compact_context（摘要替换旧历史）
 → 无 tool_call 或到步数上限，给出最终回复
@@ -50,9 +50,9 @@ span 默认不放大体积内容原文；工具入参和成功返回值按「exe
 |组|span|name|示例|kind|描述|
 |---|---|---|---|---|---|
 |A 执行骨架|turn 执行|`invoke_agent {profile}`|`invoke_agent main`|INTERNAL|一次 turn attempt 的容器，每 turn 恰好 1 个|
-|B 上下文|读会话|`load_session`|`load_session`|INTERNAL|读 append\-only 事件流，投影成消息视图|
-||组装上下文|`assemble_context`|`assemble_context`|INTERNAL|消息 \+ section \+ 工具定义拼成模型请求体，turn 级 1 次|
-||压缩上下文|`compact_context`|`compact_context`|INTERNAL|历史压成摘要，仅在真正发生压缩时|
+|B 上下文|读会话|`load_session`|`load_session`|INTERNAL|实际加载或恢复会话历史时创建|
+||组装上下文|`assemble_context`|`assemble_context`|INTERNAL|每次实际准备模型输入，包括预算检查与裁剪|
+||压缩上下文|`compact_context`|`compact_context`|INTERNAL|压缩历史并替换执行使用的视图，仅在实际压缩时|
 |C 模型|推理|`chat {model}`|`chat mify-large`|CLIENT|一次模型调用，每 step 1 个|
 ||向量化|`embeddings {model}`|`embeddings mify-embedding`|CLIENT|文本转向量（语义检索、记忆 embedding）|
 ||检索|`retrieval {data_source}`|`retrieval kb_main`|CLIENT|RAG / 知识库检索|
@@ -78,8 +78,8 @@ span 默认不放大体积内容原文；工具入参和成功返回值按「exe
 ```Plaintext
 请求入口 span（agent.request）         接收用户请求
 └─ invoke_agent main            [INTERNAL]  一次 turn attempt
-   ├─ load_session              [INTERNAL]  每 turn 1 次
-   ├─ assemble_context          [INTERNAL]  turn 级 1 次
+   ├─ load_session              [INTERNAL]  本次确实加载或恢复时
+   ├─ assemble_context          [INTERNAL]  本次模型输入准备
    │  ├─ search_memory          [CLIENT]    组装期召回
    │  └─ retrieval {ds}         [CLIENT]    组装期 RAG
    ├─ compact_context           [INTERNAL]  仅在压缩时
@@ -90,8 +90,10 @@ span 默认不放大体积内容原文；工具入参和成功返回值按「exe
    │  ├─ chat {model}                      工具内部的模型调用
    │  ├─ {mcp.method} {target}  [CLIENT]    MCP
    │  └─ HTTP client span                  工具发出的 HTTP
-   └─ …下一 step 平铺
+   └─ …下一 step：组装输入 → 模型调用 → 工具执行
 ```
+
+上图示意加载发生在 turn 内的路径；turn 开始前的加载归属当时的 active span。压缩若由组装触发，`compact_context` 为 `assemble_context` 的子 span。
 
 ### 通用约定
 
@@ -177,107 +179,122 @@ turn 与 conversation 的关系：一个会话（conversation\.id 不变）包�
 
 ### 上下文
 
-> TODO：学习上下文的构建、加载与压缩机制后，再考虑本节的 span 划分和属性设计。
+上下文处理分为会话加载、请求组装和历史压缩，分别回答「恢复了哪些历史」「本次模型使用什么输入」「历史如何被压缩」。
 
-三个 span 都是自创的，上游没有对应形态。与 xiaoaiclaw 现网（`session.load` \+ `system_prompt.build` \+ compaction）的差异：
-
-|维度|xiaoaiclaw|本仓|
-|---|---|---|
-|拆分|`session.load` 与 `system_prompt.build` 是 run 启动的两个阶段|`load_session` / `assemble_context` / `compact_context` 三个操作，边界对齐「读什么」vs「拼成什么样」vs「压缩」|
-|规模观测|`promptBlockStats` 18 个 block 字符 \+ 裁剪前后两个 history\_chars|14 个固定 section id 的字符属性 \+ `rebuild_reasons`|
-|缓存观测|无指纹体系|`stable_prefix_hash` / `effective_render_hash` / `rebuild_reasons`，缓存未命中可归因|
-|内容外泄|`system_prompt.build` 的业务日志打完整正文（`logs=true` 时三条 info）|trace 与日志都不含原文，正文走 ContentRef|
+`load_session`、`assemble_context`、`compact_context` 均为项目自定义 span，按实际操作创建。字符数按 Unicode 码点统计；无法取得的统计不填写。
 
 #### load\_session
 
-`load_session` 读的是 append\-only 事件流，投影之后才是一段对话。
-
-```Plaintext
-append-only 事件流（N 条事件）
-  │ 定位 → 区间读 → profile 过滤 → 段裁剪 → 叠加压缩视图
-  ▼
-读视图（M 条消息 + 规模统计）        N ≠ M 是常态
-```
+从会话存储读取历史，恢复本次执行需要的消息视图。通常发生在会话首次加载或恢复时；会话常驻内存期间，后续 turn 不重复加载。若实现需要每次请求重新读取，则按实际读取记录。
 
 |项|值|
 |---|---|
-|kind / 父 / 子|INTERNAL；父 `invoke_agent`；无子（存储 IO 用属性表达）|
-|输入|`session_key`、段边界（`SegmentStarted`）、压缩覆盖区间（`Compacted.from_seq` / `to_seq`）；profile 取父 span 的 `gen_ai.agent.name`，不重复记|
-|输出|消息序列（交给 `assemble_context`）\+ 规模统计|
-|不归它|压缩（`compact_context`）、记忆召回（`search_memory`）、RAG（`retrieval`）、渲染排版（`assemble_context`）|
+|name / kind|`load_session`；INTERNAL|
+|何时创建|实际读取或恢复历史时；直接沿用已加载的历史时不创建|
+|父|发起加载的 active span；加载发生在 turn 开始前时，不强行归入 `invoke_agent`|
+|子|实际发生的 Redis、数据库、文件等存储操作|
 
-它决定「有哪些消息」，`assemble_context` 决定「每条消息长什么样、留多少」。
+|分类|字段|是否必须|值类型|描述|值示例|
+|---|---|---|---|---|---|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属会话，生成规则见「关联键」|`3f9a1c8b7d2e4051`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn；加载发生在 turn 开始前且尚未归属具体 turn 时不填写|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+|读取来源|`corojaw.session.read_source`|可获得时填写|string|实际采用的历史来源：`redis`、`inmemory`、`filesystem`|`redis`|
+|历史规模|`corojaw.session.message_count`|可获得时填写|int|恢复后的消息条数|`57`|
+||`corojaw.session.transcript_chars`|可获得时填写|int|恢复后历史消息的文本字符总数|`48210`|
+|状态与错误|`error.type`|失败时必填|string|本次历史加载最终失败的分类|`load_failed`|
 
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`corojaw.session.degraded`|条件必填|boolean|读会话失败、降级继续时填 `true`；是读降级在 trace 里的唯一记录点，父 span 不重复记|`true`|
-|`corojaw.session.compacted`|条件必填|boolean|读视图已叠加压缩区间时填 `true`|`true`|
-|`corojaw.session.read_source`|可选|string|事件流来源，取值 `redis` / `inmemory` / `filesystem`|`redis`|
-|`corojaw.session.event_count`|可选|int|投影前的事件条数 N|`428`|
-|`corojaw.session.message_count`|可选|int|投影后的消息条数 M|`57`|
-|`corojaw.session.user_count`|可选|int|user 消息条数|`20`|
-|`corojaw.session.assistant_count`|可选|int|assistant 消息条数|`20`|
-|`corojaw.session.tool_result_count`|可选|int|tool\_result 消息条数|`17`|
-|`corojaw.session.transcript_chars`|可选|int|历史正文字符总数|`48210`|
-|`corojaw.session.seq_start`|可选|int|实际读取区间的起始 seq|`1024`|
-|`corojaw.session.seq_end`|可选|int|实际读取区间的结束 seq|`1451`|
+失败分类，以下为项目定义：
 
-工具定义不在这里统计：它由 `assemble_context` 注入，记在 `corojaw.context.tools_chars`，两边都记就是重复统计。
-
-turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后没有时间线。Redis 慢或降级时 turn 首段变慢，只有 `invoke_agent` 总时长的话分不清是读会话还是组装上下文。
+|失败情况|`error.type`|
+|---|---|
+|历史读取或恢复超时|`timeout`|
+|历史数据无法解析或恢复|`format`|
+|历史读取失败，无法取得可用历史|`load_failed`|
+|无法分类的失败|`_OTHER`|
 
 #### assemble\_context
 
-读视图、14 类 section 与工具定义，经选段、排序和预算裁切，产出渲染后的请求体和两个缓存指纹。这是本仓唯一的上下文组装入口。
+将指令、历史消息、当前输入、工具定义及实际召回的信息组装成本次模型调用的输入，并完成预算检查与必要的裁剪。
+
+> TODO：确认项目的上下文分段、ContextProfile、缓存机制、指纹及 watermark 的实际设计，暂不定义相关属性。
 
 |项|值|
 |---|---|
-|kind / 父 / 子|INTERNAL；父 `invoke_agent`；子为组装期发起的 `search_memory` / `retrieval`，组装内做摘要时的 `chat`|
-|粒度|turn 级一次。system 段在 turn 内只构建一次，step 级只追加历史|
-|输入|读视图、`ContextProfile`、工具定义、`ctx_watermark`|
-|输出|`rendered_request`（存 ContentRef，不进 span 属性）\+ `ContextAssembled` 轨迹事件 \+ 两个指纹|
+|name / kind|`assemble_context`；INTERNAL|
+|何时创建|每次实际准备模型调用输入时，包括使用缓存片段完成组装|
+|父|发起组装的 active span，通常为 `invoke_agent`|
+|子|组装期间实际发生的 `search_memory`、`retrieval`、`compact_context` 等操作|
+|结束边界|本次模型输入准备完成，或组装失败|
 
-`raw_input` 段不可裁且必须排最后（`l0-context`）。section 级细节走属性，不建子 span。
+静态指令可以在 turn 内复用；后续 step 加入工具结果后，仍记录本次输入准备过程。已经取得的检索或记忆结果直接复用，不重复创建对应操作 span。
 
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`corojaw.context.profile_id`|必须|string|本次组装使用的 `ContextProfile` id，决定按 role 拼哪些 section；与 agent profile 是两套 id|`main`|
-|`corojaw.context.stable_prefix_hash`|必须|string|稳定前缀（不随 turn 变化的 section）的指纹：每段算 sha256，按固定顺序以竖线分隔拼起来再整体算 sha256，取 64 位小写 hex。它是 prompt 缓存命中的前提，逐字节稳定才算同一段|`9f2c8a1b3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8`|
-|`corojaw.context.effective_render_hash`|必须|string|缓存 key：`stable_prefix_hash`、`tools_hash`（工具定义段的指纹）、`model_fingerprint` 三者复合，算法见 `l0-context`「指纹算法」。回答「这次组装能不能复用上次的结果」|`4b7e1d0c9a8f5e234f6a8b0c2d4e6f8a1b3c5d7e9f0a2b4c6d8e0f1a3b5c7d9e`|
-|`corojaw.context.rebuild_reasons`|条件必填|string\[\]|本次 `effective_render_hash` 与同会话上一次组装不同时，列出变化的 section id；没变化不发。缓存未命中的归因就靠它|`["turn_time"]`|
-|`corojaw.context.compaction_applied`|条件必填|boolean|本次使用压缩视图时填 `true`|`true`|
-|`corojaw.context.section.count`|可选|int|实际进入渲染的 section 数，上限 14|`12`|
-|`corojaw.context.system_prompt_chars`|可选|int|system 段字符数|`38210`|
-|`corojaw.context.history_chars`|可选|int|历史段字符数|`61230`|
-|`corojaw.context.tools_chars`|可选|int|工具定义字符数|`22065`|
-|`corojaw.context.estimated_input_tokens`|可选|int|预算裁切后的估算输入 token|`31200`|
-|`corojaw.context.cache_breakpoint_count`|可选|int|缓存断点数，取自 `l0-llm` 的 `SystemBlock.cache_breakpoint`|`2`|
-|`corojaw.context.watermark_seq`|可选|int|组装时使用的 `ctx_watermark`，审计据此判断回答是否基于过期上下文|`1451`|
-|`corojaw.context.section.<section_id>.chars`|可选|int|单个 section 的字符数|`22065`|
+|分类|字段|是否必须|值类型|描述|值示例|
+|---|---|---|---|---|---|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属会话|`3f9a1c8b7d2e4051`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|本次输入所属的主循环 step；独立摘要等调用不填写|`2`|
+|输入规模|`corojaw.context.system_prompt_chars`|可获得时填写|int|最终输入中系统与开发者指令的文本字符总数|`38210`|
+||`corojaw.context.history_chars`|可获得时填写|int|最终输入中历史消息的文本字符总数，不含本次新增用户输入|`61230`|
+||`corojaw.context.tools_chars`|可获得时填写|int|最终输入中工具定义序列化后的字符总数|`22065`|
+||`corojaw.context.estimated_input_tokens`|可估算时填写|int|组装完成后，包含指令、消息和工具定义的估算输入 token|`31200`|
+|预算与裁剪|`corojaw.context.input_budget_tokens`|设置预算时必填|int|本次实际生效的输入 token 预算，不等同于模型上下文窗口上限|`32000`|
+||`corojaw.context.trimmed`|发生裁剪时填写|boolean|本次因预算限制删除消息或截短内容时设为 `true`；不包含摘要压缩|`true`|
+|状态与错误|`error.type`|失败时必填|string|本次输入组装最终失败的分类|`input_budget_exceeded`|
 
-`<section_id>` 取 `l0-context` 的 14 个固定 id：`agent_role` / `persona` / `security_rules` / `behavior` / `skills` / `environment` / `long_term_memory` / `turn_time` / `memory_recall` / `device_context` / `interrupt_recovery` / `inbox_context` / `hook_context` / `raw_input`。key 固定、值有界，不进 span name。
+失败分类，以下为项目定义：
+
+|失败情况|`error.type`|
+|---|---|
+|上下文组装超时|`timeout`|
+|输入数据或模板不符合要求，无法组装|`format`|
+|超过输入预算，且无法通过允许的裁剪或压缩完成组装|`input_budget_exceeded`|
+|无法分类的失败|`_OTHER`|
 
 #### compact\_context
 
-历史压成摘要，同时记下被覆盖的事件区间。追加不重写，可回放。
+将选定的历史片段压缩为摘要或其他压缩表示，并替换本次执行使用的历史视图。
+
+> TODO：确认是否存在后台压缩；若候选生成与安装分离，补充两阶段的 span 边界及关联方式。
 
 |项|值|
 |---|---|
-|kind / 父 / 子|INTERNAL；父 `invoke_agent`；子为摘要用的 `chat`，token 不得与子 span 重复计|
-|触发|真正发生压缩时。低频，但发生时是 turn 的最大尖峰|
+|name / kind|`compact_context`；INTERNAL|
+|何时创建|实际开始压缩时；仅检查阈值、未执行压缩时不创建|
+|父|发起压缩的 active span，如 `invoke_agent`、`assemble_context`|
+|子|实际发生的摘要 `chat` 或专用压缩 API 调用|
+|结束边界|压缩结果已替换到执行使用的历史视图，或压缩失败|
 
-|字段|是否必须|值类型|描述|值示例|
-|---|---|---|---|---|
-|`corojaw.compaction.from_seq`|必须|int|被摘要覆盖区间的起始 seq，供回放校验|`120`|
-|`corojaw.compaction.to_seq`|必须|int|被摘要覆盖区间的结束 seq，供回放校验|`1024`|
-|`corojaw.compaction.messages_before`|可选|int|压缩前的消息条数|`96`|
-|`corojaw.compaction.messages_after`|可选|int|压缩后的消息条数|`12`|
-|`corojaw.compaction.chars_before`|可选|int|压缩前的字符数|`182000`|
-|`corojaw.compaction.chars_after`|可选|int|压缩后的字符数|`21000`|
-|`corojaw.compaction.input_tokens`|可选|int|摘要模型的输入 token|`46000`|
-|`corojaw.compaction.output_tokens`|可选|int|摘要模型的输出 token|`1800`|
+规模统计针对本次替换的历史片段：before 为原片段，after 为替换它的压缩内容。after 字段在替换成功且统计可获得时填写。
 
-`gen_ai.conversation.compacted` 不打在本 span 上，打在受影响的后续 `chat` / `invoke_agent` 上。上游脚注要求只在能可靠判定「生效上下文是压缩视图」时置 `true`，不得置 `false`。
+|分类|字段|是否必须|值类型|描述|值示例|
+|---|---|---|---|---|---|
+|执行关联|`gen_ai.conversation.id`|有会话时填写|string|所属会话|`3f9a1c8b7d2e4051`|
+||`corojaw.turn.id`|属于 turn 时必填|string|所属逻辑 turn|`01J9ZK3Q7X5B2M8N4C6D0E1F2G`|
+||`corojaw.step.seq`|属于 step 时必填|int|触发本次压缩的主循环 step；独立压缩任务不填写|`2`|
+|触发原因|`corojaw.compaction.trigger`|已知时填写|string|`input_budget`：输入达到预算或压缩阈值；`manual`：显式要求压缩|`input_budget`|
+|覆盖区间|`corojaw.compaction.from_seq`|历史具有序号时填写|int|本次计划替换区间的起始序号，包含端点|`120`|
+||`corojaw.compaction.to_seq`|历史具有序号时填写|int|本次计划替换区间的结束序号，包含端点|`1024`|
+|压缩规模|`corojaw.compaction.messages_before`|可获得时填写|int|原历史片段的消息条数|`96`|
+||`corojaw.compaction.messages_after`|替换成功且可获得时填写|int|替换内容的消息条数|`1`|
+||`corojaw.compaction.chars_before`|可获得时填写|int|原历史片段的文本字符总数|`182000`|
+||`corojaw.compaction.chars_after`|替换成功且可获得时填写|int|替换内容的文本字符总数|`21000`|
+||`corojaw.compaction.estimated_tokens_before`|可估算时填写|int|原历史片段的估算 token|`46000`|
+||`corojaw.compaction.estimated_tokens_after`|替换成功且可估算时填写|int|替换内容的估算 token；与 before 使用相同估算口径|`5200`|
+|状态与错误|`error.type`|失败时必填|string|本次压缩最终失败的分类|`summarization_failed`|
+
+失败分类，以下为项目定义：
+
+|失败情况|`error.type`|
+|---|---|
+|压缩操作整体超时|`timeout`|
+|摘要或压缩服务调用失败|`summarization_failed`|
+|压缩结果不符合要求，无法用于替换|`format`|
+|压缩结果无法替换到执行使用的历史视图|`apply_failed`|
+|无法分类的失败|`_OTHER`|
+
+摘要模型的输入、输出用量记录在子调用中；本 span 的前后规模只用于衡量压缩效果。
+
+后续 `chat` 实际采用压缩后的上下文时，设置 `gen_ai.conversation.compacted=true`。
 
 ### 模型
 

@@ -1,0 +1,1101 @@
+{
+  "verified_on": "2026-10-26",
+  "timezone": "Asia/Shanghai",
+  "method": "Langfuse CLI observations list; core,basic,metadata,model,usage,metrics; bounded pagination; no raw input/output persisted",
+  "cases": {
+    "native-case": {
+      "observations": 16586,
+      "types": {
+        "SPAN": 16523,
+        "GENERATION": 63
+      },
+      "levels": {
+        "DEFAULT": 16586
+      },
+      "trace_ids": [
+        "89221ded6ae171c8c258d2b2877fedf2"
+      ],
+      "roots": [
+        {
+          "id": "9cb2aaf0db81b475",
+          "name": "turn/start",
+          "type": "SPAN",
+          "startTime": "2026-09-29T02:33:20.860Z",
+          "endTime": "2026-09-29T02:33:20.884Z",
+          "parentObservationId": null,
+          "model": "",
+          "level": "DEFAULT",
+          "duration_seconds": 0.024
+        }
+      ],
+      "missing_parent_count": 0,
+      "top_names": [
+        [
+          "receiving",
+          6656
+        ],
+        [
+          "handle_responses",
+          6656
+        ],
+        [
+          "append_items",
+          1128
+        ],
+        [
+          "persist_rollout_items",
+          564
+        ],
+        [
+          "realtime_conversation.running_state",
+          496
+        ],
+        [
+          "auth",
+          76
+        ],
+        [
+          "render_available_skills",
+          48
+        ],
+        [
+          "record_conversation_items",
+          47
+        ],
+        [
+          "send_raw_response_items",
+          47
+        ],
+        [
+          "build_tool_call",
+          32
+        ],
+        [
+          "handle_output_item_done",
+          32
+        ],
+        [
+          "plugins_for_config",
+          18
+        ],
+        [
+          "run_hooks_and_record_inputs",
+          17
+        ],
+        [
+          "environments.wait_until_ready",
+          17
+        ],
+        [
+          "environments.snapshot",
+          17
+        ]
+      ],
+      "generation_names": {
+        "try_run_sampling_request": 15,
+        "model_client.stream_responses_websocket": 15,
+        "run_sampling_request": 15,
+        "built_tools": 15,
+        "get_model_info": 2,
+        "session_task.turn": 1
+      },
+      "zero_duration_generations": 2,
+      "session_ids": [
+        ""
+      ],
+      "root_metadata": {
+        "resourceAttributes.service.version": "0.155.0-alpha.16.3",
+        "attributes.turn.id": "01a0eb02-70de-7c13-9ae5-884152c9fe77"
+      },
+      "named_nodes": {
+        "session_task.turn": {
+          "count": 1,
+          "first": {
+            "id": "ff798bfcd9fb8e72",
+            "name": "session_task.turn",
+            "type": "GENERATION",
+            "startTime": "2026-09-29T02:33:20.884Z",
+            "endTime": "2026-09-29T02:39:08.069Z",
+            "parentObservationId": "4d15de834d77df82",
+            "model": "gpt-6-sol",
+            "level": "DEFAULT",
+            "duration_seconds": 347.185
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn"
+          ]
+        },
+        "run_turn": {
+          "count": 1,
+          "first": {
+            "id": "6fa2205f2530f67d",
+            "name": "run_turn",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:20.884Z",
+            "endTime": "2026-09-29T02:39:08.050Z",
+            "parentObservationId": "431fe98dd6b341b5",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 347.166
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn"
+          ]
+        },
+        "run_sampling_request": {
+          "count": 15,
+          "first": {
+            "id": "e94405e80d71e6c2",
+            "name": "run_sampling_request",
+            "type": "GENERATION",
+            "startTime": "2026-09-29T02:33:21.051Z",
+            "endTime": "2026-09-29T02:33:35.769Z",
+            "parentObservationId": "6fa2205f2530f67d",
+            "model": "gpt-6-sol",
+            "level": "DEFAULT",
+            "duration_seconds": 14.718
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request"
+          ]
+        },
+        "build_prompt": {
+          "count": 15,
+          "first": {
+            "id": "0995f5f02cb89a39",
+            "name": "build_prompt",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:21.051Z",
+            "endTime": "2026-09-29T02:33:21.051Z",
+            "parentObservationId": "e94405e80d71e6c2",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.0
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "build_prompt"
+          ]
+        },
+        "run_turn.prepare_sampling_request_input": {
+          "count": 15,
+          "first": {
+            "id": "292f4a449a45340b",
+            "name": "run_turn.prepare_sampling_request_input",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:21.050Z",
+            "endTime": "2026-09-29T02:33:21.051Z",
+            "parentObservationId": "6fa2205f2530f67d",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.001
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_turn.prepare_sampling_request_input"
+          ]
+        },
+        "step_context.capture": {
+          "count": 15,
+          "first": {
+            "id": "8a207e1dde11e78f",
+            "name": "step_context.capture",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:20.902Z",
+            "endTime": "2026-09-29T02:33:20.981Z",
+            "parentObservationId": "6fa2205f2530f67d",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.079
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "step_context.capture"
+          ]
+        },
+        "world_state.build": {
+          "count": 16,
+          "first": {
+            "id": "3855d7aedca841c6",
+            "name": "world_state.build",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:20.981Z",
+            "endTime": "2026-09-29T02:33:20.983Z",
+            "parentObservationId": "b624714a1b5be881",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.002
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "record_context_updates_and_set_reference_context_item",
+            "world_state.build"
+          ]
+        },
+        "receiving_stream": {
+          "count": 15,
+          "first": {
+            "id": "f3e91de1e3d23a8f",
+            "name": "receiving_stream",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:21.052Z",
+            "endTime": "2026-09-29T02:33:35.769Z",
+            "parentObservationId": "b396008b7223f3bd",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 14.717
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "receiving_stream"
+          ]
+        },
+        "model_client.stream_responses_websocket": {
+          "count": 15,
+          "first": {
+            "id": "f0ae7d76f64e9053",
+            "name": "model_client.stream_responses_websocket",
+            "type": "GENERATION",
+            "startTime": "2026-09-29T02:33:21.051Z",
+            "endTime": "2026-09-29T02:33:21.052Z",
+            "parentObservationId": "6f610ac809ec85ac",
+            "model": "gpt-6-sol",
+            "level": "DEFAULT",
+            "duration_seconds": 0.001
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "stream_request",
+            "model_client.stream_responses_websocket"
+          ]
+        },
+        "exec": {
+          "count": 14,
+          "first": {
+            "id": "0a11231123b17527",
+            "name": "exec",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:33.499Z",
+            "endTime": "2026-09-29T02:33:35.758Z",
+            "parentObservationId": "e99914cc49f81bb1",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 2.259
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "receiving_stream",
+            "handle_responses",
+            "handle_output_item_done",
+            "handle_tool_call_with_source",
+            "exec"
+          ]
+        },
+        "code_mode.handler.execute": {
+          "count": 14,
+          "first": {
+            "id": "b65b169aa1b2744d",
+            "name": "code_mode.handler.execute",
+            "type": "SPAN",
+            "startTime": "2026-09-29T02:33:33.499Z",
+            "endTime": "2026-09-29T02:33:35.758Z",
+            "parentObservationId": "e10b002db63db14d",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 2.259
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "receiving_stream",
+            "handle_responses",
+            "handle_output_item_done",
+            "handle_tool_call_with_source",
+            "exec",
+            "dispatch_tool_call_with_terminal_outcome",
+            "code_mode.handler.execute"
+          ]
+        }
+      },
+      "usage_attribute_observations": 15,
+      "pagination": {
+        "pages": 17,
+        "fetchedItems": 16586,
+        "truncated": false
+      },
+      "generation_usage_rows": 0,
+      "generation_cost_field_sum_usd": 0,
+      "one_usage_example": {
+        "id": "2e5946a5191d1d0c",
+        "name": "handle_responses",
+        "type": "SPAN",
+        "startTime": "2026-09-29T02:39:07.198Z",
+        "endTime": "2026-09-29T02:39:07.416Z",
+        "parentObservationId": "22c4ed7541e171ab",
+        "model": "",
+        "level": "DEFAULT",
+        "duration_seconds": 0.218,
+        "token_attributes": {
+          "attributes.gen_ai.usage.output_tokens": 570,
+          "attributes.gen_ai.usage.cache_write.input_tokens": 0,
+          "attributes.gen_ai.usage.cache_read.input_tokens": 142848,
+          "attributes.gen_ai.usage.input_tokens": 143834
+        },
+        "usageDetails": {
+          "input": 986,
+          "output": 570,
+          "input_cached_tokens": 142848,
+          "input_cache_creation": 0,
+          "total": 144404
+        },
+        "path": [
+          "turn/start",
+          "op.dispatch.turn_input",
+          "session_task.turn",
+          "session_task.run",
+          "run_turn",
+          "run_sampling_request",
+          "try_run_sampling_request",
+          "receiving_stream",
+          "handle_responses"
+        ]
+      },
+      "gen_ai_metadata_keys": [
+        "attributes.gen_ai.usage.cache_read.input_tokens",
+        "attributes.gen_ai.usage.cache_write.input_tokens",
+        "attributes.gen_ai.usage.input_tokens",
+        "attributes.gen_ai.usage.output_tokens"
+      ]
+    },
+    "session-case": {
+      "observations": 34,
+      "types": {
+        "GENERATION": 15,
+        "TOOL": 18,
+        "AGENT": 1
+      },
+      "levels": {
+        "DEFAULT": 34
+      },
+      "trace_ids": [
+        "bcbcd917bfbfa99a965d33cd0af1d08c"
+      ],
+      "roots": [
+        {
+          "id": "2a9767ba72b02993",
+          "name": "Codex Turn",
+          "type": "AGENT",
+          "startTime": "2026-09-29T02:33:20.884Z",
+          "endTime": "2026-09-29T02:39:07.416Z",
+          "parentObservationId": null,
+          "model": "",
+          "level": "DEFAULT",
+          "duration_seconds": 346.532
+        }
+      ],
+      "missing_parent_count": 0,
+      "top_names": [
+        [
+          "LLM",
+          15
+        ],
+        [
+          "exec",
+          8
+        ],
+        [
+          "web_search",
+          4
+        ],
+        [
+          "skill:skill-creator",
+          2
+        ],
+        [
+          "skill:langfuse",
+          2
+        ],
+        [
+          "skill:skill-installer",
+          2
+        ],
+        [
+          "Codex Turn",
+          1
+        ]
+      ],
+      "generation_names": {
+        "LLM": 15
+      },
+      "zero_duration_generations": 11,
+      "session_ids": [
+        "01a0eaf7-f025-7001-a324-36b75305ce83"
+      ],
+      "root_metadata": {
+        "codex.cli_version": "0.155.0-alpha.16.3",
+        "codex.turn_id": "01a0eb02-70de-7c13-9ae5-884152c9fe77"
+      },
+      "named_nodes": {
+        "exec": {
+          "count": 8,
+          "first": {
+            "id": "4fddde882d3b651b",
+            "name": "exec",
+            "type": "TOOL",
+            "startTime": "2026-09-29T02:34:07.159Z",
+            "endTime": "2026-09-29T02:34:10.347Z",
+            "parentObservationId": "2a9767ba72b02993",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 3.188
+          },
+          "path": [
+            "Codex Turn",
+            "exec"
+          ]
+        }
+      },
+      "usage_attribute_observations": 0,
+      "pagination": {
+        "pages": 1,
+        "fetchedItems": 34,
+        "truncated": false
+      },
+      "generation_usage_rows": 15,
+      "generation_cost_field_sum_usd": 0.571055199998,
+      "gen_ai_metadata_keys": []
+    },
+    "native-recent-case": {
+      "observations": 18011,
+      "types": {
+        "SPAN": 17960,
+        "GENERATION": 51
+      },
+      "levels": {
+        "DEFAULT": 18011
+      },
+      "trace_ids": [
+        "60667f0eeb25402d2197488b6cbb6805"
+      ],
+      "roots": [
+        {
+          "id": "02d64a2eccbc93ee",
+          "name": "turn/start",
+          "type": "SPAN",
+          "startTime": "2026-10-25T16:13:03.936Z",
+          "endTime": "2026-10-25T16:13:03.958Z",
+          "parentObservationId": null,
+          "model": "",
+          "level": "DEFAULT",
+          "duration_seconds": 0.022
+        }
+      ],
+      "missing_parent_count": 0,
+      "top_names": [
+        [
+          "receiving",
+          7183
+        ],
+        [
+          "handle_responses",
+          7183
+        ],
+        [
+          "append_items",
+          1214
+        ],
+        [
+          "persist_rollout_items",
+          607
+        ],
+        [
+          "realtime_conversation.running_state",
+          531
+        ],
+        [
+          "fs.get_metadata",
+          275
+        ],
+        [
+          "fs.read_file",
+          58
+        ],
+        [
+          "auth",
+          45
+        ],
+        [
+          "environments.snapshot",
+          39
+        ],
+        [
+          "send_raw_response_items",
+          33
+        ],
+        [
+          "record_conversation_items",
+          32
+        ],
+        [
+          "mcp.runtime.refresh_wait",
+          27
+        ],
+        [
+          "mcp.runtime.refresh_if_dirty",
+          27
+        ],
+        [
+          "guardian_scoring_observation",
+          25
+        ],
+        [
+          "handle_tool_call_with_source",
+          25
+        ]
+      ],
+      "generation_names": {
+        "model_client.stream_responses_websocket": 11,
+        "run_sampling_request": 11,
+        "try_run_sampling_request": 11,
+        "built_tools": 11,
+        "get_model_info": 6,
+        "session_task.turn": 1
+      },
+      "zero_duration_generations": 6,
+      "session_ids": [
+        "",
+        "01a16c3e-5c1b-7de2-8942-172c410a7a1d"
+      ],
+      "root_metadata": {
+        "resourceAttributes.service.version": "0.164.0-alpha.11.1",
+        "attributes.turn.id": "01a173d6-4242-7f23-9bd9-38f1adddc053"
+      },
+      "named_nodes": {
+        "session_task.turn": {
+          "count": 1,
+          "first": {
+            "id": "b6fdd41a9ce79554",
+            "name": "session_task.turn",
+            "type": "GENERATION",
+            "startTime": "2026-10-25T16:13:03.958Z",
+            "endTime": "2026-10-25T16:15:52.364Z",
+            "parentObservationId": "754c213d0beb49dd",
+            "model": "gpt-6.1-sol",
+            "level": "DEFAULT",
+            "duration_seconds": 168.406
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn"
+          ]
+        },
+        "run_turn": {
+          "count": 1,
+          "first": {
+            "id": "6b141ac9927bf252",
+            "name": "run_turn",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:03.958Z",
+            "endTime": "2026-10-25T16:15:52.354Z",
+            "parentObservationId": "92a18105595548ae",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 168.396
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn"
+          ]
+        },
+        "run_sampling_request": {
+          "count": 11,
+          "first": {
+            "id": "a242b362d10d1ba3",
+            "name": "run_sampling_request",
+            "type": "GENERATION",
+            "startTime": "2026-10-25T16:13:03.993Z",
+            "endTime": "2026-10-25T16:13:12.342Z",
+            "parentObservationId": "6b141ac9927bf252",
+            "model": "gpt-6.1-sol",
+            "level": "DEFAULT",
+            "duration_seconds": 8.349
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request"
+          ]
+        },
+        "build_prompt": {
+          "count": 11,
+          "first": {
+            "id": "245f595c3fdee917",
+            "name": "build_prompt",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:03.993Z",
+            "endTime": "2026-10-25T16:13:03.993Z",
+            "parentObservationId": "a242b362d10d1ba3",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.0
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "build_prompt"
+          ]
+        },
+        "run_turn.prepare_sampling_request_input": {
+          "count": 11,
+          "first": {
+            "id": "112b240383d7296c",
+            "name": "run_turn.prepare_sampling_request_input",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:03.991Z",
+            "endTime": "2026-10-25T16:13:03.992Z",
+            "parentObservationId": "6b141ac9927bf252",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.001
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_turn.prepare_sampling_request_input"
+          ]
+        },
+        "step_context.capture": {
+          "count": 11,
+          "first": {
+            "id": "9bf11baaf20a5653",
+            "name": "step_context.capture",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:03.963Z",
+            "endTime": "2026-10-25T16:13:03.974Z",
+            "parentObservationId": "6b141ac9927bf252",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.011
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "step_context.capture"
+          ]
+        },
+        "world_state.build": {
+          "count": 12,
+          "first": {
+            "id": "31d511a0d8e5150a",
+            "name": "world_state.build",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:03.975Z",
+            "endTime": "2026-10-25T16:13:03.976Z",
+            "parentObservationId": "3176706680e99e0f",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.001
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "record_context_updates_and_set_reference_context_item",
+            "world_state.build"
+          ]
+        },
+        "codex.sampling": {
+          "count": 11,
+          "first": {
+            "id": "977e4906501fad79",
+            "name": "codex.sampling",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:03.994Z",
+            "endTime": "2026-10-25T16:13:12.338Z",
+            "parentObservationId": "452feee2515af805",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 8.344
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "codex.sampling"
+          ]
+        },
+        "receiving_stream": {
+          "count": 11,
+          "first": {
+            "id": "7e1efaafd24e1ff4",
+            "name": "receiving_stream",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:04.043Z",
+            "endTime": "2026-10-25T16:13:12.342Z",
+            "parentObservationId": "452feee2515af805",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 8.299
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "receiving_stream"
+          ]
+        },
+        "model_client.stream_responses_websocket": {
+          "count": 11,
+          "first": {
+            "id": "4d78f8713bce2893",
+            "name": "model_client.stream_responses_websocket",
+            "type": "GENERATION",
+            "startTime": "2026-10-25T16:13:03.994Z",
+            "endTime": "2026-10-25T16:13:04.043Z",
+            "parentObservationId": "39f46f4ffb7bffa0",
+            "model": "gpt-6.1-sol",
+            "level": "DEFAULT",
+            "duration_seconds": 0.049
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "stream_request",
+            "model_client.stream_responses_websocket"
+          ]
+        },
+        "exec": {
+          "count": 10,
+          "first": {
+            "id": "2426da5af97d9e49",
+            "name": "exec",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:12.152Z",
+            "endTime": "2026-10-25T16:13:12.260Z",
+            "parentObservationId": "998ef8f834df8019",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.108
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "receiving_stream",
+            "handle_responses",
+            "handle_output_item_done",
+            "handle_tool_call_with_source",
+            "exec"
+          ]
+        },
+        "code_mode.handler.execute": {
+          "count": 10,
+          "first": {
+            "id": "813d616720cbf81d",
+            "name": "code_mode.handler.execute",
+            "type": "SPAN",
+            "startTime": "2026-10-25T16:13:12.152Z",
+            "endTime": "2026-10-25T16:13:12.260Z",
+            "parentObservationId": "8a069162a13c95d7",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 0.108
+          },
+          "path": [
+            "turn/start",
+            "op.dispatch.turn_input",
+            "codex.turn_input",
+            "session_task.turn",
+            "session_task.run",
+            "run_turn",
+            "run_sampling_request",
+            "try_run_sampling_request",
+            "receiving_stream",
+            "handle_responses",
+            "handle_output_item_done",
+            "handle_tool_call_with_source",
+            "exec",
+            "dispatch_tool_call_with_state",
+            "code_mode.handler.execute"
+          ]
+        }
+      },
+      "usage_attribute_observations": 11,
+      "pagination": {
+        "pages": 19,
+        "fetchedItems": 18011,
+        "truncated": false
+      },
+      "generation_usage_rows": 0,
+      "generation_cost_field_sum_usd": 0,
+      "one_usage_example": {
+        "id": "62af71e2c062fe49",
+        "name": "handle_responses",
+        "type": "SPAN",
+        "startTime": "2026-10-25T16:15:51.428Z",
+        "endTime": "2026-10-25T16:15:51.558Z",
+        "parentObservationId": "420aeb6c6c184899",
+        "model": "",
+        "level": "DEFAULT",
+        "duration_seconds": 0.13,
+        "token_attributes": {
+          "attributes.gen_ai.usage.output_tokens": 206,
+          "attributes.gen_ai.usage.cache_write.input_tokens": 0,
+          "attributes.gen_ai.usage.cache_read.input_tokens": 366592,
+          "attributes.gen_ai.usage.input_tokens": 367239
+        },
+        "usageDetails": {
+          "input": 647,
+          "output": 206,
+          "input_cached_tokens": 366592,
+          "input_cache_creation": 0,
+          "total": 367445
+        },
+        "path": [
+          "turn/start",
+          "op.dispatch.turn_input",
+          "codex.turn_input",
+          "session_task.turn",
+          "session_task.run",
+          "run_turn",
+          "run_sampling_request",
+          "try_run_sampling_request",
+          "receiving_stream",
+          "handle_responses"
+        ]
+      },
+      "gen_ai_metadata_keys": [
+        "attributes.gen_ai.usage.cache_read.input_tokens",
+        "attributes.gen_ai.usage.cache_write.input_tokens",
+        "attributes.gen_ai.usage.input_tokens",
+        "attributes.gen_ai.usage.output_tokens"
+      ]
+    },
+    "session-recent-case": {
+      "observations": 22,
+      "types": {
+        "GENERATION": 11,
+        "TOOL": 10,
+        "AGENT": 1
+      },
+      "levels": {
+        "DEFAULT": 22
+      },
+      "trace_ids": [
+        "9e4b0de0133ca582a0d8d2d74b33090d"
+      ],
+      "roots": [
+        {
+          "id": "06a0dc8ef2250042",
+          "name": "Codex Turn",
+          "type": "AGENT",
+          "startTime": "2026-10-25T16:13:03.958Z",
+          "endTime": "2026-10-25T16:15:51.558Z",
+          "parentObservationId": null,
+          "model": "",
+          "level": "DEFAULT",
+          "duration_seconds": 167.6
+        }
+      ],
+      "missing_parent_count": 0,
+      "top_names": [
+        [
+          "LLM",
+          11
+        ],
+        [
+          "exec",
+          9
+        ],
+        [
+          "skill:openai-docs",
+          1
+        ],
+        [
+          "Codex Turn",
+          1
+        ]
+      ],
+      "generation_names": {
+        "LLM": 11
+      },
+      "zero_duration_generations": 7,
+      "session_ids": [
+        "01a16c3e-5c1b-7de2-8942-172c410a7a1d"
+      ],
+      "root_metadata": {
+        "codex.cli_version": "0.162.0-alpha.17.2",
+        "codex.turn_id": "01a173d6-4242-7f23-9bd9-38f1adddc053"
+      },
+      "named_nodes": {
+        "exec": {
+          "count": 9,
+          "first": {
+            "id": "ec7ef3fd3098e8f2",
+            "name": "exec",
+            "type": "TOOL",
+            "startTime": "2026-10-25T16:13:15.342Z",
+            "endTime": "2026-10-25T16:13:18.388Z",
+            "parentObservationId": "06a0dc8ef2250042",
+            "model": "",
+            "level": "DEFAULT",
+            "duration_seconds": 3.046
+          },
+          "path": [
+            "Codex Turn",
+            "exec"
+          ]
+        }
+      },
+      "usage_attribute_observations": 0,
+      "pagination": {
+        "pages": 1,
+        "fetchedItems": 22,
+        "truncated": false
+      },
+      "generation_usage_rows": 11,
+      "generation_cost_field_sum_usd": 0,
+      "gen_ai_metadata_keys": []
+    }
+  },
+  "io_probe": {
+    "session": {
+      "observation_id": "21d05760979ef2f4",
+      "trace_id": "9e4b0de0133ca582a0d8d2d74b33090d",
+      "fields": {
+        "input": {
+          "type": "str",
+          "string_characters": 1226369
+        },
+        "output": {
+          "type": "str",
+          "string_characters": 424
+        }
+      }
+    },
+    "native": {
+      "observation_id": "62af71e2c062fe49",
+      "trace_id": "60667f0eeb25402d2197488b6cbb6805",
+      "fields": {
+        "input": {
+          "type": "NoneType",
+          "string_characters": null
+        },
+        "output": {
+          "type": "NoneType",
+          "string_characters": null
+        }
+      }
+    }
+  },
+  "usage_comparison_plugin_example": {
+    "id": "21d05760979ef2f4",
+    "traceId": "9e4b0de0133ca582a0d8d2d74b33090d",
+    "model": "gpt-6.1-sol",
+    "usageDetails": {
+      "input": 647,
+      "output": 185,
+      "total": 367445,
+      "input_cached_tokens": 366592,
+      "output_reasoning_tokens": 21
+    }
+  }
+}
