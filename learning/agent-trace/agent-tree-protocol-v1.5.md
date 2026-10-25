@@ -604,33 +604,83 @@ turn 冷启动的读日志耗时只可能出现在 trace 里，metric 聚合后�
 
 #### 工具调用变体
 
-- skill 装载
+以下三类是 `execute_tool` 的专化，复用其公共属性和失败分类。同一次调用只创建一个工具 span。
 
-- 技能资源读取
+|变体|使用场景|示例|
+|---|---|---|
+|Skill 装载|将 skill 指令加载到 Agent 上下文|`load_skill`|
+|Skill 资源读取|读取 skill 中的参考资料、脚本或其他资源|`read_skill_resource`|
+|命令执行|执行普通命令或 skill 脚本|`exec_command`、`bash`|
 
-- 命令执行
+**Span name**
 
-> 避免 name 高基数问题
-> 
-> 
+基础名称为 `execute_tool {工具名}`，按可获得的信息追加后缀：
 
-|变体|name 形态|何时用|追加属性|
-|---|---|---|---|
-|Load skill|`execute_tool {tool} {gen_ai.skill.name}`；skill 名不可用时退回 `execute_tool {tool}`|装载一个 skill|`gen_ai.skill.name`\(条件必填\)、`gen_ai.skill.description`、`gen_ai.skill.source.uri`|
-|Read skill resource|`execute_tool {tool} {gen_ai.skill.name} {gen_ai.skill.resource.name}`；只有 resource 名时 `execute_tool {tool} {gen_ai.skill.resource.name}`；都没有时裸名|读取 skill 内的资源文件|`gen_ai.skill.resource.name`\(条件必填\) 加上行|
-|Command execution|`execute_tool {tool} {gen_ai.skill.name} {gen_ai.skill.resource.name}`，退到 `execute_tool {tool} {gen_ai.skill.resource.name}`，再退到 `execute_tool {tool} {process.executable.name}`，最后裸名|执行本地命令|`process.executable.name`\(条件必填\)、`process.exit.code`\(条件必填\)、`process.executable.path`、`gen_ai.skill.*`|
+|变体|追加规则|示例|
+|---|---|---|
+|Skill 装载|有 skill 名时追加 skill 名，否则保留基础名称|`execute_tool load_skill code-review`|
+|Skill 资源读取|有资源名时追加“skill 名＋资源名”；只有资源名则只追加资源名；无资源名则保留基础名称|`execute_tool read_skill_resource code-review references/policy.md`|
+|命令执行|优先追加“skill 名＋资源名”；其次只追加资源名；没有资源名时追加可执行文件名；均不可获得则保留基础名称|`execute_tool bash code-review scripts/check.sh`|
+
+资源读取和命令执行不单独追加 skill 名。资源名使用 skill 相对路径，完整命令、参数和绝对路径不拼入 span name。
+
+**追加属性**
+
+|分类|字段|适用变体|填写条件|类型|描述 / 示例|
+|---|---|---|---|---|---|
+|Skill 信息|`gen_ai.skill.name`|三类|关联 skill 且名称可获得|string|Skill 名，如 `code-review`|
+||`gen_ai.skill.description`|三类|关联 skill 且描述可获得|string|Skill 职责描述|
+||`gen_ai.skill.source.uri`|三类|关联 skill 且来源可获得|string|Skill 来源，如 `file:///skills/code-review/SKILL.md`|
+|资源信息|`gen_ai.skill.resource.name`|资源读取、命令执行|关联命名资源且名称可获得|string|Skill 相对资源路径，如 `scripts/check.py`|
+|进程信息|`process.executable.name`|命令执行|工具直接执行单个进程且名称可获得|string|实际启动的可执行文件名，如 `python3`|
+||`process.executable.path`|命令执行|工具直接执行单个进程且路径可获得|string|实际可执行文件路径，如 `/usr/bin/python3`|
+|执行结果|`process.exit.code`|命令执行|工具报告单个命令或进程的退出码|int|实际退出码，如 `0`|
+
+执行 `bash -lc "git status"` 时，实际启动的是 `bash`，不能仅从命令文本中提取 `git` 作为可执行文件名。工具执行多个命令或后台进程尚未结束时，不伪造单个退出码。
 
 ### Agent 编排
 
-五个条件 span，都是上游原样照抄，本仓只决定何时发。进程内的主循环不产生它们。
+#### 创建 Agent（create_agent）
 
-|span|name|kind|何时发|上游属性|
-|---|---|---|---|---|
-|创建 agent|`create_agent {agent}`|CLIENT|出现 hosted agent 资源创建时|11 项。必须：`gen_ai.operation.name`、`gen_ai.provider.name`；条件必填：`gen_ai.agent.name`（必填）、`gen_ai.agent.id`（有稳定资源 id 才填）、`gen_ai.agent.version`、`gen_ai.agent.description`、`gen_ai.request.model`、`server.address` / `port`|
-|调用远程 agent|`invoke_agent {agent}`，无 agent 名时退化为 `invoke_agent`|CLIENT|调用别的进程或别的服务的 agent|40 项，形态与 `chat` 同构，多出 `gen_ai.agent.*` 与 `server.*`|
-|调用同进程 sub\-agent|`invoke_agent {agent}`|INTERNAL|turn 内派生 sub\-agent|复用「执行骨架」的 `invoke_agent` 属性表，只是位置不同、agent 名不同|
-|调用 workflow|`invoke_workflow {workflow}`|INTERNAL|出现多步 workflow 编排|6 项。必须：`gen_ai.operation.name`；条件必填：`gen_ai.conversation.id`、`gen_ai.workflow.name`；可选：`gen_ai.input.messages` / `output.messages`（内容原文，本仓不引入，见「不外泄的内容」）|
-|规划|`plan {agent}`，无 agent 名时退化为 `plan`|INTERNAL|出现独立规划阶段|3 项。必须：`gen_ai.operation.name`；条件必填：`error.type`、`gen_ai.agent.name`|
+表示向远程 Agent 服务创建一个托管 Agent 资源；本地对象实例化或启动一次 Agent 调用不使用此 span。
+
+|项|定义|
+|---|---|
+|name / kind / op|`create_agent {gen_ai.agent.name}`；CLIENT；`create_agent`|
+|何时创建|每次逻辑托管 Agent 资源创建调用|
+|父|发起创建调用的 active span|
+|子|实际 HTTP 请求 span|
+
+|分类|字段|是否必须|类型|描述|示例|
+|---|---|---|---|---|---|
+|调用身份|`gen_ai.operation.name`|必须|string|固定为 `create_agent`|`create_agent`|
+||`gen_ai.provider.name`|必须|string|托管 Agent 服务的 Provider 标识|`gcp.vertex_ai`|
+|Agent 定义|`gen_ai.agent.name`|应用提供时填写|string|被创建 Agent 的名称|`research`|
+||`gen_ai.agent.description`|应用提供时填写|string|Agent 职责描述|`检索资料并生成研究报告`|
+||`gen_ai.agent.version`|应用提供时填写|string|Agent 版本|`1.0.0`|
+||`gen_ai.request.model`|可获得时填写|string|创建请求指定的模型|`model-name`|
+|创建结果|`gen_ai.agent.id`|适用时填写|string|服务分配的稳定 Agent 资源 ID，不使用进程内实例 ID|`agent_123`|
+|服务地址|`server.address`|可获得时填写|string|Agent 服务地址|`agent.internal`|
+||`server.port`|设置地址时填写|int|服务端口|`443`|
+|状态与错误|`error.type`|失败时必填|string|Provider 或客户端的低基数错误码，无法分类时为 `_OTHER`|`timeout`|
+
+系统指令原文不放入 span，通过内容引用记录。
+
+#### 调用同进程 Agent（invoke_agent）
+
+参考「Agent 执行骨架」的 `invoke_agent` 定义；子 Agent 使用自身名称，父节点为发起调用的 active span。
+
+#### 调用远程 Agent（invoke_agent）
+
+调用其他进程或服务中的 Agent 时，使用 GenAI `invoke_agent` 客户端规范，kind 为 `CLIENT`，name 为 `invoke_agent {gen_ai.agent.name}`，名称不可获得时为 `invoke_agent`。
+
+#### 调用 Workflow（invoke_workflow）
+
+略。
+
+#### 规划（plan）
+
+略。
 
 ### MCP
 
