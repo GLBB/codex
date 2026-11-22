@@ -9,7 +9,7 @@
 <doc title="Codex 源码 Wiki" path="./index.md">
 # Codex 源码 Wiki
 
-这份中文 Wiki 对应 `learning/codex` 生成时的源码提交 `9f42c89c01`。从发起任务入手，可以一路看到 app-server 如何提交输入、Core 如何反复请求模型、工具和历史又如何参与回合。源码链接固定到这一提交。 [codex-rs/cli/src/main.rs:823-880](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L823-L880) [codex-rs/app-server/src/request_processors/turn_processor.rs:355-433](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L355-L433) [codex-rs/core/src/session/turn.rs:131-183](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L131-L183) [codex-rs/core/src/session/turn.rs:207-326](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L207-L326)
+这份中文 Wiki 对应 `learning/codex` 生成时的源码提交 `9f42c89c01`。从发起任务入手，可以一路看到 app-server 如何提交输入、Core 如何反复请求模型、工具和历史又如何参与回合。源码链接固定到这一提交；只有 [Rollout 会话 JSONL](protocols/rollout-wire.md) 的字段表按较新的 `4b7a20f60c` 校对。 [codex-rs/cli/src/main.rs:823-880](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L823-L880) [codex-rs/app-server/src/request_processors/turn_processor.rs:355-433](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L355-L433) [codex-rs/core/src/session/turn.rs:131-183](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L131-L183) [codex-rs/core/src/session/turn.rs:207-326](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L207-L326)
 
 ## 快速开始
 
@@ -1140,7 +1140,7 @@ flowchart LR
 | [MCP 工具协议](mcp-hooks.md) | Codex ↔ 外部 MCP 服务或宿主 | `arguments`、`_meta`、`structuredContent` |
 | [Hook 命令协议](hook-wire.md) | Core ↔ 本地 Hook 进程 | `hook_event_name`、`tool_use_id`、`hookSpecificOutput` |
 | [exec-server 进程、文件与远端传输](execution.md) | 执行调用方 ↔ exec-server | `processId`、`afterSeq`、`requestId`、`stream_id` |
-| [Rollout 会话 JSONL](rollout-wire.md) | Core → 会话文件 → 恢复器或历史构建器 | `timestamp`、`type`、`payload`、`replacement_history` |
+| [Rollout 会话 JSONL](rollout-wire.md) | Core → 会话文件 → 恢复器或历史构建器 | `type`、`payload`、`metadata`、`token_usage_record`、`world_state` |
 | [配置 RPC 与 schema 兼容](config-schema.md) | 配置加载器和 app-server ↔ 客户端 | `origins`、`expectedVersion`、`experimentalApi` |
 
 字段表使用当前源码中的序列化名称。“可省略”表示允许缺键，“可为 null”表示支持 JSON null。表格覆盖常用消息和容易混淆的字段。全量 v2 方法和嵌套类型可从 [app-server 注册表](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/common.rs#L430-L800) 及 [同版本类型导出](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1848-L1863) 查阅。模型协议覆盖 Codex 本地构造和解析的字段，服务端内部行为超出这一章的源码取证范围。
@@ -1938,115 +1938,1016 @@ app-server 的远程控制另有 JSON 外壳。排查跨进程流量时可从以
 <doc title="Rollout 会话 JSONL" path="./protocols/rollout-wire.md">
 # Rollout 会话 JSONL
 
-Rollout 的每行记录一个对象。`timestamp` 是写行时间，`type` 决定 `payload` 的结构。文件读取器把逐行对象还原为 `RolloutItem`，后续用于恢复模型历史、构建客户端回合和更新线程元数据。运行诊断和跨线程归因见 [Rollout Trace](../deep-dive/trajectory.md)。 [protocol.rs:2697-2713](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2697-L2713) [protocol.rs:2849-2854](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2849-L2854) [recorder.rs:812-857](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L812-L857) [recorder.rs:1634-1656](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L1634-L1656)
+Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固定 `timestamp` 和 `type`，`payload` 的结构由 `type` 决定。写入器首次真正落盘时先写 `session_meta`，之后按回合追加模型项、事件、上下文快照、世界状态和用量记录。读取方把行还原为 `RolloutItem`，再分别用于恢复模型历史、构建客户端回合和更新 SQLite 线程索引。
 
-## 行外壳与记录类型
+本页字段表以当前工作区的 `RolloutItemWire` 为准（提交 `4b7a20f60c`），覆盖该枚举的全部 13 类记录。字段路径以 `payload` 为根；「是否必须」指正常写入时该键是否一定出现。实测日志（`0.171.0-alpha.13`，`history_mode = "legacy"`）中的 `metadata.model_search_state` 与 `metadata.mcp_attribution` 已从当前源码移除，不在下表，其余字段与源码一致。 [rollout_payload.rs:36-82](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L36-L82) [lib.rs:635-646](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L635-L646)
 
-| 字段 | JSON 类型 | 含义 |
+## 记录类型与写入时机
+
+| `type` | `payload` | 写入时机 | 读取用途 |
+| --- | --- | --- | --- |
+| `session_meta` | `SessionMetaLine` | 首次落盘，以及 Git、记忆模式等元数据显式更新时 | 线程身份、来源和创建参数；SQLite 与列表投影的输入。 |
+| `dynamic_tools_updated` | `{thread_id, tools}` | 线程的动态工具目录被整体替换时 | 恢复后续模型步骤的工具目录，包括清空。 |
+| `response_item` | `ResponseItem`，可带 `id_allocation` | 模型输入或输出条目被接受时 | 重建模型历史；app-server 据此构建 `Turn` 与展示项。 |
+| `inter_agent_communication` | `InterAgentCommunication` | 子代理之间发送消息时 | 恢复代理间通信的顺序与内容。 |
+| `inter_agent_communication_metadata` | `{trigger_turn}` | 记录某条代理通信是否触发新回合时 | 判定通信对回合边界的影响。 |
+| `compacted` | `CompactedItem` | 上下文压缩完成时 | 建立替换历史基线；恢复窗口、用量和保留上下文。 |
+| `turn_context` | `TurnContextItem` 加兼容字段 | 每个真实用户回合写一次，压缩后重建基线时再写 | 恢复模型与权限设置；作为上下文差异的比较基准。 |
+| `token_usage_record` | `TokenUsageRecord` | 每次收到带 usage 的模型响应后 | 重建线程与回合的 token 累计。 |
+| `world_state` | `WorldStateItem` | 世界状态首次建立基线或某 section 变化时 | 恢复模型可见状态及其 diff 基线。 |
+| `retained_context` | `RetainedContextEvent` | 宿主的保留证据变化时（如已接受回答、确认投递） | 恢复不可信但需保留的上下文证据。 |
+| `security_risk_score` | `SecurityRiskScore` | 安全风险采样写入时 | 线程内风险快照，不进入模型上下文。 |
+| `event_msg` | `EventMsg` | 持久化白名单中的事件发生时 | 回合边界、用量快照，以及 legacy 模式的展示事件。 |
+| `realtime_item` | `RealtimeItem` | `paginated` 模式下记录实时会话帧时 | 重建实时语音与回合交接。 |
+
+`session_meta.payload.history_mode` 决定记录形态：`legacy` 用 `event_msg` 和 `response_item` 表达回合内容，行外壳不写 `ordinal`；`paginated` 额外写 `ordinal`，用 `item_completed` 承载完整条目，并持久化 `realtime_item`。 [policy.rs:22-63](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L22-L63)
+
+## 行外壳 `RolloutLine`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 行外壳 | `timestamp` | 必须 | string | 写行时间，UTC RFC3339 毫秒。不是会话创建时间。 |
+| 行外壳 | `ordinal` | 可选 | integer | 行级回放序号，仅 `paginated` 历史模式写入；`legacy` 省略。 |
+| 行外壳 | `type` | 必须 | enum string | 上表的 13 类记录之一，由 `RolloutItemWire` 的 `snake_case` 标签给出。 |
+| 行外壳 | `payload` | 必须 | object | 记录内容。多数记录把底层结构展平到这一层。 |
+| 行外壳 | `metadata` | 可选 | object | 仅 `response_item` 有的宿主元数据，见下一节；与 `payload` 平级。 |
+
+`RolloutLine` 刻意没有实现 `Deserialize`，读取必须走仓库的规范解析器，否则扁平信封里的高精度小数会丢精度。 [lib.rs:635-646](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L635-L646) [rollout_payload.rs:41-50](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L41-L50)
+
+## 行级元数据 `metadata`
+
+`CodexHarnessMetadata` 只挂在 `response_item` 行上，记录模型不可见的历史信息：序号、保留策略、图片来源和投递证据。未知键会被静默忽略，因此不同构建写出的新键不会导致旧读端失败。 [lib.rs:72-192](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L72-L195)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 实时来源 | `realtime_handoff` | 可选 | object | 普通回合输入由实时会话交接时的来源，见下表。 |
+| 实时来源 | `realtime_session_input` | 可选 | object | 保存到模型历史的实时转写片段来源。 |
+| 实时来源 | `realtime_session_end_input` | 可选 | boolean | 记录的是通话结束时的上下文，不创建用户回合；`false` 时省略。 |
+| 序列 | `history_sequence` | 可选 | integer | 线程内追加序号。压缩保留被保留输入的序号身份。 |
+| 序列 | `sampled_through_sequence` | 可选 | integer | 已进入「记录了模型输出」的常规请求的最大输入序号；压缩只携带不推进。 |
+| 图片 | `image_replay_sources` | 可选 | array\<object\> | 原始内联图片来源，resume 或 fork 时重新清洗用；空数组省略。 |
+| 保留证据 | `guardian_sources` | 可选 | array\<object\> | 该 Guardian 消息实际投递的保留记录；仅宿主可见。 |
+| 保留证据 | `guardian_review_ids` | 可选 | array\<string 或 object\> | 该完整 Guardian 消息投递的同步评审 ID。 |
+| 保留证据 | `guardian_source_order_guidance` | 可选 | boolean | 该消息是否投递了保留来源顺序标签；`false` 时省略。 |
+| 保留证据 | `guardian_retained_omissions` | 可选 | object | 分区省略投递证明；缺失表示未知，不代表完整。 |
+| 保留证据 | `retained_source` | 可选 | object | 该历史项精确对应的原始保留证据。 |
+| 上下文 | `additional_context_tool_output` | 可选 | boolean | 客户端提供的不可信附加上下文被渲染成独立工具输出的标记。 |
+| 作者 | `client_authored` | 必须 | boolean | 历史字段：developer 消息是否由客户端提供；缺省写 `false`，仅用于解释旧 rollout。 |
+| 保留策略 | `retain_across_windows` | 可选 | boolean | 逐项覆盖线程的跨上下文窗口保留策略，永不发给模型。 |
+| 保留策略 | `retain_in_children` | 可选 | boolean | 覆盖 spawn 子代理时的继承行为。 |
+| 预算 | `fallback_token_limit_override` | 可选 | integer | 原始历史预算（token，含工具专项额度），回放持久历史时复用。Rust 字段名是 `history_truncation_token_limit`。 |
+| 预算 | `tool_audio_budget_applied` | 可选 | boolean | 核心在工具音频仍按内联成本计时已应用历史限额；`false` 时省略。 |
+| 投递 | `delivered_assistant_message` | 可选 | string | 由成功消息工具结果确认的有界助手文本，属于不可信上下文。 |
+| 投递 | `delivered_assistant_message_incomplete` | 可选 | boolean | 已确认投递但在保留限额内拿不到全文。 |
+| 配置 | `harness_authored_configuration` | 可选 | boolean | 该 `configuration_update` 是否由 harness 自己创建。 |
+| 压缩 | `compaction_without_file_error_sources` | 可选 | boolean | 该 opaque 压缩检查点的输入不含音频或文件型图片。 |
+| 压缩 | `compaction_model_hash` | 可选 | string | 生成该检查点的生产者兼容哈希，不是当前模型。 |
+| 顺序 | `user_input_order` | 可选 | integer | 用户接受或助手投递顺序，独立于排队输入的记录顺序。 |
+| 压缩 | `compaction_output` | 可选 | boolean | 该输出由压缩生成，不是原始用户可见的助手消息。 |
+| 多代理 | `inherited_user_message` | 可选 | boolean | 从父线程复制的用户或助手上下文，不得当作子线程的本地授权。 |
+| 多代理 | `sender_user_messages` | 可选 | object | 任务消息被接受时宿主捕获的发送方证据。 |
+
+`producer_bounded_tool_audio` 带 `#[serde(skip)]`，只用于写入前的预算计算，不会出现在文件里。
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `realtime_handoff` | `event_id` | 必须 | string | 实时事件 ID。 |
+| `realtime_handoff` | `realtime_session_id` | 必须 | string | 实时会话 ID。 |
+| `realtime_handoff` | `observed_at_ms` | 必须 | integer | 观测时间，Unix 毫秒。 |
+| `realtime_handoff` | `handoff_id` | 必须 | string | 交接标识；`realtime_handoff_id()` 读取它。 |
+| `realtime_handoff` | `mode` | 必须 | enum string | `start` 或 `steer`。 |
+| `realtime_handoff` | `source_event_ids` | 必须 | array\<string\> | 组成该输入的原始实时事件。 |
+| `realtime_session_input` | `event_id` | 必须 | string | 实时事件 ID。 |
+| `realtime_session_input` | `realtime_session_id` | 必须 | string | 实时会话 ID。 |
+| `realtime_session_input` | `observed_at_ms` | 必须 | integer | 观测时间，Unix 毫秒。 |
+| `realtime_session_input` | `source_event_ids` | 必须 | array\<string\> | 该转写片段的来源事件。 |
+| `image_replay_sources[]` | `prepared_url_digest` | 必须 | array\<integer\> | 已准备 URL 的摘要字节。 |
+| `image_replay_sources[]` | `detail` | 必须（可为 null） | enum string 或 null | `auto`、`low`、`high`、`original`；无提示时写 `null`。 |
+| `image_replay_sources[]` | `original_data_url` | 必须 | string | 原始 data URL。 |
+| `retained_source` | `id` | 必须 | object | 原始消息身份，子字段见下一行组。 |
+| `retained_source.id` | `message_id` | 必须 | string | 原始消息 ID。 |
+| `retained_source.id` | `turn_id` | 必须 | string | 原始回合 ID。 |
+| `retained_source.id` | `role` | 必须 | enum string | `user` 或 `assistant`。 |
+| `retained_source` | `revision` | 必须 | string 或 object | 宿主观察到的不可复用版本；结构化形态带 `id_allocation`。 |
+| `retained_source` | `complete` | 必须 | boolean | 证据是否完整；内容被截短时为 `false`。 |
+| `guardian_retained_omissions` | `user_instructions` | 必须 | boolean | 用户指令区是否发生了省略投递。 |
+| `guardian_retained_omissions` | `assistant_context` | 必须 | boolean | 助手上下文区是否发生了省略投递。 |
+| `sender_user_messages` | `receiver_turn_id` | 必须 | string | 接收方回合 ID。 |
+| `sender_user_messages` | `receiver_message_id` | 必须 | string | 接收方消息 ID。 |
+| `sender_user_messages` | `text` | 必须 | string | 渲染后的发送方证据文本。 |
+
+## 会话元数据 `session_meta.payload`
+
+`payload` 是展平的 `SessionMetaLine`，所以线程 ID 的路径是 `payload.id`。首次落盘时写入器还会从 `cwd` 采集 Git 信息。后续的 Git 或记忆模式更新会重读文件头、打补丁后追加一整条 `session_meta`，因此同一文件可以有多条；读取器以第一条作为身份与创建参数，其余用于更新字段。 [protocol.rs:3568-3690](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3568-L3690) [recorder.rs:2009-2034](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/recorder.rs#L2009-L2034)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 身份 | `id` | 必须 | UUID 字符串 | 线程 ID。全量加载器取文件中第一条 `session_meta` 的 `id`。 |
+| 身份 | `session_id` | 必须 | UUID 字符串 | 根会话 ID，等于根线程 ID；旧数据缺失时读取器用 `id` 补齐。 |
+| 身份 | `timestamp` | 必须 | string | 会话创建时间，UTC 毫秒。追加元数据时仍写原值。 |
+| 身份 | `cwd` | 必须 | string | 创建线程时的工作目录。每轮目录见 `turn_context.payload.cwd`。 |
+| 身份 | `originator` | 必须 | string | 写入端标识，如 `codex_cli_rs`、`codex_vscode`。 |
+| 身份 | `cli_version` | 必须 | string | 创建线程的 CLI 版本。 |
+| 身份 | `account_scoped` | 可选 | boolean | 是否按创建者账号过滤；`false` 时省略，旧线程没有该字段。 |
+| 身份 | `creator_user_id` | 可选 | string | 创建线程的 ChatGPT 用户 ID。 |
+| 身份 | `creator_account_id` | 可选 | string | 创建时选择的 ChatGPT 账号 ID，恢复时不会更新。 |
+| 身份 | `runtime_workspace_roots` | 可选 | array\<string\> | 创建时默认环境的工作区根；缺省表示未知，空数组表示没有根。 |
+| 身份 | `selected_capability_roots` | 可选 | array\<object\> | 托管平台为该线程选择的能力根；空数组省略。 |
+| 身份 | `memory_mode` | 可选 | enum string | `enabled` 或 `disabled`。缺省按 `enabled` 处理。 |
+| 身份 | `history_mode` | 必须 | enum string | `legacy` 或 `paginated`，缺省 `legacy`。决定是否写 `ordinal` 和是否使用分页继承。 |
+| 身份 | `history_base` | 可选 | object | 从另一条分页 rollout 继承的排他前缀，见下表。 |
+| 身份 | `subagent_history_start_ordinal` | 可选 | integer | 子代理自身投影历史的首个序号；更早记录只作为继承上下文。 |
+| 身份 | `multi_agent_version` | 可选 | enum string | `disabled`、`v1` 或 `v2`。运行中以 `turn_context` 为准。 |
+| 身份 | `context_window` | 可选 | object | 初始上下文窗口身份，供只 tail 文件的消费者在首次压缩前定位窗口。 |
+| 来源 | `source` | 必须 | enum string 或 tagged object | 会话来源，缺省 `vscode`。带载荷形态见下表。 |
+| 来源 | `thread_source` | 可选 | enum string | 分析分类：`user`、`subagent`、`guardian_review`、`memory_consolidation`；未知值按自定义 feature 字符串保留。 |
+| 来源 | `agent_nickname` | 可选 | string | 子代理昵称。 |
+| 来源 | `agent_role` | 可选 | string | 子代理角色，兼容读取旧键 `agent_type`。 |
+| 来源 | `agent_path` | 可选 | string | 子代理规范路径。 |
+| 来源 | `model_provider` | 必须（可为 null） | string 或 null | 会话使用的供应商配置 ID；未知时写 `null`。 |
+| Fork | `forked_from_id` | 可选 | UUID 字符串 | 逻辑父线程 ID。 |
+| Fork | `attached_thread` | 可选 | boolean | 该 fork 是否附着到 `forked_from_id`；`false` 时省略。 |
+| Fork | `forked_from_ordinal_exclusive` | 可选 | integer | 从逻辑父线程继承的排他序号，独立于 `history_base`。 |
+| Fork | `parent_thread_id` | 可选 | UUID 字符串 | 直接父线程 ID。 |
+| 指令 | `base_instructions` | 必须（可为 null） | object 或 null | 线程基础模型指令，见下表；旧数据可为 `null`，读取方回退到模型模板。 |
+| 指令 | `dynamic_tools` | 可选 | array\<object\> | 线程注册的动态工具目录，见下表。 |
+| Git | `git` | 可选 | object | 写入时从 `cwd` 采集的仓库信息，见下表。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `source` | `source` | 必须 | enum string | 无载荷取值 `cli`、`vscode`、`exec`、`mcp`、`unknown`。 |
+| `source` | `source.custom` | 可选 | string | 自定义来源标签。 |
+| `source` | `source.internal` | 可选 | enum string | 内部会话：`memory_consolidation` 或 `guardian`。 |
+| `source` | `source.subagent` | 可选 | enum string 或 tagged object | 无载荷取 `review`、`compact`、`memory_consolidation`；带载荷为 `{"thread_spawn":{...}}` 或 `{"other":"..."}`。 |
+| `source.subagent.thread_spawn` | `parent_thread_id` | 必须 | UUID 字符串 | 启动该子代理的父线程。 |
+| `source.subagent.thread_spawn` | `depth` | 必须 | integer | 派生深度。 |
+| `source.subagent.thread_spawn` | `agent_path` | 可选 | string | 派生时记录的规范路径。 |
+| `source.subagent.thread_spawn` | `agent_nickname` | 可选 | string | 派生时记录的昵称。 |
+| `source.subagent.thread_spawn` | `agent_role` | 可选 | string | 派生时记录的角色，兼容旧键 `agent_type`。 |
+| `source.subagent` | `other` | 可选 | string | 其他子代理来源标签。 |
+| `git` | `commit_hash` | 可选 | string | 当前提交 SHA，清空时该键省略。 |
+| `git` | `branch` | 可选 | string | 分支名。 |
+| `git` | `repository_url` | 可选 | string | 远端 URL，写入前已去除认证信息。 |
+| `base_instructions` | `text` | 必须 | string | 基础指令正文。 |
+| `base_instructions` | `provenance` | 可选 | tagged object | `{"type":"custom"}` 表示用户显式配置；`{"type":"model","model":"..."}` 表示由该模型模板生成。 |
+| `dynamic_tools[]` | `type` | 必须 | enum string | `function` 或 `namespace`。 |
+| `dynamic_tools[]` | `name` | 必须 | string | 工具或命名空间名称。 |
+| `dynamic_tools[]` | `description` | 必须 | string | 展示给模型的描述。 |
+| `dynamic_tools[]` | `inputSchema` | 必须（function） | 任意 JSON | 参数 JSON Schema，键名为 camelCase。 |
+| `dynamic_tools[]` | `deferLoading` | 可选 | boolean | 是否延迟暴露；兼容读取旧键 `exposeToContext` 的反值，显式字段优先。 |
+| `dynamic_tools[]` | `tools` | 必须（namespace） | array\<object\> | 命名空间成员，元素为 `function` 形态。 |
+| `selected_capability_roots[]` | `id` | 必须 | string | 平台提供的稳定根标识。 |
+| `selected_capability_roots[]` | `location.type` | 必须 | enum string | 目前只有 `environment`。 |
+| `selected_capability_roots[]` | `location.environmentId` | 必须 | string | 根所属执行环境。 |
+| `selected_capability_roots[]` | `location.path` | 必须 | string | 根在该环境内的绝对路径。 |
+| `history_base` | `thread_id` | 必须 | UUID 字符串 | 前缀文件的 rollout ID。普通线程等于线程 ID，revert 后则是不同的 rollout ID。 |
+| `history_base` | `end_ordinal_exclusive` | 必须 | integer | 从该前缀文件继承到的排他序号。 |
+| `history_base` | `end_byte_offset` | 必须 | integer | 前缀文件最后一条被包含记录之后的字节偏移。 |
+| `context_window` | `window_id` | 必须 | string 或 object | 模型可见窗口身份，通常是 UUIDv7；也可能是带分配序号的窗口对象。 |
+
+查当前 Git 或记忆模式时不能只看首条记录：Git 按条目顺序应用本线程的带 `git` 元数据，记忆模式从后往前取第一个有值的 `memory_mode`。显式更新会先核对文件头里的线程 ID 再追加。 [update_thread_metadata.rs:907-936](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/update_thread_metadata.rs#L907-L936) [protocol.rs:3532-3560](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3532-L3560)
+
+## 回合上下文 `turn_context.payload`
+
+每个真实用户回合在计算完本轮的模型可见上下文变化后写一次；回合中途压缩、替换历史重建基线时再写一次。读取端只用 `permission_profile` 等新字段，写出时由序列化器额外补上 `sandbox_policy` 和可选的 `file_system_sandbox_policy`，供旧读端使用。正因为写出的形状和 Rust 结构不同，字段表把两个兼容字段也列出。 [protocol.rs:3747-3787](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3747-L3787) [rollout_payload.rs:84-136](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L84-L136)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 回合 | `turn_id` | 可选 | string | 当前回合 ID；旧记录可能没有。 |
+| 回合 | `root_turn_id` | 可选 | string | 本回合归属的根回合 ID。 |
+| 回合 | `direct_only_tool_namespaces` | 可选 | array\<string\> | 本轮的直接工具命名空间路由；空数组表示清空。 |
+| 插件 | `disabled_plugin_ids` | 可选 | array\<string\> | 本轮禁用的插件 ID；空数组表示没有禁用项。 |
+| 上下文 | `cwd` | 必须 | string | 本轮工作目录，也是旧版沙箱策略反推的基准。 |
+| 权限 | `approval_policy` | 必须 | enum string 或 tagged object | `untrusted`、`on-request`、`never`，或带五个布尔项的 `{"granular":{...}}`。 |
+| 权限 | `approvals_reviewer` | 可选 | enum string | `user` 或 `auto_review`；兼容旧值 `guardian_subagent`。 |
+| 权限 | `permission_profile` | 必须 | tagged object | 规范的运行时权限，见下表。运行时只使用该字段。 |
+| 权限 | `active_permission_profile` | 可选 | object | 产生该权限的命名或内置配置标识。 |
+| 权限 | `sandbox_policy` | 必须（仅写出） | tagged object | 由权限配置反推的旧版沙箱策略，见下表。 |
+| 权限 | `file_system_sandbox_policy` | 可选（仅写出） | object | 旧版策略无法承载的细分文件系统规则；与反推结果一致时省略。 |
+| 模型 | `model` | 必须 | string | 本轮模型 slug。SQLite 的最近模型与窗口计算取它。 |
+| 模型 | `comp_hash` | 可选 | string | 压缩模板或模型配置哈希，用于判断压缩行为是否变化。 |
+| 协作 | `collaboration_mode` | 可选 | object | 本轮协作模式与设置，见下表。 |
+| 多代理 | `multi_agent_version` | 可选 | enum string | `disabled`、`v1` 或 `v2`；恢复时优先于 `session_meta` 的同名字段。 |
+| 实时 | `realtime_active` | 可选 | boolean | 本轮是否启用实时通道。 |
+| 安全 | `cyber_access_program` | 可选 | enum string | `standard`、`daybreak_blue` 或 `daybreak_red`；是否授权仍由服务端决定。 |
+| 推理 | `effort` | 可选 | enum string | 推理强度：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`、`persistent`，或模型自定义值。 |
+| 推理 | `summary` | 可选 | enum string | `auto`、`concise`、`detailed`、`none`。当前写入路径固定写 `none` 作为旧读端占位。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `permission_profile` | `type` | 必须 | enum string | `managed`（Codex 自建沙箱）、`disabled`（关闭外层沙箱）或 `external`（调用方负责隔离）。 |
+| `permission_profile` | `file_system` | 必须（managed） | tagged object | `{"type":"restricted","entries":[...]}` 或 `{"type":"unrestricted"}`。 |
+| `permission_profile.file_system` | `entries[]` | 必须（restricted；可为空） | array\<object\> | 文件系统条目，按顺序与具体度合并。 |
+| `permission_profile.file_system.entries[]` | `path` | 必须 | tagged object | `{"type":"path","path":"..."}`、`{"type":"glob_pattern","pattern":"..."}` 或特殊位置 `root`、`minimal`、`project_roots`、`tmpdir`、`slash_tmp`、`unknown`。 |
+| `permission_profile.file_system.entries[]` | `access` | 必须 | enum string | `read`、`write`、`deny`；冲突时 `deny` 优先于 `write`，`write` 优先于 `read`。 |
+| `permission_profile.file_system.entries[]` | `missing_path_behavior` | 可选 | enum string | 目前只有 `skip`：路径不存在时跳过。 |
+| `permission_profile.file_system` | `glob_scan_max_depth` | 可选 | integer | glob 扫描深度上限。 |
+| `permission_profile` | `network` | 必须（managed、external） | enum string | `restricted` 或 `enabled`。 |
+| `file_system_sandbox_policy` | `kind` | 必须 | enum string | `restricted`、`unrestricted`、`external-sandbox`。注意用的是 `kind` 而不是 `type`。 |
+| `file_system_sandbox_policy` | `entries[]` | 可选 | array\<object\> | 条目形状与权限配置中的 `entries[]` 相同。 |
+| `file_system_sandbox_policy` | `glob_scan_max_depth` | 可选 | integer | glob 扫描深度上限。 |
+| `sandbox_policy` | `type` | 必须 | enum string | `danger-full-access`、`read-only`、`external-sandbox`、`workspace-write`。 |
+| `sandbox_policy` | `network_access` | 必须或可选 | boolean 或 enum string | `workspace-write` 为 boolean；`read-only` 在 `false` 时省略；`external-sandbox` 为 `restricted` 或 `enabled`。 |
+| `sandbox_policy` | `writable_roots` | 可选 | array\<string\> | `workspace-write` 下额外可写目录，不含 `cwd`。 |
+| `sandbox_policy` | `exclude_tmpdir_env_var` | 必须（workspace-write） | boolean | 是否把 `TMPDIR` 排除在默认可写根之外。 |
+| `sandbox_policy` | `exclude_slash_tmp` | 必须（workspace-write） | boolean | 是否把 `/tmp` 排除在默认可写根之外。 |
+| `collaboration_mode` | `mode` | 必须 | enum string | `plan` 或 `default`；兼容旧别名 `code`、`pair_programming`、`execute`、`custom`。 |
+| `collaboration_mode.settings` | `model` | 必须 | string | 该模式绑定的模型。 |
+| `collaboration_mode.settings` | `reasoning_effort` | 必须（可为 null） | enum string 或 null | 该模式的推理强度。 |
+| `collaboration_mode.settings` | `developer_instructions` | 必须（可为 null） | string 或 null | 该模式注入的 developer 指令全文。 |
+| `active_permission_profile` | `id` | 必须 | string | 配置 ID，如 `:read-only`、`:workspace`、`:danger-full-access` 或 `permissions.<id>`。 |
+| `active_permission_profile` | `extends` | 可选 | string | 父配置 ID。 |
+
+## 用量记录 `token_usage_record.payload`
+
+每次收到带 usage 的模型响应后写一条，同一回合会累积多条。写入时若上一条记录的 `turn_id` 相同则累加出 `turn_token_usage`，并累加出 `thread_token_usage`。恢复线程时用它重建计数，不必回扫全部历史。 [protocol.rs:2640-2651](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2640-L2651)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 身份 | `thread_id` | 必须 | UUID 字符串 | 所属线程。 |
+| 身份 | `session_id` | 必须 | UUID 字符串 | 根会话 ID，等于根线程 ID。 |
+| 回合 | `turn_id` | 必须 | string | 本次响应所属回合。 |
+| 回合 | `root_turn_id` | 必须 | string | 归属的根回合；缺失时写入方回退到当前 `turn_id`。 |
+| 响应 | `response_id` | 必须 | string | Responses API 响应 ID，用于与服务端计费日志对齐。 |
+| 用量 | `usage` | 必须 | object | 本次响应自身的用量，见下表。 |
+| 用量 | `turn_token_usage` | 必须 | object | 本回合截至当前的累计用量，结构同 `usage`。 |
+| 用量 | `thread_token_usage` | 必须 | object | 本线程截至当前的累计用量，结构同 `usage`。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 用量 | `input_tokens` | 必须 | integer | 输入 token 数，含缓存部分。 |
+| 用量 | `cached_input_tokens` | 必须 | integer | 命中 prompt cache 的输入 token。 |
+| 用量 | `cache_write_input_tokens` | 必须 | integer | 写入缓存的输入 token；旧数据缺省为 0。 |
+| 用量 | `output_tokens` | 必须 | integer | 输出 token，含推理输出。 |
+| 用量 | `reasoning_output_tokens` | 必须 | integer | 输出中的推理 token。 |
+| 用量 | `total_tokens` | 必须 | integer | 供应商报告的合计，用作上下文占用基准。 |
+| 用量 | `codex_rollout_budget_units` | 不写入 | — | 共享 rollout 预算的供应商单位，源码标记了 `skip_serializing`，只存在于内存。 |
+
+## 世界状态 `world_state.payload`
+
+`state` 的每个键是一个 section，值是该 section 的模型可见比较值。`full: true` 建立新基线；`full: false` 是对当前基线应用 RFC 7386 merge patch，对象成员为 `null` 表示删除该键。只有 section 内容变化时才写记录，因此一个文件可能只有一条全量快照。压缩或回退会清空基线，之后按顺序重新应用。 [protocol.rs:3724-3730](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3724-L3730) [history.rs:588-615](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context_manager/history.rs#L588-L615)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 状态 | `full` | 必须 | boolean | `true` 为全量快照；`false` 为 merge patch。 |
+| 状态 | `state` | 必须 | object | section ID 到比较值的映射。「必须」指全量快照一定包含下列 section；补丁只含变化项。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 命令会话 | `state.command_sessions` | 可选 | object | 有界命令会话快照：`sessions`（`session_id`、`status`、`in_use`）、`omitted`、可选 `polling_unavailable`；仅在开启对应特性时收集。 |
+| 工具 | `state.top_level_tools` | 可选 | object | 顶层工具声明比较值。扁平形态是名称到哈希；增量窗口形态带 `tools`、`exec`、`exec_helpers`。 |
+| 指令 | `state.model` | 必须 | string 或 object | 模型身份。旧形态是模型字符串，增量工具窗口写 `{model, instructions:哈希}`。模型变化会触发指令刷新。 |
+| 预算 | `state.context_window` | 可选 | string | 当前 agent 路径，用于按 agent 计算 token 预算。 |
+| 预算 | `state.context_window_guidance` | 必须 | string | 上下文窗口将耗尽时的引导文本；无引导为空字符串。 |
+| 实时 | `state.realtime` | 必须 | object | `{active: boolean}`。 |
+| 指令 | `state.agents_md` | 必须 | object | `directory` 与 `text`；未加载时为 `{}`。 |
+| 权限 | `state.permissions` | 可选 | object 或 string | 权限说明比较值，可能带 `environments`、`thread_defaults`、`instructions`、`approved_command_prefixes`。 |
+| 权限 | `state.approved_command_prefixes` | 可选 | array\<array\<string\>\> | 已批准的命令前缀；与 `state.permissions` 二选一。 |
+| 协作 | `state.collaboration_mode` | 可选 | object 或 string | `{mode, model, instructions?:哈希}`；旧形态是模式字符串。 |
+| 模式 | `state.persistent_mode` | 可选 | object | `{instructions?:哈希}`；空对象表示未启用。 |
+| 环境 | `state.environments` | 可选 | object | 环境与 shell 上下文比较值，含 `environments`、`current_date`、`timezone`、`network`、`filesystem` 等。 |
+| 环境 | `state.environments_instructions` | 必须 | boolean | 是否已注入执行环境说明。 |
+| 应用 | `state.apps_instructions` | 必须 | boolean 或 object | 旧形态布尔；catalog 形态为 `{instructions?:哈希, catalog:boolean}`。 |
+| 插件 | `state.plugins_instructions` | 必须 | boolean 或 object | 插件说明比较值，形态同上。 |
+| 插件 | `state.plugins_instructions_catalog_retired` | 可选 | object | catalog 退役检查点，保留旧读端可读的 `false` 快照。 |
+| 工具 | `state.tools` | 可选 | object | 延迟工具命名空间到单行截断描述的映射。 |
+| 多代理 | `state.multi_agent_usage_hint` | 可选 | string | 多代理使用提示的稳定哈希。 |
+| 多代理 | `state.multi_agent_mode` | 必须 | object | `{mode, usage_hint_hash?}`，`mode` 取 `explicitRequestOnly`、`proactive` 或 `{"custom":"..."}`。 |
+| 模型 | `state.model_catalog` | 必须 | string | `spawn_agent` 可用模型目录的哈希。 |
+| 指令 | `state.managed_developer_instructions` | 可选 | object | 托管策略指令的哈希；无策略时为 `{}`。 |
+| 扩展 | `state.skills` | 可选 | object | 执行环境技能目录：`body?`、`includeInstructions`、`enabled?`、`allocation?`。 |
+| 扩展 | `state.cloud_skills` | 可选 | object | 云端技能目录，形状同 `skills`。 |
+| 扩展 | `state.host_skills` | 可选 | object | 宿主技能目录，形状同 `skills`。 |
+| 扩展 | `state.git_attribution` | 可选 | boolean | 工作区是否要求提交或 PR 的归属声明。 |
+
+写入前会递归剔除对象中的 `null` 成员，所以空 `Option` 表现为键缺失，而不是 `null`。没有变化时 `merge_patch_from` 返回 `None`，不写记录。 [world_state.rs:78-543](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/world_state.rs#L78-L543) [world_state/mod.rs:540-575](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/mod.rs#L540-L575)
+
+## 压缩检查点 `compacted.payload`
+
+一次压缩会依次写入 `compacted`、全量 `world_state`、`turn_context` 和线程设置事件，因此压缩后的基线可以独立恢复。`message` 是摘要文本，回放时被当作一条助手消息插入历史；`replacement_history` 存在时，后续回放从它开始。 [lib.rs:561-581](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L561-L581) [rollout_payload.rs:374-402](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L374-L402) [mod.rs:5092-5100](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5092-L5100)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 摘要 | `message` | 必须 | string | 压缩摘要文本，也是摘要内容的唯一权威来源。 |
+| 历史 | `replacement_history` | 可选 | array\<object\> | 压缩后的替换历史，元素与 `response_item.payload` 同形；旧压缩可能没有。 |
+| 历史 | `replacement_history_metadata` | 可选 | array\<object\> | 与 `replacement_history` 等长对齐的宿主元数据，缺失位写 `{}`；长度不一致会解析失败。 |
+| 历史 | `guardian_history` | 可选 | array\<object\> | Guardian 审阅证据检查点，条目为模型项加可选 `guardian_metadata`。 |
+| 历史 | `retained_context` | 可选 | object | 保留上下文快照，见下表。 |
+| 历史 | `mcp_resource_origins` | 可选 | object | MCP 应用资源来源检查点，跨压缩保留授权证据。 |
+| 窗口 | `window_number` | 可选 | integer | 窗口序号；旧数据把数字写在 `window_id` 时解析会回填到这里。 |
+| 窗口 | `first_window_id` | 可选 | string | 本线程首个窗口 ID。 |
+| 窗口 | `previous_window_id` | 可选 | string | 上一个窗口 ID。 |
+| 窗口 | `window_id` | 可选 | string 或 integer | 当前窗口 ID；旧版写数字序号，读取时兼容。 |
+| 压缩 | `compaction_response_id` | 必须（可为 null） | string 或 null | 模型压缩请求的响应 ID，便于与服务端日志对齐。 |
+| 用量 | `latest_token_usage_record` | 必须（可为 null） | object 或 null | 写入压缩时最近一条用量记录的快照，结构与 `token_usage_record.payload` 相同。 |
+| 恢复 | `resume_metadata` | 可选 | object | 无法由伴随记录表达的状态，见下表。存在即表示这些值被显式持久化。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `resume_metadata` | `next_item_ordinal` | 可选 | integer | 检查点处 item ID 序列的下一个序号。 |
+| `resume_metadata` | `rejected_audio_file_ids` | 可选 | array\<string\> | 检查点前已拒绝的不可变文件引用。 |
+| `resume_metadata` | `dynamic_tools` | 可选 | object | 产生线程的动态工具目录：`thread_id` 与 `tools`，空目录表示清空。 |
+| `resume_metadata` | `observation_clock_floor_ms` | 可选 | integer | 旧历史被省略时保留的线程时钟下限。 |
+| `resume_metadata` | `multi_agent_version` | 必须（可为 null） | enum string 或 null | 选定的多代理运行时版本。 |
+| `resume_metadata` | `last_started_turn_id` | 必须（可为 null） | string 或 null | 冷恢复后用于准入续接的回合 ID。 |
+| `resume_metadata` | `turn_attribution` | 可选 | object | 最近一次普通回合的归因，字段同 `task_started.turn_attribution`。 |
+| `resume_metadata` | `previous_turn_settings` | 必须（可为 null） | object 或 null | 上一用户回合的设置，见下表。 |
+| `previous_turn_settings` | `model` | 必须 | string | 上一回合的模型。 |
+| `previous_turn_settings` | `cyber_access_program` | 可选 | enum string | 上一回合的访问 program；缺失时不得继承下一回合的选择。 |
+| `previous_turn_settings` | `comp_hash` | 必须（可为 null） | string 或 null | 上一回合的压缩配置哈希。 |
+| `previous_turn_settings` | `realtime_active` | 必须（可为 null） | boolean 或 null | 上一回合是否启用实时通道。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `mcp_resource_origins` | `origins[]` | 必须 | array\<object\> | 有界的资源来源条目，每条授权一次 widget 读取。 |
+| `mcp_resource_origins.origins[]` | `call_id` | 必须 | string | 发起读取的工具调用 ID。 |
+| `mcp_resource_origins.origins[]` | `turn_id` | 可选 | string | 该调用所属回合。 |
+| `mcp_resource_origins.origins[]` | `tool` | 必须 | string | 工具名。 |
+| `mcp_resource_origins.origins[]` | `connector_id` | 必须 | string | 应用连接器 ID。 |
+| `mcp_resource_origins.origins[]` | `link_id` | 可选 | string | 账号链接 ID。 |
+| `mcp_resource_origins.origins[]` | `uri` | 必须 | string | 被读取的资源 URI。 |
+| `mcp_resource_origins.origins[]` | `ambiguous_account` | 可选 | boolean | 该记录是否对应无法唯一确定账号的读取。 |
+| `mcp_resource_origins` | `turns` | 必须 | array\<string\> | 参与该检查点的回合 ID。 |
+| `mcp_resource_origins` | `current_turn_id` | 可选 | string | 写入检查点时的当前回合。 |
+
+`retained_context` 是压缩时保留的不可信上下文快照，字段较多，按族分组：
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 文件音频 | `retained_context.accepted_file_audio` | 可选 | object | `turn_id`、`model`、`provider`、`file_ids`。 |
+| 已答问题 | `retained_context.verified_answers[]` | 必须 | array\<object\> | 已接受的 `request_user_input` 回答，含 `turn_id`、`call_id`、`questions[]`、`order`。 |
+| 已答问题 | `retained_context.verified_answers[].revision` | 可选 | string | 宿主证据版本，防止跨重置或 fork 复用。 |
+| 已答问题 | `retained_context.verified_answers[].inherited` | 可选 | boolean | 该条来自继承前缀而非本线程接受序。 |
+| 已答问题 | `retained_context.incomplete` | 必须 | boolean | 回答族是否因预算或丢失而不完整。 |
+| 用户消息 | `retained_context.user_messages[]` | 必须 | array\<object\> | 原始用户文本，含 `order`、`turn_id`、`text`、`complete`。 |
+| 用户消息 | `retained_context.user_messages_incomplete` | 可选 | boolean | 用户消息族是否不完整；旧检查点按 `true` 处理。 |
+| 助手消息 | `retained_context.assistant_messages[]` | 必须 | array\<object\> | 助手上下文，形状同用户消息，使用独立预算。 |
+| 助手消息 | `retained_context.assistant_messages_incomplete` | 必须 | boolean | 助手消息族是否因存储省略而不完整。 |
+| 策略 | `retained_context.message_retention` | 可选 | object | 产生该历史的记录器策略：`thread_id` 与两个记录字节上限。 |
+| 顺序 | `retained_context.next_order` | 必须 | integer | 本线程下一个可用的本地接受序号。 |
+| 投递 | `retained_context.sender_deliveries[]` | 可选 | array\<object\> | 已投递任务消息的发送方证据，含 `order`、`receiver_turn_id`、`text`。 |
+
+## 其余记录
+
+以下记录出现频率低，但同一个读取器都要能识别。 [rollout_payload.rs:50-82](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L50-L82)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `dynamic_tools_updated` | `thread_id` | 必须 | UUID 字符串 | 工具目录所属线程。 |
+| `dynamic_tools_updated` | `tools` | 必须 | array\<object\> | 完整目录快照，元素为 `DynamicToolSpec`；空数组表示清空。 |
+| `inter_agent_communication` | `id` | 可选 | string | 通信条目 ID。 |
+| `inter_agent_communication` | `author` | 必须 | string | 发送方 agent 路径。 |
+| `inter_agent_communication` | `recipient` | 必须 | string | 接收方 agent 路径。 |
+| `inter_agent_communication` | `other_recipients` | 必须 | array\<string\> | 其他接收方；无时写空数组。 |
+| `inter_agent_communication` | `content` | 必须 | string | 通信正文。 |
+| `inter_agent_communication` | `encrypted_content` | 可选 | string | 加密正文。 |
+| `inter_agent_communication` | `internal_chat_message_metadata_passthrough` | 可选 | object | 与模型项相同的透传元数据。 |
+| `inter_agent_communication` | `trigger_turn` | 必须 | boolean | 该消息是否触发新回合。 |
+| `inter_agent_communication` | `id_allocation` | 可选 | object | 与 `id` 配对的 ID 分配信息，回放时续接序列。 |
+| `inter_agent_communication_metadata` | `trigger_turn` | 必须 | boolean | 仅记录触发标记的轻量条目。 |
+| `security_risk_score` | `scores` | 必须 | object\<string, number\> | 分类器到分值的映射。 |
+| `security_risk_score` | `call_id` | 可选 | string | 产生该分值的工具调用。 |
+| `security_risk_score` | `action` | 可选 | 任意 JSON | 被检查的有界工具动作。 |
+| `security_risk_score` | `sampled_at` | 可选 | string | 采样开始时间，UTC。 |
+
+`realtime_item` 的 `type` 是 `RealtimeItemContent` 的判别标签，常见取值与字段：
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `realtime_item` | `id` | 必须 | string | 实时条目 ID。 |
+| `realtime_item` | `realtime_session_id` | 必须 | string | 实时会话 ID。 |
+| `realtime_item` | `observed_at_ms` | 可选 | integer | 首次观测时间，Unix 毫秒；旧历史缺失。 |
+| `realtime_item` | `type` | 必须 | enum string | `realtime_session_started`、`frame`、`transcript_segment`、`bem_item_promoted`、`realtime_session_closed`、`turn_input_accepted`、`session_input_saved`。 |
+| `frame` | `channels.voice_transcript.role` | 必须 | enum string | `user` 或 `assistant`。 |
+| `frame` | `channels.voice_transcript.text` | 必须 | string | 该帧的语音转写文本。 |
+| `transcript_segment` | `role` | 必须 | enum string | 旧拼写的转写角色。 |
+| `transcript_segment` | `text` | 必须 | string | 转写文本。 |
+| `bem_item_promoted` | `turn_id` | 必须 | string | 提升条目所属回合。 |
+| `bem_item_promoted` | `item_id` | 必须 | string | 提升后的条目 ID。 |
+| `bem_item_promoted` | `presentation` | 必须 | object | 该条目的展示信息。 |
+| `realtime_session_closed` | `outcome` | 必须 | enum string | `ended` 或 `failed`。 |
+| `realtime_session_closed` | `final_frame_sequence` | 可选 | integer | 最后一帧序号，静音通话为 0。 |
+| `turn_input_accepted` | `handoff_id` | 必须 | string | 交接标识。 |
+| `turn_input_accepted` | `turn_id` | 必须 | string | 接收该输入的回合。 |
+| `turn_input_accepted` | `mode` | 必须 | enum string | `start` 或 `steer`。 |
+| `turn_input_accepted` | `source_event_ids` | 必须 | array\<string\> | 组成该输入的实时事件。 |
+| `turn_input_accepted` | `input_item_id` | 必须 | string | 输入模型项的 ID。 |
+| `turn_input_accepted` | `input` | 必须 | string | agent 回合实际使用的有界输入。 |
+| `session_input_saved` | `reason` | 必须 | enum string | `chunk` 或 `session_end`。 |
+| `session_input_saved` | `source_event_ids` | 必须 | array\<string\> | 来源实时事件。 |
+| `session_input_saved` | `input_item_id` | 必须 | string | 输入模型项的 ID。 |
+| `session_input_saved` | `input` | 必须 | string | 保存的转写文本。 |
+
+`retained_context` 记录的 `type` 取 `accepted_file_audio`、`verified_answer` 或 `delivered_assistant_message`，分别携带文件音频证据、已核验回答和已确认投递的助手文本。它们与 `compacted` 里的 `retained_context` 快照共享同一组结构。 [retained_context.rs:171-193](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/retained_context.rs#L171-L193) [realtime.rs:8-103](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/realtime.rs#L8-L103) [security_risk.rs:13-25](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/security_risk.rs#L13-L25)
+
+## 持久化事件 `event_msg.payload`
+
+`EventMsg` 是 internally tagged 的联合类型：`payload.type` 是事件名，事件结构体的字段全部展平到 `payload` 顶层。两个变体的 wire 名与 Rust 变体不同：`TurnStarted` 写 `task_started`（兼容读取 `turn_started`），`TurnComplete` 写 `task_complete`（兼容读取 `turn_complete`）。其余事件名是 Rust 变体名的 `snake_case`。 [protocol.rs:1571-1640](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L1571-L1640)
+
+写入前先过持久化白名单，因此文件里只会出现下列事件：
+
+| 条件 | 事件 `type` | 说明 |
 | --- | --- | --- |
-| `timestamp` | string | 当前记录写入时的 UTC 时间，写入器精确到毫秒。 |
-| `type` | string | 下表中的记录类型。 |
-| `payload` | object | 该类型的内容。事件和模型项内部还可以有自己的 `type`。 |
+| 总是写入 | `task_started`、`task_complete`、`token_count`、`thread_settings_applied`、`thread_rolled_back`、`turn_aborted`、`thread_goal_updated` | 回合边界、用量和线程级设置。 |
+| 按历史模式裁剪 | `item_completed` | `legacy` 只保留无法由原始模型项无损表达的 `FunctionCallOutput`、`Plan`、`Extension(Sleep)` 与 `SubAgentActivity(Completed)`；`paginated` 保留全部条目。 |
+| 仅 `legacy` 写入 | `user_message`、`agent_message`、`agent_reasoning`、`agent_reasoning_raw_content`、`entered_review_mode`、`exited_review_mode`、`patch_apply_end`、`context_compacted`、`mcp_tool_call_end`、`web_search_end`、`image_generation_end` | 新线程改用 `item_completed` 承载这些内容。 |
+| 仅 `legacy` 且非终态 | `sub_agent_activity` | `kind = completed` 的活动不写入。 |
+| 从不写入 | `exec_command_end`、`item_started`、各类流式 delta、审批请求等 | 瞬时事件，只发给客户端。 |
 
-| `type` | `payload` 类型 | 用途 |
+命令聚合输出和 MCP 结果在写入前有 64 KiB 上限，超出部分用截断标记替换。 [policy.rs:130-228](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L130-L228) [policy.rs:233-288](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L233-L288)
+
+### 回合开始 `task_started`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `task_started`。 |
+| 回合 | `turn_id` | 必须 | string | 本回合 ID，与 `turn_context`、`task_complete` 关联。 |
+| 回合 | `root_turn_id` | 可选 | string | 根回合 ID；根回合时等于 `turn_id`。 |
+| 回合 | `turn_attribution` | 可选 | object | 常规回合的来源，在启动工作可能被挂起前先落盘。 |
+| 跟踪 | `trace_id` | 可选 | string | 供 rollout 消费方关联遥测 trace。 |
+| 时间 | `started_at` | 可选 | integer | 回合开始时间，Unix 秒。 |
+| 用量 | `model_context_window` | 必须（可为 null） | integer 或 null | 本轮模型上下文窗口；未知为 `null`。 |
+| 模式 | `collaboration_mode_kind` | 必须 | enum string | `plan` 或 `default`；缺省按 `default`。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `turn_attribution` | `turn_id` | 必须 | string | 本回合 ID。 |
+| `turn_attribution` | `turn_trigger` | 必须（可为 null） | string 或 null | 触发来源，如 `composer`。 |
+| `turn_attribution` | `parent_turn_id` | 必须（可为 null） | string 或 null | 父回合 ID，用于子代理或派生回合。 |
+| `turn_attribution` | `initiating_agent_path` | 必须（可为 null） | string 或 null | 发起该回合的 agent 路径。 |
+| `turn_attribution` | `root_turn_id` | 必须（可为 null） | string 或 null | 因果根回合 ID。 |
+
+### 回合结束 `task_complete`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `task_complete`。 |
+| 回合 | `turn_id` | 必须 | string | 已完成的回合。 |
+| 回合 | `root_turn_id` | 可选 | string | 解析后的因果根回合；旧记录或合成事件没有。 |
+| 消息 | `last_agent_message` | 必须（可为 null） | string 或 null | 本回合最后一条助手可见文本；没有输出时为 `null`。 |
+| 错误 | `error` | 可选 | object | 回合失败时的终止错误，见下表。 |
+| 时间 | `started_at` | 可选 | integer | 回合开始时间，Unix 秒。 |
+| 时间 | `completed_at` | 可选 | integer | 回合完成时间，Unix 秒。 |
+| 时间 | `duration_ms` | 可选 | integer | 回合总耗时，毫秒。 |
+| 时间 | `time_to_first_token_ms` | 可选 | integer | 从开始到首个模型 token 的耗时，毫秒。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `error` | `message` | 必须 | string | 面向用户的错误消息。 |
+| `error` | `codex_error_info` | 必须（可为 null） | string、object 或 null | 错误分类，决定回合是否失败。单元变体是字符串，带状态码的变体是 `{"<kind>":{"http_status_code":n}}`。 |
+| `error` | `rejected_audio_file_ids` | 可选 | array\<string\> | 被拒绝的音频文件 ID，仅宿主可见。 |
+
+`error.codex_error_info` 的主要取值包括 `context_window_exceeded`、`session_budget_exceeded`、`usage_limit_exceeded`、`rate_limit_exceeded`、`server_overloaded`、`model_not_found`、`unauthorized`、`bad_request`、`sandbox_error`、`response_stream_disconnected`、`thread_rollback_failed` 和 `other`。 [protocol.rs:2502-2529](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2502-L2529) [codex_error_info.rs:13-60](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/codex_error_info.rs#L13-L60)
+
+### 用量快照 `token_count`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `token_count`。 |
+| 用量 | `info` | 必须（可为 null） | object 或 null | 累计与最近一次用量；`null` 表示未知，UI 不应显示。 |
+| 限额 | `rate_limits` | 必须（可为 null） | object 或 null | 最近一次供应商返回的限额快照。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `info` | `total_token_usage` | 必须 | object | 会话累计用量，结构见 `token_usage_record` 的用量表。 |
+| `info` | `last_token_usage` | 必须 | object | 最近一次模型调用用量，结构同上。 |
+| `info` | `last_usage_includes_reasoning` | 可选 | boolean | 最近一次计数是否包含早前回合保留的推理。 |
+| `info` | `model_context_window` | 必须（可为 null） | integer 或 null | 模型上下文窗口。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `rate_limits` | `limit_id` | 必须（可为 null） | string 或 null | 限额 ID，如 `codex`。 |
+| `rate_limits` | `limit_name` | 必须（可为 null） | string 或 null | 展示名。 |
+| `rate_limits` | `normal_model_slug` | 可选 | string | quota alias 对应的正常模型 slug，不能替代请求模型。 |
+| `rate_limits` | `primary` | 必须（可为 null） | object 或 null | 主窗口，见下表。 |
+| `rate_limits` | `secondary` | 必须（可为 null） | object 或 null | 次窗口，结构同主窗口。 |
+| `rate_limits` | `credits` | 必须（可为 null） | object 或 null | 额度余额，见下表。 |
+| `rate_limits` | `individual_limit` | 必须（可为 null） | object 或 null | 个人消费控制限额，见下表。 |
+| `rate_limits` | `spend_control_reached` | 必须（可为 null） | boolean 或 null | 后端上报的消费控制触达状态；`null` 表示不可用。 |
+| `rate_limits` | `plan_type` | 必须（可为 null） | enum string 或 null | `free`、`go`、`plus`、`pro`、`team`、`business`、`enterprise`、`edu`、`sci` 等；无法识别的值落为 `unknown`。 |
+| `rate_limits` | `rate_limit_reached_type` | 必须（可为 null） | enum string 或 null | 如 `rate_limit_reached`、`workspace_owner_credits_depleted`、`workspace_member_usage_limit_reached`。 |
+| 主窗口 | `primary.used_percent` | 必须 | number | 窗口内已用百分比，可超过 100。 |
+| 主窗口 | `primary.window_minutes` | 必须（可为 null） | integer 或 null | 滚动窗口长度。 |
+| 主窗口 | `primary.resets_at` | 必须（可为 null） | integer 或 null | 重置时间，Unix 秒。 |
+| 次窗口 | `secondary.used_percent` | 必须 | number | 窗口内已用百分比，可超过 100。 |
+| 次窗口 | `secondary.window_minutes` | 必须（可为 null） | integer 或 null | 滚动窗口长度。 |
+| 次窗口 | `secondary.resets_at` | 必须（可为 null） | integer 或 null | 重置时间，Unix 秒。 |
+| `credits` | `has_credits` | 必须 | boolean | 是否有可用额度。 |
+| `credits` | `unlimited` | 必须 | boolean | 是否无限额度。 |
+| `credits` | `balance` | 必须（可为 null） | string 或 null | 余额字符串。 |
+| `individual_limit` | `limit` | 必须 | string | 限额值，字符串化数值。 |
+| `individual_limit` | `used` | 必须 | string | 已用值。 |
+| `individual_limit` | `remaining_percent` | 必须 | integer | 剩余百分比。 |
+| `individual_limit` | `resets_at` | 必须 | integer | 重置时间戳。 |
+
+[protocol.rs:2653-2664](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2653-L2664) [protocol.rs:2720-2793](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2720-L2793)
+
+### 线程设置 `thread_settings_applied`
+
+设置更新成功后写一条完整快照。恢复线程时以最后一条快照为准；`thread_id` 指向逻辑任务，可能与物理 rollout 文件不同。 [protocol.rs:2558-2605](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2558-L2605)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `thread_settings_applied`。 |
+| 归属 | `thread_id` | 可选 | UUID 字符串 | 拥有该快照的逻辑任务；旧历史没有。 |
+| 设置 | `thread_settings` | 必须 | object | 生效的线程配置快照。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 模型 | `model` | 必须 | string | 生效模型 slug。 |
+| 模型 | `model_provider_id` | 必须 | string | 供应商 ID。 |
+| 模型 | `service_tier` | 可选 | string | 服务层级。 |
+| 审批 | `approval_policy` | 必须 | enum string 或 tagged object | 同 `turn_context.approval_policy`。 |
+| 审批 | `approvals_reviewer` | 必须 | enum string | `user` 或 `auto_review`。 |
+| 审批 | `requested_approvals_reviewer` | 可选 | enum string | 托管策略解析前的原始选择。 |
+| 权限 | `permission_profile` | 必须 | tagged object | 结构同 `turn_context.permission_profile`。 |
+| 权限 | `active_permission_profile` | 可选 | object | 结构同 `turn_context.active_permission_profile`。 |
+| 路径 | `cwd` | 必须 | string | 生效工作目录。 |
+| 路径 | `runtime_workspace_roots` | 可选 | array\<string\> | 默认环境的顶层工作区根。 |
+| 推理 | `reasoning_effort` | 可选 | enum string | 推理强度，取值同 `turn_context.effort`。 |
+| 推理 | `reasoning_summary` | 可选 | enum string | `auto`、`concise`、`detailed` 或 `none`。 |
+| 人格 | `personality` | 可选 | enum string | `none`、`friendly` 或 `pragmatic`；已弃用，仅保留兼容。 |
+| 模式 | `collaboration_mode` | 必须 | object | 结构同 `turn_context.collaboration_mode`。 |
+| 插件 | `disabled_plugin_ids` | 必须 | array\<string\> | 线程级插件禁用列表；插件不可用时也保留。 |
+| 守护 | `guardian_retention` | 可选 | object | Guardian 证据保留策略：`assistant_record_bytes` 与 `user_record_bytes`。 |
+
+### 条目完成 `item_completed`
+
+`paginated` 模式用这个事件承载完整展示条目；`legacy` 模式只在条目无法由原始模型项无损表达时写入。 [protocol.rs:2256-2273](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2256-L2273)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `item_completed`。 |
+| 归属 | `thread_id` | 必须 | UUID 字符串 | 条目所属线程。 |
+| 回合 | `turn_id` | 必须 | string | 条目所属回合。 |
+| 条目 | `item` | 必须 | object | `TurnItem`，由 `item.type` 判别，见下表。 |
+| 用量 | `content_token_count` | 可选 | integer | 完成助手消息的原生 token 数，含采样 footer；仅遥测。 |
+| 时间 | `started_at_ms` | 可选 | integer | 条目开始时间，Unix 毫秒。 |
+| 时间 | `completed_at_ms` | 必须 | integer | 条目完成时间；旧 rollout 的 Plan 条目缺省为 0。 |
+
+`TurnItem` 的判别标签没有 `rename_all`，因此 `item.type` 是 PascalCase，与本文其他 `snake_case` 标签不同。条目内部字段与 app-server 的 `ThreadItem` 投影不同，后者见 [app-server JSON-RPC](app-server-wire.md#展示项-threaditem)。
+
+| `item.type` | 关键字段 | 说明 |
 | --- | --- | --- |
-| `session_meta` | SessionMetaLine | 线程身份、会话来源、初始化元数据。 |
-| `response_item` | ResponseItem | 输入、助手消息、工具调用和工具输出等模型历史。模型项字段见 [模型请求与响应](model-wire.md)。 |
-| `compacted` | CompactedItem | 用 `message: string` 记录摘要，若有 `replacement_history: ResponseItem[]` 则提供压缩后的历史基线。 |
-| `turn_context` | TurnContextItem | 持久的回合上下文基线，恢复时可用于计算后续上下文变化。 |
-| `event_msg` | EventMsg | 保存允许落盘的 Core 事件体。例如 `payload.type = "task_started"` 及 `payload.turn_id`。 |
+| `UserMessage` | `id`、`client_id?`、`content[]` | 用户输入条目，`content[]` 是 `UserInput`，见下表。 |
+| `FunctionCallOutput` | `id`、`name`、`namespace?`、`output` | 工具输出条目。 |
+| `HookPrompt` | `id`、`fragments[]` | hook 注入的提示片段。 |
+| `AgentMessage` | `id`、`content[]`、`phase?`、`memory_citation?`、`delivery?`、`questions?`、`moderation?` | 助手消息条目。 |
+| `Plan` | `id`、`text` | 计划文本，`legacy` 模式也会持久化。 |
+| `Reasoning` | `id`、`summary_text[]`、`raw_content[]` | 推理摘要条目。 |
+| `CommandExecution` | `id`、`command[]`、`cwd`、`parsed_cmd[]`、`source`、`status`、`aggregated_output?`、`exit_code?`、`duration?` | 命令执行条目。 |
+| `DynamicToolCall` | `id`、`namespace?`、`tool`、`arguments`、`status`、`success?`、`error?` | 动态工具调用条目。 |
+| `CollabAgentToolCall` | `id`、`tool`、`status`、`sender_thread_id`、`receiver_thread_ids[]`、`agents_states` | 多代理协作调用条目。 |
+| `SubAgentActivity` | `model`、`reasoning_effort`、`id`、`kind`、`agent_thread_id`、`agent_path` | 子代理活动条目。 |
+| `WebSearch` | `id`、`query`、`action`、`results?` | 托管网页搜索条目。 |
+| `ImageView` | `id`、`path` | 查看图片条目。 |
+| `Extension` | `kind` 加扩展字段 | `image_gen.generation`、`clock.sleep` 或 `web.search`。 |
+| `ImageGeneration` | `id`、`status`、`revised_prompt?`、`result`、`saved_path?` | 托管图片生成条目。 |
+| `EnteredReviewMode` | `id`、`target`、`user_facing_hint` | 进入审阅模式条目。 |
+| `ExitedReviewMode` | `id`、`review_output` | 退出审阅模式条目。 |
+| `FileChange` | `id`、`changes`、`status?`、`auto_approved?`、`stdout?`、`stderr?` | 文件变更条目。 |
+| `McpToolCall` | `id`、`server`、`tool`、`arguments`、`status`、`result?`、`error?`、`duration?` | MCP 调用条目，字段为 camelCase。 |
+| `ContextCompaction` | `id` | 上下文压缩条目。 |
 
-[protocol.rs:2697-2720](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2697-L2720) [protocol.rs:2741-2776](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2741-L2776) [protocol.rs:2849-2854](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2849-L2854) [mod.rs:1758-1766](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L1758-L1766) [recorder.rs:749-771](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L749-L771)
+`UserMessage` 条目的 `content[]` 是 `UserInput`，由 `type` 判别：`text` 带 `text` 与 `text_elements[]`；`image` 带 `image_url` 或 `file_id` 以及可选 `detail`；`local_image` 带 `path`；`audio` 带 `audio_url` 或 `file_id`；`local_audio` 带 `path`；`skill` 与 `mention` 都带 `name` 和 `path`。 [items.rs:59-91](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/items.rs#L59-L91) [items.rs:93-545](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/items.rs#L93-L545)
 
-## 会话元数据 session_meta.payload
+### 仅 legacy 写入的展示事件
 
-新线程首次落盘时，`RolloutRecorder` 先写 `session_meta`，再写待持久化的条目。创建参数提供身份、配置和来源，writer 写入时还会尝试从工作目录采集 Git 信息。`SessionMetaLine` 把会话字段直接展开到 `payload`，因此磁盘上的线程 ID 路径是 `payload.id`。 [recorder.rs:660-706](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L660-L706) [recorder.rs:1497-1515](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L1497-L1515) [recorder.rs:1579-1602](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L1579-L1602) [protocol.rs:2641-2703](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2641-L2703)
+#### 用户消息 `user_message`
 
-| 字段 | JSON 类型与出现条件 | 含义 |
-| --- | --- | --- |
-| `id` | UUID 字符串 | 线程 ID。全量加载器取文件中遇到的第一条 `session_meta` 的 ID。 |
-| `forked_from_id` | UUID 字符串，可省略 | fork 的来源线程。子代理派生关系见 `source.subagent.thread_spawn.parent_thread_id`。 |
-| `timestamp` | string | 会话创建时间。创建时写为带毫秒的 UTC 字符串，追加元数据时仍使用原会话时间。外层 `timestamp` 记录本次写行时间。 |
-| `cwd` | string | 创建线程时的工作目录。每轮目录见 `turn_context.payload.cwd`。 |
-| `originator` | string | 写入端的 originator 标识，由进程中的 originator 配置取得。 |
-| `cli_version` | string | 创建线程的 CLI 版本，取构建时的包版本。 |
-| `source` | string 或 tagged object | 会话的实际来源。旧数据省略时使用 `"vscode"`。 |
-| `thread_source` | enum，可省略 | 分析统计分类，取 `user`、`subagent` 或 `memory_consolidation`。 |
-| `agent_nickname` | string，可省略 | 子代理昵称。 |
-| `agent_role` | string，可省略 | 子代理角色，兼容读取旧字段 `agent_type`。 |
-| `agent_path` | string，可省略 | 子代理的规范路径。 |
-| `model_provider` | string 或 null | 会话使用的供应商配置 ID。模型名见 `turn_context.payload.model`。 |
-| `base_instructions` | object 或 null | `text: string` 是线程的基础模型指令，旧数据可缺失。 |
-| `dynamic_tools` | object[]，可省略 | 线程注册的动态工具定义，新线程没有动态工具时省略。 |
-| `memory_mode` | string，可省略 | 显式线程记忆模式，值为 `enabled` 或 `disabled`。创建路径在禁止生成记忆时写 `disabled`，全量修复时缺省按 `enabled` 处理。 |
-| `git` | object，可省略 | Git 元数据，子字段见下表。 |
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `user_message`。 |
+| 归属 | `client_id` | 可选 | string | 客户端提交时的关联 ID。 |
+| 消息 | `message` | 必须 | string | 拼接后的用户文本，附件以占位符表示。 |
+| 图片 | `images` | 可选 | array\<string\> | 内联图片 URL；实测无图时为 `[]`。 |
+| 图片 | `image_details` | 可选 | array\<enum 或 null\> | 与 `images` 按下标并行；缺失项表示默认细节级别。 |
+| 图片 | `file_ids` | 可选 | array\<string\> | 文件型图片的 opaque ID。 |
+| 图片 | `file_id_details` | 可选 | array\<enum 或 null\> | 与 `file_ids` 并行。 |
+| 图片 | `image_order` | 可选 | array\<enum string\> | 内联与文件图片的原始顺序；缺失时消费者按先内联后文件处理。 |
+| 图片 | `local_images` | 必须 | array\<string\> | 本地图片路径；无附件时为空数组。 |
+| 图片 | `local_image_details` | 可选 | array\<enum 或 null\> | 与 `local_images` 并行。 |
+| 音频 | `audio` | 可选 | array\<string\> | 内联音频 URL；实测无音频时为 `[]`。 |
+| 音频 | `audio_references` | 可选 | array\<object\> | 文件型音频引用，形态为 `{"audio_url":...}` 或 `{"file_id":...}`。 |
+| 音频 | `audio_order` | 可选 | array\<enum string\> | 内联与文件音频的原始顺序。 |
+| 音频 | `local_audio` | 必须 | array\<string\> | 本地音频路径；无附件时为空数组。 |
+| 标记 | `text_elements` | 必须 | array\<object\> | 文本内的特殊元素跨度。 |
 
-[protocol.rs:2438-2517](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2438-L2517) [protocol.rs:2641-2703](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2641-L2703) [recorder.rs:841-850](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L841-L850) [models.rs:907-912](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L907-L912) [state_db.rs:528-544](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/state_db.rs#L528-L544) [update_thread_metadata.rs:554-558](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/update_thread_metadata.rs#L554-L558)
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `text_elements[]` | `byte_range` | 必须 | object | `{start, end}`，父文本的 UTF-8 字节区间。 |
+| `text_elements[]` | `placeholder` | 必须（可为 null） | string 或 null | UI 展示占位符。 |
 
-### 嵌套字段
+#### 助手消息 `agent_message`
 
-| 路径 | JSON 类型与出现条件 | 含义 |
-| --- | --- | --- |
-| `source` | enum string | `cli`、`vscode`、`exec`、`mcp` 或 `unknown`。 |
-| `source.custom` | string | 自定义来源标签。 |
-| `source.internal` | enum string | 内部会话种类，目前为 `memory_consolidation`。 |
-| `source.subagent` | enum string 或 tagged object | `review`、`compact`、`memory_consolidation`，或带 `thread_spawn` / `other` 键的对象。 |
-| `source.subagent.thread_spawn.parent_thread_id` | UUID 字符串 | 启动该子代理的父线程。 |
-| `source.subagent.thread_spawn.depth` | integer | 子代理派生深度。 |
-| `source.subagent.thread_spawn.agent_path`、`agent_nickname`、`agent_role` | string 或 null，可省略 | 派生时记录的子代理路径、昵称和角色。 |
-| `source.subagent.other` | string | 其他子代理来源标签。 |
-| `git.commit_hash` | string，可省略 | Git 提交 SHA。 |
-| `git.branch` | string，可省略 | 分支名称。 |
-| `git.repository_url` | string，可省略 | 记录的仓库远端 URL。 |
-| `dynamic_tools[].namespace` | string，可省略 | 工具命名空间。 |
-| `dynamic_tools[].name`、`description` | string | 工具名和描述。 |
-| `dynamic_tools[].inputSchema` | JSON | 工具参数 schema。 |
-| `dynamic_tools[].deferLoading` | boolean，读取时默认 false | 工具是否延迟暴露。兼容读取旧字段 `exposeToContext` 的反值，显式 `deferLoading` 优先。 |
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `agent_message`。 |
+| 消息 | `message` | 必须 | string | 助手输出文本。 |
+| 消息 | `phase` | 必须（可为 null） | enum string 或 null | `commentary`、`partial_answer`、`final_answer`；`null` 表示未知。 |
+| 引用 | `memory_citation` | 必须（可为 null） | object 或 null | 记忆引用；没有时为 `null`，键始终存在。 |
+| 审核 | `moderation` | 可选 | object | 被审核的答案：`item_id`、`moderated`、`display?`。 |
+| 投递 | `delivery` | 可选 | enum string | `async` 表示异步投递。 |
+| 提问 | `questions` | 可选 | array\<object\> | 结构化异步提问：`title` 与 `options`（开放式问题为 `null`）。 |
+| 引用 | `memory_citation.entries[]` | 必须 | array\<object\> | 引用条目：`path`、`lineStart`、`lineEnd`、`note`。 |
+| 引用 | `memory_citation.rollout_ids` | 必须 | array\<string\> | 来源 rollout。 |
 
-`source` 带载荷的变体使用外部标签，例如 `{"subagent":{"thread_spawn":{"parent_thread_id":"019acdd8-78b8-76b4-a5c8-afd24481cd6f","depth":1}}}`。动态工具子对象沿用 camelCase。 [protocol.rs:2438-2517](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2438-L2517) [protocol.rs:2856-2867](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2856-L2867) [dynamic_tools.rs:8-18](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/dynamic_tools.rs#L8-L18) [dynamic_tools.rs:50-82](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/dynamic_tools.rs#L50-L82)
+#### 推理文本 `agent_reasoning` 与 `agent_reasoning_raw_content`
 
-### 文件头与后续元数据
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | `agent_reasoning` 是推理摘要，`agent_reasoning_raw_content` 是原始链式推理。 |
+| 内容 | `text` | 必须 | string | 文本内容。 |
 
-| 读取或更新方式 | 对应的记录行为 |
+#### 补丁结束 `patch_apply_end`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 事件 | `type` | 必须 | string | 固定 `patch_apply_end`。 |
+| 工具 | `call_id` | 必须 | string | 与 `patch_apply_begin` 配对，实测形如 `exec-<uuid>`。 |
+| 回合 | `turn_id` | 必须 | string | 所属回合；旧记录缺失时为空串。 |
+| 输出 | `stdout` | 必须 | string | 补丁工具打印的摘要。 |
+| 输出 | `stderr` | 必须 | string | 解析或 IO 错误输出。 |
+| 结果 | `success` | 必须 | boolean | 补丁是否应用成功。 |
+| 变更 | `changes` | 必须 | object | 绝对路径到 `FileChange` 的映射。 |
+| 状态 | `status` | 必须 | enum string | `completed`、`failed` 或 `declined`。 |
+| 变更 | `changes.<path>.type` | 必须 | enum string | `add`、`delete` 或 `update`。 |
+| 变更 | `changes.<path>.content` | 必须（add、delete） | string | 新增或被删除的内容。 |
+| 变更 | `changes.<path>.unified_diff` | 必须（update） | string | 统一 diff 文本。 |
+| 变更 | `changes.<path>.move_path` | 必须（update） | string 或 null | 重命名目标；无重命名时为 `null`。 |
+
+#### 其余生命周期事件
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `context_compacted` | `type` | 必须 | string | 唯一字段，空结构体只输出标签。 |
+| `thread_rolled_back` | `type` | 必须 | string | 固定 `thread_rolled_back`。 |
+| `thread_rolled_back` | `num_turns` | 必须 | integer | 从上下文移除的用户回合数；回放时据此裁剪。 |
+| `turn_aborted` | `type` | 必须 | string | 固定 `turn_aborted`。 |
+| `turn_aborted` | `turn_id` | 必须（可为 null） | string 或 null | 被中止的回合。 |
+| `turn_aborted` | `root_turn_id` | 可选 | string | 因果根回合。 |
+| `turn_aborted` | `reason` | 必须 | enum string | `interrupted`、`replaced`、`review_ended` 或 `budget_limited`。 |
+| `turn_aborted` | `error` | 可选 | object | 导致中止的错误，结构同 `task_complete.error`。 |
+| `turn_aborted` | `started_at` | 可选 | integer | 回合开始时间。 |
+| `turn_aborted` | `completed_at` | 可选 | integer | 中止时间。 |
+| `turn_aborted` | `duration_ms` | 可选 | integer | 从开始到中止的耗时。 |
+| `sub_agent_activity` | `type` | 必须 | string | 固定 `sub_agent_activity`。 |
+| `sub_agent_activity` | `model` | 必须（可为 null） | string 或 null | 子代理创建时的模型。 |
+| `sub_agent_activity` | `reasoning_effort` | 必须（可为 null） | enum string 或 null | 子代理推理强度。 |
+| `sub_agent_activity` | `event_id` | 必须 | string | 活动事件 ID。 |
+| `sub_agent_activity` | `occurred_at_ms` | 必须 | integer | 发生时间，Unix 毫秒。 |
+| `sub_agent_activity` | `agent_thread_id` | 必须 | UUID 字符串 | 子代理线程。 |
+| `sub_agent_activity` | `agent_path` | 必须 | string | 子代理规范路径。 |
+| `sub_agent_activity` | `kind` | 必须 | enum string | `started`、`interacted`、`interrupted`、`completed`；`completed` 不写入。 |
+
+`thread_goal_updated` 使用 camelCase 字段；`goal` 是整份目标快照：
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `thread_goal_updated` | `type` | 必须 | string | 固定 `thread_goal_updated`。 |
+| `thread_goal_updated` | `thread_id` | 必须 | UUID 字符串 | 目标所属线程。 |
+| `thread_goal_updated` | `turn_id` | 可选 | string | 触发更新的回合；异步更新没有。 |
+| `thread_goal_updated` | `goal` | 必须 | object | 完整目标状态，见下表。 |
+| `goal` | `threadId` | 必须 | UUID 字符串 | 目标所属线程。 |
+| `goal` | `objective` | 必须 | string | 目标描述，最长 4000 字符。 |
+| `goal` | `status` | 必须 | enum string | `active`、`paused`、`blocked`、`usageLimited`、`budgetLimited` 或 `complete`。 |
+| `goal` | `tokenBudget` | 可选 | integer | token 预算。 |
+| `goal` | `tokensUsed` | 必须 | integer | 已用 token。 |
+| `goal` | `timeUsedSeconds` | 必须 | integer | 已用时间。 |
+| `goal` | `createdAt` | 必须 | integer | 创建时间。 |
+| `goal` | `updatedAt` | 必须 | integer | 更新时间。 |
+
+#### 工具结束事件
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `mcp_tool_call_end` | `call_id` | 必须 | string | 与 `mcp_tool_call_begin` 配对。 |
+| `mcp_tool_call_end` | `turn_id` | 必须 | string | 所属回合；旧记录为空串。 |
+| `mcp_tool_call_end` | `invocation` | 必须 | object | `server`、`environment_id?`、`tool`、`arguments`。 |
+| `mcp_tool_call_end` | `connector_id` | 可选 | string | 连接器 ID。 |
+| `mcp_tool_call_end` | `mcp_app_resource_uri` | 可选 | string | 旧兼容字段，优先使用 `mcp_app_ui`。 |
+| `mcp_tool_call_end` | `mcp_app_ui` | 可选 | object | `resource_uri` 与 `preferred_model_display_mode`。 |
+| `mcp_tool_call_end` | `link_id` | 可选 | string | 外部资源链接 ID。 |
+| `mcp_tool_call_end` | `app_name` | 可选 | string | 应用展示名。 |
+| `mcp_tool_call_end` | `action_name` | 可选 | string | 动作展示名。 |
+| `mcp_tool_call_end` | `plugin_id` | 可选 | string | 插件 ID。 |
+| `mcp_tool_call_end` | `read_only_hint` | 可选 | boolean | 工具声明的只读标注，不是执行结果。 |
+| `mcp_tool_call_end` | `duration` | 必须 | object | `{"secs":n,"nanos":n}`。 |
+| `mcp_tool_call_end` | `result` | 必须 | object | `{"Ok":{...}}` 或 `{"Err":"..."}`，`Ok` 载荷含 `content[]`、`structured_content?`、`is_error?`、`_meta?`。 |
+| `web_search_end` | `call_id` | 必须 | string | 与 `web_search_begin` 配对。 |
+| `web_search_end` | `query` | 必须 | string | 搜索词。 |
+| `web_search_end` | `action` | 必须 | object | 实际动作，见下表。 |
+| `web_search_end` | `results` | 可选 | array\<任意 JSON\> | 独立搜索返回的带外结构化结果。 |
+| `web_search_end.action` | `type` | 必须 | enum string | `search`、`open_page`、`find_in_page` 或 `other`。 |
+| `web_search_end.action` | `query` | 可选 | string | 单条检索词。 |
+| `web_search_end.action` | `queries` | 可选 | array\<string\> | 多条检索词。 |
+| `web_search_end.action` | `url` | 可选 | string | 打开的页面或页内查找的 URL。 |
+| `web_search_end.action` | `pattern` | 可选 | string | 页内查找的模式。 |
+| `image_generation_end` | `call_id` | 必须 | string | 与 `image_generation_begin` 配对。 |
+| `image_generation_end` | `status` | 必须 | string | 供应商返回的状态，如 `completed`。 |
+| `image_generation_end` | `revised_prompt` | 可选 | string | 改写后的提示词。 |
+| `image_generation_end` | `result` | 可选 | string | 内联生成图数据。 |
+| `image_generation_end` | `fileId` | 可选 | string | attachment-store 文件引用。 |
+| `image_generation_end` | `transparent_background` | 可选 | boolean | 是否透明背景。 |
+| `image_generation_end` | `failure` | 可选 | object | `{"type":"usageLimitExceeded","limitId":...}` 等失败信息。 |
+| `image_generation_end` | `saved_path` | 可选 | string | 本地保存路径。 |
+| `image_generation_end` | `input_images` | 可选 | array\<object\> | 本次读取的本地输入图片：`path` 与 `sha256`。 |
+| `image_generation_end` | `generation_id` | 可选 | string | 后端生成 ID。 |
+| `image_generation_end` | `image_metadata` | 可选 | object | 每图元数据。 |
+
+[protocol.rs:2896-2989](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2896-L2989) [protocol.rs:3067-3074](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3067-L3074) [protocol.rs:3135-3257](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3135-L3257) [protocol.rs:4181-4244](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L4181-L4244) [protocol.rs:4620-4759](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L4620-L4759) [protocol.rs:4888-4901](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L4888-L4901)
+
+## 模型项 `response_item.payload`
+
+`payload` 是 `ItemPayload<ResponseItem>`：模型项字段被展平到 `payload`，如果 ID 是生成器分配的结构化 ID，会额外带 `id_allocation`。持久化时过滤掉请求控制项，因此文件里不会出现 `compaction_trigger` 和 `other`。 [rollout_payload.rs:144-160](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L144-L160) [policy.rs:80-102](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L80-L102)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 外壳 | `type` | 必须 | enum string | 18 个变体之一，见下各小节。 |
+| 外壳 | `id` | 可选 | string | Responses 条目 ID，如 `msg_`、`rs_`、`ctc_`。payload 内的 `id` 只会是字符串。 |
+| 外壳 | `id_allocation` | 可选 | object | 与 `id` 配对的结构化分配：`prefix?`、`salt`、`ordinal`、`value`、`suffix?`；回放时续接 ID 序列。 |
+
+`metadata` 字段不在 `payload` 里，而是与它平级，结构和语义见[行级元数据](#行级元数据-metadata)。
+
+### `additional_tools`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `additional_tools`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `at`。 |
+| 角色 | `role` | 必须 | string | 工具声明所属角色，通常为 `developer`。 |
+| 工具 | `tools` | 必须 | array\<object\> | 完整工具声明数组，整份替换后续步骤的目录。 |
+
+### `message`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `message`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `msg`。 |
+| 角色 | `role` | 必须 | string | `user`、`assistant`、`developer` 等。 |
+| 内容 | `content` | 必须 | array\<object\> | 内容段数组，见下表。 |
+| 状态 | `status` | 可选 | string | 供应商输出状态，实测助手消息为 `completed`。 |
+| 阶段 | `phase` | 可选 | enum string | `commentary`、`partial_answer`、`final_answer`；缺失表示未知。 |
+| 加密 | `encrypted_content` | 可选 | string | 不可读内容的加密载荷。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部 Responses 元数据，见下表。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `content[]` | `type` | 必须 | enum string | `input_text`、`input_image`、`input_audio` 或 `output_text`。 |
+| `input_text` | `text` | 必须 | string | 输入文本。 |
+| `input_image` | `image_url` | 二选一 | string | 使用内联或远程图片时出现。 |
+| `input_image` | `file_id` | 二选一 | string | 使用已上传文件时出现。 |
+| `input_image` | `detail` | 可选 | enum string | `auto`、`low`、`high`、`original`。 |
+| `input_audio` | `audio_url` | 二选一 | string | 使用内联音频时出现。 |
+| `input_audio` | `file_id` | 二选一 | string | 使用已上传音频文件时出现。 |
+| `output_text` | `text` | 必须 | string | 模型输出文本。 |
+| `output_text` | `annotations` | 可选 | array\<任意 JSON\> | 供应商标注；空数组也会保留。 |
+| `output_text` | `logprobs` | 可选 | array\<任意 JSON\> | 供应商 logprob；空数组也会保留。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `internal_chat_message_metadata_passthrough` | `turn_id` | 可选 | string | 条目所属回合。 |
+| `internal_chat_message_metadata_passthrough` | `create_time` | 可选 | number | 创建时间，Unix 秒，带小数。 |
+| `internal_chat_message_metadata_passthrough` | `content_item_kinds` | 可选 | array\<string\> | 与 `content` 按位置对齐的宿主分类，如 `user.text`、`model.base_instructions`。 |
+| `internal_chat_message_metadata_passthrough` | `content_item_metadata` | 可选 | array\<object\> | 与 `content` 对齐的来源归因，元素含 `provenance`。 |
+| `content_item_metadata[].provenance` | `type` | 必须 | enum string | `unknown`、`developer_instructions`、`skills`、`agents_md`、`harness`、`tool` 或 `user`。 |
+| `content_item_metadata[].provenance` | `from_additional_requirements` | 必须（developer_instructions） | boolean | 是否来自附加要求层。 |
+| `content_item_metadata[].provenance` | `hook` | 必须（harness） | boolean | 是否为命令 hook 输出。 |
+| `content_item_metadata[].provenance` | `namespace` | 可选（tool） | string | 工具命名空间。 |
+| `internal_chat_message_metadata_passthrough` | `cell_id` | 可选（仅写出） | string | 同一次 Code Mode cell 的 `exec` 与后续 `wait` 输出共享的标识。 |
+| `internal_chat_message_metadata_passthrough` | `executed_tool_calls` | 可选（仅写出） | array\<object\> | 已执行调用清单，仅 warehouse 使用。 |
+| `internal_chat_message_metadata_passthrough` | `tool_calls_complete` | 可选（仅写出） | boolean | 调用清单是否完整。 |
+
+### `agent_message`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `agent_message`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `amsg`。 |
+| 发送方 | `author` | 必须 | string | agent 消息作者。 |
+| 接收方 | `recipient` | 必须 | string | agent 消息接收者。 |
+| 内容 | `content` | 必须 | array\<object\> | `{"type":"input_text","text":...}` 或 `{"type":"encrypted_content","encrypted_content":...}`。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `reasoning`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `reasoning`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `rs`。 |
+| 摘要 | `summary` | 必须 | array\<object\> | 推理摘要段，元素为 `{"type":"summary_text","text":...}`；可为空数组。 |
+| 内容 | `content` | 可选 | array\<object\> | 原始推理段，元素为 `{"type":"reasoning_text","text":...}` 或 `{"type":"text","text":...}`。含 `reasoning_text` 时整个键不写盘。 |
+| 加密 | `encrypted_content` | 必须（可为 null） | string 或 null | 加密推理内容，用于原样回放。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `local_shell_call`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `local_shell_call`。 |
+| 加密 | `encrypted_content` | 可选 | string | 加密内容。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `lsh`。 |
+| 调用 | `call_id` | 必须（可为 null） | string 或 null | Responses API 调用 ID。 |
+| 状态 | `status` | 必须 | enum string | `completed`、`in_progress` 或 `incomplete`。 |
+| 动作 | `action` | 必须 | object | `{"type":"exec","command":[...],"timeout_ms":...}`；`timeout_ms`、`working_directory`、`env`、`user` 可缺省或为 `null`。 |
+
+### `function_call`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `function_call`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `fc`。 |
+| 调用 | `call_id` | 必须 | string | 与输出条目配对。 |
+| 名称 | `name` | 必须 | string | 工具名。 |
+| 命名空间 | `namespace` | 可选 | string | 工具命名空间。 |
+| 参数 | `arguments` | 必须 | string | 包含 JSON 的字符串，不是已解析对象。 |
+| 加密参数 | `encrypted_function_args` | 可选 | array\<string\> | 加密参数分片。 |
+| 状态 | `status` | 可选 | string | 输出状态。 |
+| 加密 | `encrypted_content` | 可选 | string | 加密内容。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `tool_search_call`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `tool_search_call`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `tsc`。 |
+| 调用 | `call_id` | 必须（可为 null） | string 或 null | 调用 ID。 |
+| 状态 | `status` | 可选 | string | 输出状态。 |
+| 执行 | `execution` | 必须 | string | 执行方式或位置标识。 |
+| 参数 | `arguments` | 必须 | 任意 JSON | 检索参数，已是解析后的 JSON。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `function_call_output` 与 `custom_tool_call_output`
+
+两个变体的 `output` 编码相同：要么是纯文本字符串，要么是内容项数组。工具是否成功要从结果内容或其他记录判断，`FunctionCallOutputPayload` 的内部 `success` 字段不写入 JSON。 [models.rs:2353-2462](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L2353-L2462)
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `function_call_output` | `type` | 必须 | string | 固定 `function_call_output`。 |
+| `function_call_output` | `id` | 可选 | string | 条目 ID，前缀 `fco`。 |
+| `function_call_output` | `call_id` | 可选 | string | 配对的调用 ID；保留工具输出时可能没有。 |
+| `function_call_output` | `name` | 可选 | string | 工具名。 |
+| `function_call_output` | `namespace` | 可选 | string | 工具命名空间。 |
+| `function_call_output` | `output` | 必须 | string 或 array\<object\> | 结果，见下表。 |
+| `function_call_output` | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+| `custom_tool_call_output` | `type` | 必须 | string | 固定 `custom_tool_call_output`。 |
+| `custom_tool_call_output` | `id` | 可选 | string | 条目 ID，前缀 `ctco`。 |
+| `custom_tool_call_output` | `call_id` | 必须 | string | 配对的调用 ID。 |
+| `custom_tool_call_output` | `name` | 可选 | string | 工具名。 |
+| `custom_tool_call_output` | `output` | 必须 | string 或 array\<object\> | 结果，编码同上。 |
+| `custom_tool_call_output` | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `output[]` | `type` | 必须 | enum string | `input_text`、`input_image`、`input_audio` 或 `encrypted_content`。 |
+| `output[]` | `text` | 必须（input_text） | string | 文本结果。 |
+| `output[]` | `image_url` | 二选一（input_image） | string | 使用图片 URL 时出现。 |
+| `output[]` | `file_id` | 二选一（input_image） | string | 使用已上传文件时出现。 |
+| `output[]` | `detail` | 可选（input_image） | enum string | 图片细节级别。 |
+| `output[]` | `audio_url` | 二选一（input_audio） | string | 使用音频 URL 时出现。 |
+| `output[]` | `file_id` | 二选一（input_audio） | string | 使用已上传音频文件时出现。 |
+| `output[]` | `encrypted_content` | 必须（encrypted_content） | string | 加密结果段。 |
+
+### `custom_tool_call`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `custom_tool_call`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `ctc`。 |
+| 调用 | `call_id` | 必须 | string | 与输出条目配对。 |
+| 名称 | `name` | 必须 | string | 自由格式工具名，如 `exec`。 |
+| 命名空间 | `namespace` | 可选 | string | 工具命名空间。 |
+| 输入 | `input` | 必须 | string | 自由格式输入，对 `exec` 是 JavaScript 源码。 |
+| 状态 | `status` | 可选 | string | 实测为 `completed`。 |
+| 加密 | `encrypted_content` | 可选 | string | 加密内容。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `tool_search_output`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `tool_search_output`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `tso`。 |
+| 调用 | `call_id` | 必须（可为 null） | string 或 null | 调用 ID。 |
+| 状态 | `status` | 必须 | string | 检索状态。 |
+| 执行 | `execution` | 必须 | string | 执行方式或位置标识。 |
+| 结果 | `tools` | 必须 | array\<object\> | 检索到的工具声明。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `web_search_call`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `web_search_call`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `ws`。 |
+| 状态 | `status` | 可选 | string | 检索状态。 |
+| 动作 | `action` | 可选 | object | 结构同 `web_search_end.action`：`type` 加 `query`、`queries` 或 `url`、`pattern`。 |
+| 加密 | `encrypted_content` | 可选 | string | 加密内容。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### `image_generation_call`
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 判别 | `type` | 必须 | string | 固定 `image_generation_call`。 |
+| 标识 | `id` | 可选 | string | 条目 ID，前缀 `ig`。 |
+| 状态 | `status` | 必须 | string | 生成状态。 |
+| 提示词 | `revised_prompt` | 可选 | string | 改写后的提示词。 |
+| 结果 | `result` | 必须 | string | 生成图片数据。 |
+| 加密 | `encrypted_content` | 可选 | string | 加密内容。 |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+
+### 压缩与配置项
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| `compaction` | `type` | 必须 | string | 固定 `compaction`；反序列化兼容旧值 `compaction_summary`。 |
+| `compaction` | `id` | 可选 | string | 条目 ID，前缀 `cmp`。 |
+| `compaction` | `encrypted_content` | 必须 | string | opaque 压缩检查点；人类可读摘要见 `compacted.message`。 |
+| `compaction` | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+| `configuration_update` | `type` | 必须 | string | 固定 `configuration_update`。 |
+| `configuration_update` | `reasoning.effort` | 必须 | enum string | 后端按路由模型解释的推理强度。 |
+| `context_compaction` | `type` | 必须 | string | 固定 `context_compaction`。 |
+| `context_compaction` | `id` | 可选 | string | 条目 ID，前缀 `cmp`。 |
+| `context_compaction` | `encrypted_content` | 可选 | string | 加密内容。 |
+| `context_compaction` | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
+| `compaction_trigger` | `type` | 必须 | string | 请求控制项，只有标签，不落盘。 |
+| `other` | `type` | 必须 | string | 未知类型的兜底，不落盘。 |
+
+[models.rs:1141-1427](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L1141-L1427) [models.rs:955-985](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L955-L985) [models.rs:1075-1123](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L1075-L1123) [configuration_update.rs:9-13](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models/configuration_update.rs#L9-L13)
+
+## 与实测日志的差异
+
+以 `leaarn/rollout-session/logs/` 下的一份 299 行会话为例：`response_item` 147 条、`event_msg` 88 条、`token_usage_record` 54 条、`turn_context` 5 条、`session_meta` 4 条、`world_state` 1 条。对照上面的字段表，可以把差异归成三类。
+
+| 现象 | 原因 |
 | --- | --- |
-| `read_session_meta_line` | 从文件头摘要取首项并解码为 `SessionMetaLine`，用于读取创建时的字段。 |
-| 全量 `load_rollout_items` | 保留全部元数据行，使用遇到的第一条 `session_meta` 的 ID 作为线程 ID。重建常规字段时跳过 ID 不匹配的元数据，例如 fork 带入的来源线程记录。 |
-| 显式 Git 更新 | 读取文件头、核对线程 ID，再追加一条带 `git` 的 `session_meta`。单个 Git 子字段被清空时，该字段可以从 `git` 对象中省略。 |
-| 显式记忆模式更新 | 追加一条带 `memory_mode` 的 `session_meta`，省略整个 `git` 对象，重建 Git 时沿用此前记录。全文件元数据提取从后往前取第一个有值的 `memory_mode`。 |
+| 没有 `ordinal`、没有 `item_completed` | 该线程 `history_mode = "legacy"`。legacy 不写行序号，展示内容改由 `user_message`、`agent_message`、`patch_apply_end` 等事件承载。 |
+| 没有 `compacted`、`retained_context`、`security_risk_score`、`realtime_item`、`dynamic_tools_updated`、`inter_agent_communication` | 本次会话没有发生压缩、保留证据变化、风险采样、实时会话、动态工具或代理间通信，属于未触发。 |
+| `metadata` 里有 `model_search_state`、`mcp_attribution` | 这两个键属于更早的构建，已从当前源码移除，读端会静默忽略；当前代码重新落盘后它们消失。 |
 
-查当前 Git 或记忆模式时，首条记录只能提供创建时的值。Git 重建按条目顺序应用带 `git` 的本线程元数据，写回 SQLite 时还会保留库里已有的非空 Git 字段。 [list.rs:1163-1201](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/list.rs#L1163-L1201) [list.rs:1235-1250](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/list.rs#L1235-L1250) [recorder.rs:841-850](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L841-L850) [update_thread_metadata.rs:461-552](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/update_thread_metadata.rs#L461-L552) [extract.rs:45-71](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/extract.rs#L45-L71) [metadata.rs:97-133](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/metadata.rs#L97-L133) [state_db.rs:528-544](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/state_db.rs#L528-L544) [threads.rs:757-769](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/runtime/threads.rs#L757-L769)
+其余缺口都是可选字段：普通根线程没有 `forked_from_id`、`parent_thread_id` 和子代理字段；没有显式路由时 `turn_context` 不写 `direct_only_tool_namespaces`；权限为 `disabled` 时不需要 `file_system_sandbox_policy`；`user_message` 的 `image_details`、`audio_references` 等键在没有附件时省略。`session_meta` 出现 4 条是因为创建后又追加了记忆模式更新，读取时应取第一条的身份、最后一条的 `memory_mode`。
 
-## SQLite 线程元数据与名称索引
+## 线程索引投影
 
-`state_5.sqlite` 的 `threads` 行用于查找、排序和展示线程摘要。活跃线程先写 Rollout，再由 `LiveThread` 观察已接受的条目并更新索引。修复路径可扫描整个 Rollout 重建元数据。创建时间优先取首条会话元数据，可回退到文件名。全量提取可用文件修改时间补 `updated_at`，活跃写入使用观测时间。 [lib.rs:72-77](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/lib.rs#L72-L77) [live_thread.rs:139-168](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/live_thread.rs#L139-L168) [live_writer.rs:76-88](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/live_writer.rs#L76-L88) [thread_metadata_sync.rs:180-187](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/thread_metadata_sync.rs#L180-L187) [metadata.rs:39-133](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/metadata.rs#L39-L133) [state_db.rs:528-562](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/state_db.rs#L528-L562)
+会话文件的元数据最终投影到 `state_5.sqlite` 的 `threads` 行，并另有一份名称索引。活跃线程先写 rollout，再由 `LiveThread` 观察已接受的条目并更新索引；修复路径可以扫描整个 rollout 重建。 [thread_metadata.rs:126-188](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/model/thread_metadata.rs#L126-L199) [live_thread.rs:243-300](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/live_thread.rs#L243-L300) [threads.rs:635-700](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/runtime/threads.rs#L635-L700)
 
-| SQLite 字段 | 存储类型 | 来源与含义 |
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 身份 | `id` | 必须 | TEXT | 线程 ID。 |
+| 身份 | `rollout_path` | 必须 | TEXT | 会话文件的绝对路径。 |
+| 时间 | `created_at` | 必须 | INTEGER | 创建时间，Unix 秒。 |
+| 时间 | `updated_at` | 必须 | INTEGER | 最后更新时间，Unix 秒。 |
+| 时间 | `recency_at` | 必须 | INTEGER | 用于列表排序的最近使用时间。 |
+| 来源 | `source` | 必须 | TEXT | `session_meta.source` 的字符串化值。 |
+| 来源 | `history_mode` | 必须 | TEXT | `legacy` 或 `paginated`。 |
+| 来源 | `thread_source` | 可选 | TEXT | 统计分类。 |
+| 来源 | `agent_nickname` | 可选 | TEXT | 子代理昵称。 |
+| 来源 | `agent_role` | 可选 | TEXT | 子代理角色。 |
+| 来源 | `agent_path` | 可选 | TEXT | 子代理规范路径。 |
+| 派生 | `attached_thread_parent_id` | 可选 | TEXT | 附着线程的父线程。 |
+| 派生 | `originator` | 可选 | TEXT | 创建时的写入端标识。 |
+| 账号 | `creator_user_id` | 可选 | TEXT | 创建线程的用户。 |
+| 账号 | `creator_account_id` | 可选 | TEXT | 创建时的账号。 |
+| 模型 | `model_provider` | 必须 | TEXT | 供应商配置 ID。 |
+| 模型 | `model` | 可选 | TEXT | 最近观察到的模型。 |
+| 模型 | `reasoning_effort` | 可选 | TEXT | 最近观察到的推理强度。 |
+| 路径 | `cwd` | 必须 | TEXT | 会话工作目录。 |
+| 路径 | `cli_version` | 必须 | TEXT | 创建线程的 CLI 版本。 |
+| 展示 | `title` | 必须 | TEXT | 尽力生成的标题。 |
+| 展示 | `name` | 可选 | TEXT | 用户显式设置的线程名。 |
+| 展示 | `preview` | 可选 | TEXT | 列表预览文本。 |
+| 权限 | `sandbox_policy` | 必须 | TEXT | 序列化的权限配置或旧版沙箱策略。 |
+| 权限 | `approval_mode` | 必须 | TEXT | 审批模式。 |
+| 用量 | `tokens_used` | 必须 | INTEGER | 最近观察到的 token 总量。 |
+| 消息 | `first_user_message` | 可选 | TEXT | 首个可生成预览的用户消息；纯图片输入为 `[Image]`。 |
+| 归档 | `archived_at` | 可选 | INTEGER | 归档时间，Unix 秒。 |
+| 分区 | `section` | 可选 | TEXT | 用户分区。 |
+| 分区 | `section_position` | 可选 | INTEGER | 分区内的稀疏排序位置。 |
+| 分区 | `section_entered_at` | 可选 | INTEGER | 进入当前分区的时间，Unix 秒。 |
+| 项目 | `project_id` | 可选 | TEXT | app-server 维护的项目归属。 |
+| 偏好 | `daybreak_enabled` | 可选 | INTEGER | 显式设置过的 Daybreak 偏好。 |
+| Git | `git_sha` | 可选 | TEXT | 对应 `session_meta.git.commit_hash`。 |
+| Git | `git_branch` | 可选 | TEXT | 对应 `session_meta.git.branch`。 |
+| Git | `git_origin_url` | 可选 | TEXT | 对应 `session_meta.git.repository_url`。 |
+
+名称索引是追加文件 `${CODEX_HOME}/session_index.jsonl`，读取时按 ID 取最新一条：
+
+| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| --- | --- | --- | --- | --- |
+| 名称 | `id` | 必须 | UUID 字符串 | 被命名的线程，对应 `session_meta.payload.id`。 |
+| 名称 | `thread_name` | 必须 | string | 这次写入的线程名。 |
+| 名称 | `updated_at` | 必须 | string | 名称更新时的 UTC RFC3339 时间。 |
+
+[session_index.rs:27-52](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/session_index.rs#L27-L52) [session_index.rs:156-168](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/session_index.rs#L156-L168)
+
+## 同一文件的两种读取结果
+
+| 消费方 | 读取后产物 | 遇到压缩或回滚时 |
 | --- | --- | --- |
-| `id`、`rollout_path` | TEXT | 线程 ID 和所指向的会话文件路径。 |
-| `created_at`、`updated_at` | INTEGER | 创建和更新时间，Unix 秒。也写入对应的 `created_at_ms` 和 `updated_at_ms`，单位为 Unix 毫秒。 |
-| `source`、`thread_source`、`agent_nickname`、`agent_role`、`agent_path` | TEXT，后四项可空 | 从会话元数据投影的来源及子代理身份。复杂 `source` 在 SQLite 中以 JSON 文本存储。 |
-| `cwd`、`cli_version`、`model_provider` | TEXT | 会话目录、创建版本和供应商。目录尚未取得时可从回合上下文补齐，未记录供应商时可用默认值。 |
-| `model`、`reasoning_effort` | TEXT，可空 | 最近观察到的 `turn_context.payload.model` 和 `effort`。 |
-| `sandbox_policy`、`approval_mode` | TEXT | 最近观察到的 `turn_context` 沙箱策略与审批模式序列化值。 |
-| `tokens_used` | INTEGER | 最近观察到的 `event_msg` 中 `token_count.info.total_token_usage.total_tokens`，最小为零。 |
-| `first_user_message` | TEXT | 从首个可生成预览的 `user_message` 事件提取。纯图像输入可得到 `[Image]`，缺失存空串。 |
-| `preview` | TEXT | 列表预览。提取器从用户消息或非空线程目标中选取首个可用值。 |
-| `title` | TEXT | 初始可从首条非空用户消息文字派生。用户显式改名会更新标题并追加名称索引。 |
-| `archived`、`archived_at` | INTEGER，`archived_at` 可空 | 是否归档及归档时间，后者为 Unix 秒。修复时可从所在归档目录补出归档状态。 |
-| `git_sha`、`git_branch`、`git_origin_url` | TEXT，可空 | 对应 `git.commit_hash`、`git.branch`、`git.repository_url`，显式元数据修改也会更新这些列。 |
-| `memory_mode` | TEXT | 线程的记忆模式。默认 `enabled`。 |
-| `has_user_event` | INTEGER，旧列 | 旧版用于标记用户事件。迁移用它填充 `first_user_message`，当前写入路径直接维护后者。 |
-| `thread_dynamic_tools` 表 | `thread_id: TEXT`、`position: INTEGER` 为组合主键 | `name`、`description`、`input_schema` 是非空 TEXT，`namespace` 是可空 TEXT，`defer_loading` 是整数布尔值。 |
-
-[thread_metadata.rs:59-110](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/model/thread_metadata.rs#L59-L110) [threads.rs:713-742](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/runtime/threads.rs#L713-L742) [threads.rs:772-807](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/runtime/threads.rs#L772-L807) [threads.rs:824-855](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/runtime/threads.rs#L824-L855) [0001_threads.sql:1-19](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/migrations/0001_threads.sql#L1-L19) [0007_threads_first_user_message.sql:1-5](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/migrations/0007_threads_first_user_message.sql#L1-L5) [0004_thread_dynamic_tools.sql:1-9](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/migrations/0004_thread_dynamic_tools.sql#L1-L9) [0019_thread_dynamic_tools_defer_loading.sql:1-2](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/migrations/0019_thread_dynamic_tools_defer_loading.sql#L1-L2) [0026_thread_dynamic_tools_namespace.sql:1](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/migrations/0026_thread_dynamic_tools_namespace.sql#L1) [extract.rs:14-149](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/extract.rs#L14-L149) [0018_phase2_selection_snapshot.sql:1-3](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/migrations/0018_phase2_selection_snapshot.sql#L1-L3) [state_db.rs:528-562](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/state_db.rs#L528-L562) [update_thread_metadata.rs:298-319](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/update_thread_metadata.rs#L298-L319) [update_thread_metadata.rs:497-520](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/update_thread_metadata.rs#L497-L520)
-
-名称还有一份追加索引 `${CODEX_HOME}/session_index.jsonl`。其记录用 `id` 关联 Rollout 的 `payload.id`。`read_thread` 优先采用 SQLite 中符合展示条件的标题，必要时再按 ID 查名称索引。 [session_index.rs:17-81](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/session_index.rs#L17-L81) [session_index.rs:157-159](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/session_index.rs#L157-L159) [read_thread.rs:267-288](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/read_thread.rs#L267-L288)
-
-| 名称索引字段 | JSON 类型 | 含义 |
-| --- | --- | --- |
-| `id` | UUID 字符串 | 被命名的线程。 |
-| `thread_name` | string | 这次写入的线程名。 |
-| `updated_at` | string | 名称更新时的 UTC RFC3339 时间。按单个 ID 查找时，读取器从文件末尾查最新匹配。 |
+| Core 恢复器 | 内存 `ResponseItem` 历史、上一回合设置、参考上下文 | 用 `replacement_history` 建基线并回放后续记录；回滚移除指定数量的用户回合。 |
+| app-server 历史投影 | 客户端 `Turn[]` 及其展示项 | 历史构建器按事件与响应项识别回合和展示数据，按其自身分支处理压缩与回滚。 |
 
 ```mermaid
 sequenceDiagram
@@ -2061,34 +2962,6 @@ sequenceDiagram
     M-->>L: 返回元数据补丁
     L->>D: 通过 LocalThreadStore 更新元数据
 ```
-<!-- Sources: codex-rs/thread-store/src/live_thread.rs:139-168, codex-rs/thread-store/src/local/live_writer.rs:76-88, codex-rs/thread-store/src/thread_metadata_sync.rs:151-177, codex-rs/thread-store/src/local/update_thread_metadata.rs:298-319 -->
-
-## turn_context.payload
-
-| 字段 | JSON 类型与出现条件 | 含义 |
-| --- | --- | --- |
-| `turn_id` | string，可省略 | 对应回合，恢复器兼容没有该 ID 的旧记录。 |
-| `cwd` | string | 当时的工作目录。 |
-| `current_date`、`timezone` | string，各自可省略 | 生成回合环境上下文所用的日期和时区。 |
-| `approval_policy`、`sandbox_policy` | AskForApproval / SandboxPolicy | 当时的审批与沙箱策略。 |
-| `permission_profile`、`file_system_sandbox_policy` | 各自可省略 | 权限配置与文件系统策略；旧数据可经 legacy policy 派生配置。 |
-| `network` | object，可省略 | 记录 `allowed_domains`、`denied_domains`。 |
-| `model` | string | 当时的模型。 |
-| `personality`、`collaboration_mode` | 枚举 / 对象，各自可省略 | 对话风格和协作模式。 |
-| `realtime_active` | boolean，可省略 | 当时实时会话是否活跃。 |
-| `effort` | 枚举，可省略 | 推理强度。 |
-| `summary` | ReasoningSummaryConfig | 旧版反序列化兼容字段。 |
-
-[protocol.rs:2735-2797](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2735-L2797) [rollout_reconstruction.rs:38-41](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L38-L41) [rollout_reconstruction.rs:112-210](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L112-L210)
-
-## 同一文件的两种读取结果
-
-| 消费方 | 读取后产物 | 遇到压缩或回滚时 |
-| --- | --- | --- |
-| Core 恢复器 | 内存 ResponseItem 历史、上一回合设置、参考上下文 | 用 `replacement_history` 建基线并回放后续记录。兼容只含 `message` 的旧压缩项。回滚移除指定数量的用户回合。 |
-| app-server 历史投影 | 客户端 `Turn[]` 及其展示项 | 历史构建器按事件与响应项识别回合和展示数据，按其自身分支处理压缩与回滚。 |
-
-[rollout_reconstruction.rs:234-295](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L234-L295) [thread_history.rs:74-104](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L74-L104) [thread_history.rs:163-265](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L163-L265)
 
 ```mermaid
 graph TB
@@ -2096,9 +2969,10 @@ graph TB
     L --> C["Core 重建上下文历史"]
     L --> A["app-server 构建 Turn 和 ThreadItem"]
 ```
-<!-- Sources: codex-rs/rollout/src/recorder.rs:812-857, codex-rs/core/src/session/rollout_reconstruction.rs:234-295, codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104 -->
 
-写入策略、文件生命周期及恢复入口见 [Rollout 会话日志详解](../deep-dive/rollout-session.md)。
+<!-- Sources: codex-rs/history/src/rollout_payload.rs:36-82, codex-rs/thread-store/src/live_thread.rs:243-300, codex-rs/core/src/session/rollout_reconstruction.rs:234-299, codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104 -->
+
+写入策略、文件生命周期、压缩与回退的恢复语义见 [Rollout 会话日志详解](../deep-dive/rollout-session.md)。
 </doc>
 
 <doc title="配置 RPC 与 schema 兼容" path="./protocols/config-schema.md">
@@ -2193,11 +3067,21 @@ graph TB
 
 | 顶层 `type` | 保存的内容 | 读取时用来做什么 |
 | --- | --- | --- |
-| `session_meta` | 线程 ID、来源、工作目录、provider、基础指令与可选的 fork 来源等 | 识别线程。reader 采用遇到的第一条 `session_meta` 作为主会话元数据。 [codex-rs/rollout/src/recorder.rs:673-706](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L673-L706) [codex-rs/rollout/src/recorder.rs:841-849](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L841-L849) |
-| `response_item` | 消息、工具调用与工具输出等保留的 `ResponseItem` | 为重建模型历史提供条目。 [codex-rs/rollout/src/policy.rs:65-85](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/policy.rs#L65-L85) [codex-rs/core/src/session/rollout_reconstruction.rs:242-249](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L242-L249) |
+| `session_meta` | 线程 ID、来源、工作目录、provider、基础指令、分页与 fork 信息等 | 识别线程。reader 采用遇到的第一条 `session_meta` 作为主会话元数据。 [codex-rs/rollout/src/recorder.rs:673-706](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L673-L706) [codex-rs/rollout/src/recorder.rs:841-849](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L841-L849) |
+| `response_item` | 消息、工具调用与工具输出等保留的 `ResponseItem`，行级可带宿主元数据 | 为重建模型历史提供条目。 [codex-rs/rollout/src/policy.rs:65-85](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/policy.rs#L65-L85) [codex-rs/core/src/session/rollout_reconstruction.rs:242-249](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L242-L249) |
 | `turn_context` | 当前回合的配置快照 | 恢复模型等设置及下一轮计算上下文差异的参考快照。正常用户回合即使没有可见的设置差异也会写快照。 [codex-rs/core/src/session/mod.rs:2916-2959](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2916-L2959) [codex-rs/core/src/session/rollout_reconstruction.rs:162-185](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L162-L185) |
-| `compacted` | 压缩摘要和可选的 `replacement_history` | 确定恢复所用的替换历史与后续条目起点。 [codex-rs/protocol/src/protocol.rs:2715-2720](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2715-L2720) [codex-rs/core/src/session/rollout_reconstruction.rs:110-128](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L110-L128) |
+| `compacted` | 压缩摘要、可选的替换历史，以及窗口和恢复元数据 | 确定恢复所用的替换历史与后续条目起点。 [codex-rs/protocol/src/protocol.rs:2715-2720](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2715-L2720) [codex-rs/core/src/session/rollout_reconstruction.rs:110-128](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L110-L128) |
 | `event_msg` | 经筛选的回合生命周期、消息、用量、回退等事件 | 标记用户回合边界、应用回退，以及重建部分客户端历史。 [codex-rs/rollout/src/policy.rs:109-174](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/policy.rs#L109-L174) [codex-rs/core/src/session/rollout_reconstruction.rs:130-161](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L130-L161) [codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-84](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L74-L84) |
+| `token_usage_record` | 每次模型响应的用量、回合累计和线程累计 | 恢复 token 计数与上下文占用，不必回扫全部历史。 |
+| `world_state` | 模型可见世界状态的完整快照或 merge patch | 恢复上下文差异的比较基线；压缩或回退后重新建立。 |
+| `dynamic_tools_updated` | 线程的完整动态工具目录 | 恢复后续模型步骤的工具声明，空目录表示清空。 |
+| `inter_agent_communication` | 子代理之间的消息 | 恢复代理间通信的顺序与内容。 |
+| `inter_agent_communication_metadata` | 通信是否触发回合的标记 | 判定通信对回合边界的影响。 |
+| `retained_context` | 宿主保留的已接受回答、投递证据等 | 恢复不可信但需保留的上下文证据。 |
+| `security_risk_score` | 安全风险分类器的分值快照 | 线程内风险参考，不进入模型上下文。 |
+| `realtime_item` | 实时语音帧、转写与回合交接记录 | 在 `paginated` 模式下重建实时会话。 |
+
+字段、必选性和嵌套形状逐项列在 [Rollout 会话 JSONL 字段表](../protocols/rollout-wire.md)。
 
 ```mermaid
 graph TB

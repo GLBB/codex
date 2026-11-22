@@ -38,7 +38,7 @@
 - [MCP 工具协议](./protocols/mcp-hooks.md): 查阅 Codex 作为 MCP 客户端和服务端时的工具发现、调用参数、结果字段与关联标识。
 - [Hook 命令协议](./protocols/hook-wire.md): 查阅 Hook stdin 的事件字段、stdout JSON 的控制字段与退出码语义。
 - [exec-server 进程、文件与远端传输](./protocols/execution.md): 查阅 exec-server 握手、进程输出游标、文件系统、HTTP 流与 relay 字段。
-- [Rollout 会话 JSONL](./protocols/rollout-wire.md): 查阅 Rollout 五类记录的字段、会话元数据及 SQLite 线程索引。
+- [Rollout 会话 JSONL](./protocols/rollout-wire.md): 逐字段查阅 13 类记录、payload 形状与读取语义。
 - [配置 RPC 与 schema 兼容](./protocols/config-schema.md): 查阅配置读写、来源与约束字段，以及 app-server 实验能力和 schema 生成。
 
 ## 子系统详解

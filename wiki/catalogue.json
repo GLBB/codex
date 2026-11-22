@@ -167,8 +167,8 @@
         {
           "title": "Rollout 会话 JSONL",
           "name": "protocols/rollout-wire",
-          "description": "查阅 Rollout 五类记录的字段、会话元数据及 SQLite 线程索引。",
-          "prompt": "查阅 Rollout 五类记录的字段、会话元数据及 SQLite 线程索引。 核对源码 codex-rs/protocol/src/protocol.rs:2641-2720、codex-rs/rollout/src/recorder.rs:1497-1515、codex-rs/rollout/src/metadata.rs:39-133、codex-rs/state/src/extract.rs:14-149、codex-rs/thread-store/src/local/update_thread_metadata.rs:461-552、codex-rs/rollout/src/session_index.rs:17-81。",
+          "description": "逐字段查阅 Rollout 的 13 类记录、payload 形状与读取语义。",
+          "prompt": "逐字段查阅 Rollout 的 13 类记录、payload 形状与读取语义。 核对源码 codex-rs/history/src/rollout_payload.rs:36-82、codex-rs/history/src/lib.rs:72-192、codex-rs/protocol/src/protocol.rs:3568-3690、codex-rs/protocol/src/protocol.rs:3747-3787、codex-rs/protocol/src/protocol.rs:2640-2651、codex-rs/protocol/src/protocol.rs:3724-3730、codex-rs/history/src/lib.rs:561-581、codex-rs/rollout/src/policy.rs:130-228、codex-rs/protocol/src/models.rs:1141-1427、codex-rs/state/src/model/thread_metadata.rs:126-188。",
           "children": []
         },
         {

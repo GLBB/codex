@@ -19,7 +19,7 @@ description: "按通信边界查阅 Codex 的协议字段、关联标识与完�
 | [MCP 工具协议](mcp-hooks.md) | Codex ↔ 外部 MCP 服务或宿主 | `arguments`、`_meta`、`structuredContent` |
 | [Hook 命令协议](hook-wire.md) | Core ↔ 本地 Hook 进程 | `hook_event_name`、`tool_use_id`、`hookSpecificOutput` |
 | [exec-server 进程、文件与远端传输](execution.md) | 执行调用方 ↔ exec-server | `processId`、`afterSeq`、`requestId`、`stream_id` |
-| [Rollout 会话 JSONL](rollout-wire.md) | Core → 会话文件 → 恢复器或历史构建器 | `timestamp`、`type`、`payload`、`replacement_history` |
+| [Rollout 会话 JSONL](rollout-wire.md) | Core → 会话文件 → 恢复器或历史构建器 | `type`、`payload`、`metadata`、`token_usage_record`、`world_state` |
 | [配置 RPC 与 schema 兼容](config-schema.md) | 配置加载器和 app-server ↔ 客户端 | `origins`、`expectedVersion`、`experimentalApi` |
 
 字段表使用当前源码中的序列化名称。“可省略”表示允许缺键，“可为 null”表示支持 JSON null。表格覆盖常用消息和容易混淆的字段。全量 v2 方法和嵌套类型可从 [app-server 注册表](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/common.rs#L430-L800) 及 [同版本类型导出](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1848-L1863) 查阅。模型协议覆盖 Codex 本地构造和解析的字段，服务端内部行为超出这一章的源码取证范围。

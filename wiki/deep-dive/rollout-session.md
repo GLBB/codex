@@ -13,11 +13,21 @@ description: "追踪会话 JSONL 的写入、保留规则、历史恢复与客�
 
 | 顶层 `type` | 保存的内容 | 读取时用来做什么 |
 | --- | --- | --- |
-| `session_meta` | 线程 ID、来源、工作目录、provider、基础指令与可选的 fork 来源等 | 识别线程。reader 采用遇到的第一条 `session_meta` 作为主会话元数据。 [codex-rs/rollout/src/recorder.rs:673-706](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L673-L706) [codex-rs/rollout/src/recorder.rs:841-849](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L841-L849) |
-| `response_item` | 消息、工具调用与工具输出等保留的 `ResponseItem` | 为重建模型历史提供条目。 [codex-rs/rollout/src/policy.rs:65-85](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/policy.rs#L65-L85) [codex-rs/core/src/session/rollout_reconstruction.rs:242-249](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L242-L249) |
+| `session_meta` | 线程 ID、来源、工作目录、provider、基础指令、分页与 fork 信息等 | 识别线程。reader 采用遇到的第一条 `session_meta` 作为主会话元数据。 [codex-rs/rollout/src/recorder.rs:673-706](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L673-L706) [codex-rs/rollout/src/recorder.rs:841-849](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L841-L849) |
+| `response_item` | 消息、工具调用与工具输出等保留的 `ResponseItem`，行级可带宿主元数据 | 为重建模型历史提供条目。 [codex-rs/rollout/src/policy.rs:65-85](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/policy.rs#L65-L85) [codex-rs/core/src/session/rollout_reconstruction.rs:242-249](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L242-L249) |
 | `turn_context` | 当前回合的配置快照 | 恢复模型等设置及下一轮计算上下文差异的参考快照。正常用户回合即使没有可见的设置差异也会写快照。 [codex-rs/core/src/session/mod.rs:2916-2959](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2916-L2959) [codex-rs/core/src/session/rollout_reconstruction.rs:162-185](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L162-L185) |
-| `compacted` | 压缩摘要和可选的 `replacement_history` | 确定恢复所用的替换历史与后续条目起点。 [codex-rs/protocol/src/protocol.rs:2715-2720](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2715-L2720) [codex-rs/core/src/session/rollout_reconstruction.rs:110-128](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L110-L128) |
+| `compacted` | 压缩摘要、可选的替换历史，以及窗口和恢复元数据 | 确定恢复所用的替换历史与后续条目起点。 [codex-rs/protocol/src/protocol.rs:2715-2720](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2715-L2720) [codex-rs/core/src/session/rollout_reconstruction.rs:110-128](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L110-L128) |
 | `event_msg` | 经筛选的回合生命周期、消息、用量、回退等事件 | 标记用户回合边界、应用回退，以及重建部分客户端历史。 [codex-rs/rollout/src/policy.rs:109-174](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/policy.rs#L109-L174) [codex-rs/core/src/session/rollout_reconstruction.rs:130-161](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L130-L161) [codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-84](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L74-L84) |
+| `token_usage_record` | 每次模型响应的用量、回合累计和线程累计 | 恢复 token 计数与上下文占用，不必回扫全部历史。 |
+| `world_state` | 模型可见世界状态的完整快照或 merge patch | 恢复上下文差异的比较基线；压缩或回退后重新建立。 |
+| `dynamic_tools_updated` | 线程的完整动态工具目录 | 恢复后续模型步骤的工具声明，空目录表示清空。 |
+| `inter_agent_communication` | 子代理之间的消息 | 恢复代理间通信的顺序与内容。 |
+| `inter_agent_communication_metadata` | 通信是否触发回合的标记 | 判定通信对回合边界的影响。 |
+| `retained_context` | 宿主保留的已接受回答、投递证据等 | 恢复不可信但需保留的上下文证据。 |
+| `security_risk_score` | 安全风险分类器的分值快照 | 线程内风险参考，不进入模型上下文。 |
+| `realtime_item` | 实时语音帧、转写与回合交接记录 | 在 `paginated` 模式下重建实时会话。 |
+
+字段、必选性和嵌套形状逐项列在 [Rollout 会话 JSONL 字段表](../protocols/rollout-wire.md)。
 
 ```mermaid
 graph TB
