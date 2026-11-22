@@ -1,0 +1,212 @@
+{
+  "title": "Codex 源码 Wiki",
+  "source": {
+    "repository": "https://github.com/GLBB/codex",
+    "commit": "9f42c89c0112771dc29100a6f3fc904049b2655f"
+  },
+  "items": [
+    {
+      "title": "角色指南",
+      "name": "onboarding",
+      "prompt": "按贡献者、架构工程师、工程管理者或产品经理的任务选择起点。 核对源码 codex-rs/cli/src/main.rs:823-880、docs/install.md:20-62、justfile:28-58、codex-rs/app-server/README.md:20-89、codex-rs/core/src/session/turn.rs:131-183、codex-rs/app-server/README.md:1211-1247。",
+      "children": [
+        {
+          "title": "角色指南",
+          "name": "onboarding/index",
+          "description": "按贡献者、架构工程师、工程管理者或产品经理的任务选择起点。",
+          "prompt": "按贡献者、架构工程师、工程管理者或产品经理的任务选择起点。 核对源码 codex-rs/cli/src/main.rs:823-880、docs/install.md:20-62、justfile:28-58、codex-rs/app-server/README.md:20-89、codex-rs/core/src/session/turn.rs:131-183、codex-rs/app-server/README.md:1211-1247。",
+          "children": []
+        },
+        {
+          "title": "贡献者指南",
+          "name": "onboarding/contributor-guide",
+          "description": "从熟悉的异步与接口概念入手，走过构建、源码阅读和定向验证。",
+          "prompt": "从熟悉的异步与接口概念入手，走过构建、源码阅读和定向验证。 核对源码 docs/install.md:20-62、codex-rs/rust-toolchain.toml:1-3、codex-rs/cli/src/main.rs:823-880、codex-rs/Cargo.toml:1-45、justfile:28-58、AGENTS.md:54-69、docs/contributing.md:3-37、codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/core/src/session/handlers.rs:708-766、codex-rs/core/src/tasks/regular.rs:36-74、codex-rs/core/src/session/turn.rs:863-947、codex-rs/codex-api/src/common.rs:72-150、codex-rs/thread-store/src/store.rs:28-114、codex-rs/app-server/README.md:1211-1247、codex-rs/core/src/tools/router.rs:89-137。",
+          "children": []
+        },
+        {
+          "title": "架构工程师指南",
+          "name": "onboarding/staff-engineer-guide",
+          "description": "用不同层的接口与验证证据评估架构改动。",
+          "prompt": "用不同层的接口与验证证据评估架构改动。 核对源码 codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/core/src/session/handlers.rs:708-766、codex-rs/app-server/README.md:1211-1247、codex-rs/app-server/README.md:1300-1327、codex-rs/core/src/session/turn.rs:131-183、codex-rs/core/src/tools/registry.rs:397-475、codex-rs/core/src/session/turn.rs:863-947、codex-rs/core/src/context_manager/history.rs:362-390、codex-rs/thread-store/src/store.rs:28-114、codex-rs/core/src/session/rollout_reconstruction.rs:87-155、codex-rs/rollout/src/recorder.rs:749-827、codex-rs/core/src/client.rs:996-1074、codex-rs/core/src/client.rs:1570-1642、codex-rs/rollout-trace/src/writer.rs:32-72、codex-rs/rollout-trace/src/reducer/mod.rs:44-82、codex-rs/rollout-trace/src/model/mod.rs:56-90、codex-rs/otel/src/events/session_telemetry.rs:196-234、codex-rs/otel/src/events/session_telemetry.rs:511-570、codex-rs/core/src/tools/orchestrator.rs:128-263、AGENTS.md:54-69、justfile:28-58。",
+          "children": []
+        },
+        {
+          "title": "工程管理者指南",
+          "name": "onboarding/executive-guide",
+          "description": "从任务能力、外部依赖和可观测证据评估集成与运营成本。",
+          "prompt": "从任务能力、外部依赖和可观测证据评估集成与运营成本。 核对源码 README.md:1、codex-rs/cli/src/main.rs:823-880、docs/install.md:20-62、codex-rs/exec/src/lib.rs:564-602、codex-rs/app-server/README.md:20-89、sdk/typescript/src/thread.ts:66-135、codex-rs/core/src/tools/orchestrator.rs:128-263、codex-rs/thread-store/src/store.rs:28-114、codex-rs/core/src/thread_manager.rs:640-685、codex-rs/app-server/README.md:1211-1247、codex-rs/app-server/README.md:1300-1327、codex-rs/otel/src/events/session_telemetry.rs:196-234、codex-rs/otel/src/events/session_telemetry.rs:511-570、codex-rs/rollout-trace/README.md:1-38、codex-rs/core/src/session/turn.rs:207-326、codex-rs/model-provider/src/provider.rs:81-155、codex-rs/core/src/client.rs:1570-1642。",
+          "children": []
+        },
+        {
+          "title": "产品经理指南",
+          "name": "onboarding/product-manager-guide",
+          "description": "围绕开始任务、等待审批、查看进度与恢复会话梳理使用体验。",
+          "prompt": "围绕开始任务、等待审批、查看进度与恢复会话梳理使用体验。 核对源码 README.md:1、codex-rs/app-server/README.md:20-89、codex-rs/app-server/README.md:1211-1247、codex-rs/app-server/README.md:1300-1327、codex-rs/core/src/thread_manager.rs:640-685、codex-rs/thread-store/src/store.rs:28-114、codex-rs/exec/src/lib.rs:564-602、sdk/typescript/src/thread.ts:66-135、codex-rs/config/src/loader/mod.rs:111-245、codex-rs/config/src/loader/mod.rs:864-914、codex-rs/core/src/session/turn.rs:207-326、codex-rs/rollout-trace/README.md:1-38、codex-rs/otel/src/events/session_telemetry.rs:196-234。",
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "开始阅读",
+      "name": "getting-started",
+      "prompt": "核对源码构建、离线握手、JSONL 观察及定向测试入口。 核对源码 docs/install.md:20-62、codex-rs/rust-toolchain.toml:1-3、codex-rs/cli/src/main.rs:823-880、justfile:28-58、AGENTS.md:54-69、codex-rs/app-server/README.md:20-89、codex-rs/app-server/src/request_processors/initialize_processor.rs:44-92、codex-rs/exec/src/lib.rs:564-602、codex-rs/exec/src/lib.rs:749-807、codex-rs/exec/src/event_processor_with_jsonl_output.rs:591-608、codex-rs/app-server/README.md:1211-1247。",
+      "children": [
+        {
+          "title": "本地运行与读日志",
+          "name": "getting-started/run-locally",
+          "description": "核对源码构建、离线握手、JSONL 观察及定向测试入口。",
+          "prompt": "核对源码构建、离线握手、JSONL 观察及定向测试入口。 核对源码 docs/install.md:20-62、codex-rs/rust-toolchain.toml:1-3、codex-rs/cli/src/main.rs:823-880、justfile:28-58、AGENTS.md:54-69、codex-rs/app-server/README.md:20-89、codex-rs/app-server/src/request_processors/initialize_processor.rs:44-92、codex-rs/exec/src/lib.rs:564-602、codex-rs/exec/src/lib.rs:749-807、codex-rs/exec/src/event_processor_with_jsonl_output.rs:591-608、codex-rs/app-server/README.md:1211-1247。",
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "核心架构",
+      "name": "architecture",
+      "prompt": "从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。 核对源码 codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/core/src/session/handlers.rs:708-766、codex-rs/core/src/tasks/regular.rs:36-74、codex-rs/core/src/session/turn.rs:131-183、codex-rs/core/src/session/turn.rs:207-326、codex-rs/core/src/session/turn.rs:863-947、codex-rs/core/src/session/turn.rs:947-1021、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/stream_events_utils.rs:342-385、codex-rs/core/src/session/turn.rs:1655-1675、codex-rs/core/src/tasks/mod.rs:769-808。",
+      "children": [
+        {
+          "title": "Agent Loop",
+          "name": "architecture/agent-loop",
+          "description": "从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。",
+          "prompt": "从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。 核对源码 codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/core/src/session/handlers.rs:708-766、codex-rs/core/src/tasks/regular.rs:36-74、codex-rs/core/src/session/turn.rs:131-183、codex-rs/core/src/session/turn.rs:207-326、codex-rs/core/src/session/turn.rs:863-947、codex-rs/core/src/session/turn.rs:947-1021、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/stream_events_utils.rs:342-385、codex-rs/core/src/session/turn.rs:1655-1675、codex-rs/core/src/tasks/mod.rs:769-808。",
+          "children": []
+        },
+        {
+          "title": "工具调度与权限",
+          "name": "architecture/tools-permissions",
+          "description": "沿模型工具调用追到路由、执行、审批和工具结果回传。",
+          "prompt": "沿模型工具调用追到路由、执行、审批和工具结果回传。 核对源码 codex-rs/core/src/stream_events_utils.rs:342-385、codex-rs/core/src/tools/router.rs:89-137、codex-rs/core/src/tools/parallel.rs:63-154、codex-rs/core/src/tools/registry.rs:397-475、codex-rs/protocol/src/protocol.rs:764-821、codex-rs/execpolicy/src/policy.rs:24-94、codex-rs/core/src/tools/runtimes/shell.rs:184-257、codex-rs/core/src/tools/orchestrator.rs:128-263、codex-rs/app-server/README.md:1300-1327、codex-rs/core/src/session/turn.rs:1655-1675。",
+          "children": []
+        },
+        {
+          "title": "上下文与会话",
+          "name": "architecture/session-state",
+          "description": "追踪 ResponseItem 在内存历史、会话 JSONL、索引和恢复流程中的不同用途。",
+          "prompt": "追踪 ResponseItem 在内存历史、会话 JSONL、索引和恢复流程中的不同用途。 核对源码 codex-rs/core/src/session/mod.rs:2527-2547、codex-rs/core/src/context_manager/history.rs:98-125、codex-rs/core/src/context_manager/history.rs:362-390、codex-rs/protocol/src/protocol.rs:2698-2728、codex-rs/rollout/src/recorder.rs:749-827、codex-rs/thread-store/src/store.rs:28-114、codex-rs/thread-store/src/local/read_thread.rs:28-97、codex-rs/core/src/thread_manager.rs:640-685、codex-rs/core/src/session/rollout_reconstruction.rs:87-155、codex-rs/core/src/thread_manager.rs:803-872、codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-92、codex-rs/state/src/lib.rs:70-90、codex-rs/core/src/client.rs:717-805。",
+          "children": []
+        },
+        {
+          "title": "app-server 与客户端协议",
+          "name": "architecture/app-server",
+          "description": "从 initialize、thread/start 到 turn/start、item 事件和审批回包。",
+          "prompt": "从 initialize、thread/start 到 turn/start、item 事件和审批回包。 核对源码 codex-rs/app-server/README.md:20-89、codex-rs/app-server/src/request_processors/initialize_processor.rs:44-92、codex-rs/app-server/src/message_processor.rs:516-565、codex-rs/app-server-protocol/src/protocol/v2/turn.rs:39-122、codex-rs/app-server/src/request_processors/thread_processor.rs:822-921、codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/app-server/README.md:1211-1247、codex-rs/app-server/README.md:1300-1327、codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-92、codex-rs/tui/src/app_server_session.rs:639-689、codex-rs/exec/src/lib.rs:564-602、codex-rs/exec/src/lib.rs:749-807、sdk/typescript/src/thread.ts:66-135、sdk/typescript/src/exec.ts:165-215。",
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "协议设计",
+      "name": "protocols",
+      "prompt": "按生产者、消费者、传输和长期兼容边界定位 Codex 的协议专题。 核对源码 codex-rs/app-server-protocol/src/jsonrpc_lite.rs:17-84、codex-rs/protocol/src/protocol.rs:121-155、codex-rs/codex-api/src/common.rs:72-150、codex-rs/exec-server/src/protocol.rs:36-158、codex-rs/protocol/src/protocol.rs:2698-2728、codex-rs/rollout-trace/src/raw_event.rs:29-162、codex-rs/app-server-protocol/src/protocol/common.rs:157-215、codex-rs/exec/src/event_processor_with_jsonl_output.rs:590-625、sdk/python/src/openai_codex/client.py:186-296、codex-rs/protocol/src/protocol.rs:1121-1186、codex-rs/rollout/src/recorder.rs:755-811、codex-rs/core/src/client.rs:717-805、codex-rs/core/src/client.rs:1570-1642、codex-rs/codex-api/src/sse/responses.rs:263-321、codex-rs/core/src/tools/router.rs:89-137、codex-rs/core/src/tools/registry.rs:397-475、codex-rs/app-server/README.md:1300-1327、codex-rs/app-server/README.md:1400-1442、codex-rs/codex-mcp/src/connection_manager.rs:590-641、codex-rs/mcp-server/src/message_processor.rs:317-386、codex-rs/hooks/src/engine/command_runner.rs:24-101、codex-rs/exec-server/README.md:17-95、codex-rs/exec-server/README.md:278-346、codex-rs/exec-server/src/proto/codex.exec_server.relay.v1.proto:1-37、codex-rs/config/src/loader/mod.rs:111-245、codex-rs/config/src/state.rs:449-475、codex-rs/app-server-protocol/src/export.rs:76-121、codex-rs/app-server-protocol/src/export.rs:182-243、codex-rs/app-server/src/message_processor.rs:789-849、codex-rs/rollout-trace/src/reducer/mod.rs:44-82、codex-rs/otel/src/trace_context.rs:29-129、codex-rs/otel/src/provider.rs:77-153、codex-rs/app-server/src/message_processor.rs:516-629、codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/app-server/README.md:1211-1247、codex-rs/rollout-trace/src/inference.rs:121-196、codex-rs/core/src/client.rs:1777-1899、codex-rs/rollout-trace/src/reducer/tool.rs:411-510、codex-rs/exec-server/README.md:186-250、codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104、codex-rs/rollout-trace/src/reducer/conversation.rs:34-129。",
+      "children": [
+        {
+          "title": "协议设计总览",
+          "name": "protocols/index",
+          "description": "按生产者、消费者、传输和长期兼容边界定位 Codex 的协议专题。",
+          "prompt": "按生产者、消费者、传输和长期兼容边界定位 Codex 的协议专题。 核对源码 codex-rs/app-server-protocol/src/jsonrpc_lite.rs:17-84、codex-rs/protocol/src/protocol.rs:121-155、codex-rs/codex-api/src/common.rs:72-150、codex-rs/exec-server/src/protocol.rs:36-158、codex-rs/protocol/src/protocol.rs:2698-2728、codex-rs/rollout-trace/src/raw_event.rs:29-162、codex-rs/app-server-protocol/src/protocol/common.rs:157-215、codex-rs/exec/src/event_processor_with_jsonl_output.rs:590-625、sdk/python/src/openai_codex/client.py:186-296、codex-rs/protocol/src/protocol.rs:1121-1186、codex-rs/rollout/src/recorder.rs:755-811、codex-rs/core/src/client.rs:717-805、codex-rs/core/src/client.rs:1570-1642、codex-rs/codex-api/src/sse/responses.rs:263-321、codex-rs/core/src/tools/router.rs:89-137、codex-rs/core/src/tools/registry.rs:397-475、codex-rs/app-server/README.md:1300-1327、codex-rs/app-server/README.md:1400-1442、codex-rs/codex-mcp/src/connection_manager.rs:590-641、codex-rs/mcp-server/src/message_processor.rs:317-386、codex-rs/hooks/src/engine/command_runner.rs:24-101、codex-rs/exec-server/README.md:17-95、codex-rs/exec-server/README.md:278-346、codex-rs/exec-server/src/proto/codex.exec_server.relay.v1.proto:1-37、codex-rs/config/src/loader/mod.rs:111-245、codex-rs/config/src/state.rs:449-475、codex-rs/app-server-protocol/src/export.rs:76-121、codex-rs/app-server-protocol/src/export.rs:182-243、codex-rs/app-server/src/message_processor.rs:789-849、codex-rs/rollout-trace/src/reducer/mod.rs:44-82、codex-rs/otel/src/trace_context.rs:29-129、codex-rs/otel/src/provider.rs:77-153、codex-rs/app-server/src/message_processor.rs:516-629、codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/app-server/README.md:1211-1247、codex-rs/rollout-trace/src/inference.rs:121-196、codex-rs/core/src/client.rs:1777-1899、codex-rs/rollout-trace/src/reducer/tool.rs:411-510、codex-rs/exec-server/README.md:186-250、codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104、codex-rs/rollout-trace/src/reducer/conversation.rs:34-129。",
+          "children": []
+        },
+        {
+          "title": "app-server、CLI 与 SDK 的线协议",
+          "name": "protocols/app-server-wire",
+          "description": "核对 JSON-RPC 载体、连接门槛、请求并发、反向请求和 SDK 适配。",
+          "prompt": "核对 JSON-RPC 载体、连接门槛、请求并发、反向请求和 SDK 适配。 核对源码 codex-rs/app-server-protocol/src/jsonrpc_lite.rs:17-84、codex-rs/app-server-protocol/src/protocol/common.rs:157-215、codex-rs/app-server/src/message_processor.rs:516-629、codex-rs/exec/src/event_processor_with_jsonl_output.rs:590-625、sdk/python/src/openai_codex/client.py:186-296、codex-rs/app-server/README.md:20-89、codex-rs/app-server-transport/src/transport/stdio.rs:24-99、codex-rs/app-server-client/src/lib.rs:488-515、sdk/python/src/openai_codex/client.py:619-670、sdk/python/src/openai_codex/_message_router.py:16-103、sdk/typescript/src/thread.ts:66-135、sdk/typescript/src/exec.ts:165-215、codex-rs/app-server/src/request_processors/initialize_processor.rs:44-92、codex-rs/app-server/src/message_processor.rs:789-849、codex-rs/app-server/README.md:1300-1327、codex-rs/app-server/src/request_serialization.rs:34-104、codex-rs/app-server/src/request_serialization.rs:134-209、codex-rs/exec/src/lib.rs:564-602、codex-rs/exec/src/lib.rs:749-807。",
+          "children": []
+        },
+        {
+          "title": "Core 操作、事件与会话文件",
+          "name": "protocols/core-history",
+          "description": "区分活跃运行接口、持久化历史和客户端历史投影。",
+          "prompt": "区分活跃运行接口、持久化历史和客户端历史投影。 核对源码 codex-rs/protocol/src/protocol.rs:121-155、codex-rs/protocol/src/protocol.rs:1121-1186、codex-rs/core/src/session/handlers.rs:708-766、codex-rs/core/src/session/mod.rs:2527-2547、codex-rs/rollout/src/recorder.rs:755-811、codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/app-server/src/request_processors/turn_processor.rs:317-339、codex-rs/app-server/README.md:1211-1247、codex-rs/protocol/src/models.rs:752-847、codex-rs/core/src/context_manager/history.rs:362-390、codex-rs/protocol/src/protocol.rs:2698-2728、codex-rs/thread-store/src/store.rs:28-114、codex-rs/thread-store/src/local/read_thread.rs:28-97、codex-rs/core/src/session/rollout_reconstruction.rs:87-176、codex-rs/core/src/thread_manager.rs:640-685、codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104、codex-rs/core/src/context_manager/history.rs:98-125、codex-rs/state/src/lib.rs:70-90、codex-rs/core/src/agent/control.rs:721-735、codex-rs/core/src/session/input_queue.rs:42-81、codex-rs/rollout-trace/src/reducer/tool/agents.rs:373-475、codex-rs/rollout-trace/src/reducer/conversation.rs:34-129。",
+          "children": []
+        },
+        {
+          "title": "模型请求与响应协议",
+          "name": "protocols/model-wire",
+          "description": "核对 Responses 对象、SSE/WS 流、增量前缀与模型调用关联。",
+          "prompt": "核对 Responses 对象、SSE/WS 流、增量前缀与模型调用关联。 核对源码 codex-rs/core/src/client_common.rs:25-62、codex-rs/core/src/client.rs:717-805、codex-rs/model-provider-info/src/lib.rs:45-109、codex-rs/core/src/client.rs:1570-1642、codex-rs/codex-api/src/common.rs:72-150、codex-rs/codex-api/src/sse/responses.rs:399-486、codex-rs/model-provider/src/provider.rs:81-155、codex-rs/codex-api/src/sse/responses.rs:263-321、codex-rs/codex-api/src/sse/responses.rs:347-394、codex-rs/core/src/client.rs:996-1074、codex-rs/core/src/client.rs:1423-1467、codex-rs/core/src/stream_events_utils.rs:342-385、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/client.rs:1777-1899、codex-rs/rollout-trace/src/reducer/conversation.rs:34-129、codex-rs/core/src/session/turn.rs:947-1021、codex-rs/app-server/README.md:1211-1247、codex-rs/app-server/README.md:761-809、codex-rs/app-server/README.md:1189-1202、codex-rs/core/src/realtime_conversation.rs:278-370、codex-rs/rollout-trace/src/raw_event.rs:29-162。",
+          "children": []
+        },
+        {
+          "title": "工具调用、审批与动态工具协议",
+          "name": "protocols/tools-approval",
+          "description": "跟踪模型 call ID、工具 dispatch、用户审批的反向 RPC，以及客户端执行能力的回包。",
+          "prompt": "跟踪模型 call ID、工具 dispatch、用户审批的反向 RPC，以及客户端执行能力的回包。 核对源码 codex-rs/core/src/tools/router.rs:89-137、codex-rs/core/src/tools/registry.rs:397-475、codex-rs/core/src/session/mod.rs:2502-2525、codex-rs/app-server/src/outgoing_message.rs:308-388、codex-rs/app-server/README.md:1300-1327、codex-rs/app-server/src/bespoke_event_handling.rs:751-783、codex-rs/app-server/src/bespoke_event_handling.rs:785-829、codex-rs/app-server/src/dynamic_tools.rs:14-74、codex-rs/app-server/README.md:1400-1442、codex-rs/core/src/tools/orchestrator.rs:128-263、codex-rs/core/src/tools/runtimes/shell.rs:184-257、codex-rs/app-server/README.md:1211-1247、codex-rs/core/src/session/turn.rs:1655-1675。",
+          "children": []
+        },
+        {
+          "title": "MCP 与 Hook 扩展协议",
+          "name": "protocols/mcp-hooks",
+          "description": "跟踪 Codex 的 MCP 双向角色，以及本地命令 Hook 的 stdin、stdout 与决策。",
+          "prompt": "跟踪 Codex 的 MCP 双向角色，以及本地命令 Hook 的 stdin、stdout 与决策。 核对源码 codex-rs/codex-mcp/src/connection_manager.rs:171-248、codex-rs/codex-mcp/src/connection_manager.rs:590-641、codex-rs/mcp-server/src/message_processor.rs:317-386、codex-rs/mcp-server/src/codex_tool_runner.rs:32-67、codex-rs/core/src/hook_runtime.rs:160-220、codex-rs/hooks/src/engine/command_runner.rs:24-101、codex-rs/codex-mcp/src/connection_manager.rs:368-403、codex-rs/core/src/mcp_tool_call.rs:547-591、codex-rs/rollout-trace/src/thread.rs:401-417、codex-rs/hooks/src/engine/dispatcher.rs:89-116、codex-rs/hooks/src/events/pre_tool_use.rs:148-249、codex-rs/rollout-trace/src/mcp.rs:1-67、codex-rs/app-server/src/bespoke_event_handling.rs:785-829、codex-rs/hooks/src/events/pre_tool_use.rs:254-304。",
+          "children": []
+        },
+        {
+          "title": "进程、文件系统与远端执行协议",
+          "name": "protocols/execution",
+          "description": "跟踪 exec-server 的握手、进程流、恢复窗口和 protobuf relay。",
+          "prompt": "跟踪 exec-server 的握手、进程流、恢复窗口和 protobuf relay。 核对源码 codex-rs/exec-server/README.md:17-95、codex-rs/app-server-protocol/src/jsonrpc_lite.rs:17-84、codex-rs/exec-server/src/protocol.rs:36-158、codex-rs/exec-server/README.md:186-250、codex-rs/exec-server/README.md:278-346、codex-rs/exec-server/src/server/handler.rs:80-156、codex-rs/exec-server/src/server/session_registry.rs:58-137、codex-rs/exec-server/src/server/process_handler.rs:19-58、codex-rs/exec-server/src/server/file_system_handler.rs:1-96、codex-rs/exec-server/src/server/session_registry.rs:12-18、codex-rs/exec-server/src/server/session_registry.rs:239-257、codex-rs/exec-server/src/protocol.rs:278-340、codex-rs/exec-server/src/server/handler.rs:170-211、codex-rs/exec-server/src/proto/codex.exec_server.relay.v1.proto:1-37、codex-rs/app-server-transport/src/transport/remote_control/protocol.rs:50-132。",
+          "children": []
+        },
+        {
+          "title": "配置、能力与 schema 演进",
+          "name": "protocols/config-schema",
+          "description": "解释配置层的有效值、实验能力门槛，以及 Rust 到 TS/JSON Schema 的生成边界。",
+          "prompt": "解释配置层的有效值、实验能力门槛，以及 Rust 到 TS/JSON Schema 的生成边界。 核对源码 codex-rs/config/src/loader/mod.rs:111-245、codex-rs/config/src/loader/mod.rs:864-896、codex-rs/config/src/state.rs:449-475、codex-rs/app-server-protocol/src/jsonrpc_lite.rs:17-84、codex-rs/app-server/src/message_processor.rs:789-849、codex-rs/config/src/loader/mod.rs:241-368、codex-rs/app-server-protocol/src/protocol/v2/config.rs:264-356、codex-rs/app-server/src/request_processors/config_processor.rs:87-143、codex-rs/app-server-protocol/src/protocol/common.rs:157-215、codex-rs/app-server-protocol/src/export.rs:182-243、codex-rs/app-server-protocol/src/export.rs:76-121、AGENTS.md:54-69、codex-rs/features/src/lib.rs:916-936、justfile:28-58、sdk/python/src/openai_codex/client.py:186-296、sdk/python/src/openai_codex/_message_router.py:16-103、sdk/typescript/src/exec.ts:165-215。",
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "子系统详解",
+      "name": "deep-dive",
+      "prompt": "从 Prompt 追到 provider、Responses 请求、传输切换和流事件。 核对源码 codex-rs/model-provider/src/provider.rs:81-155、codex-rs/models-manager/src/manager.rs:140-174、codex-rs/core/src/client.rs:219-247、codex-rs/core/src/client_common.rs:25-62、codex-rs/core/src/session/turn.rs:863-947、codex-rs/core/src/client.rs:717-805、codex-rs/core/src/client.rs:996-1074、codex-rs/core/src/client.rs:1570-1642、codex-rs/codex-api/src/endpoint/responses.rs:69-115、codex-rs/codex-api/src/common.rs:72-150、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/session/turn.rs:947-1021、codex-rs/rollout-trace/src/inference.rs:174-237。",
+      "children": [
+        {
+          "title": "Trajectory 的设计与实现",
+          "name": "deep-dive/trajectory",
+          "description": "从 Core 生命周期到 raw bundle 和 reducer，重建请求、工具、压缩与跨线程关系。",
+          "prompt": "从 Core 生命周期到 raw bundle 和 reducer，重建请求、工具、压缩与跨线程关系。 核对源码 codex-rs/core/src/session/mod.rs:2527-2547、codex-rs/core/src/context_manager/history.rs:98-125、codex-rs/rollout-trace/README.md:1-38、codex-rs/rollout-trace/src/model/mod.rs:56-90、codex-rs/app-server/README.md:1211-1247、codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104、codex-rs/rollout/src/recorder.rs:755-811、codex-rs/core/src/session/rollout_reconstruction.rs:87-176、codex-rs/core/src/session/session.rs:675-711、codex-rs/rollout-trace/src/thread.rs:93-117、codex-rs/rollout-trace/src/writer.rs:49-147、codex-rs/rollout-trace/src/reducer/mod.rs:44-82、codex-rs/rollout-trace/src/thread.rs:420-443、codex-rs/core/src/thread_manager.rs:1307-1335、codex-rs/rollout-trace/src/thread.rs:148-202、codex-rs/core/src/session/turn.rs:1689-1734、codex-rs/rollout-trace/src/inference.rs:121-196、codex-rs/core/src/client.rs:1262-1319、codex-rs/core/src/client.rs:1423-1467、codex-rs/core/src/client.rs:1777-1899、codex-rs/rollout-trace/src/inference.rs:205-313、codex-rs/core/src/stream_events_utils.rs:342-385、codex-rs/core/src/session/turn.rs:1655-1675、codex-rs/rollout-trace/src/reducer/conversation.rs:34-129、codex-rs/rollout-trace/src/reducer/conversation.rs:193-280、codex-rs/rollout-trace/src/reducer/conversation_tests.rs:171-248、codex-rs/rollout-trace/src/reducer/conversation_tests.rs:668-684、codex-rs/rollout-trace/src/raw_event.rs:29-162、codex-rs/rollout-trace/src/reducer/tool.rs:341-370、codex-rs/rollout-trace/src/reducer/tool.rs:411-510、codex-rs/core/src/mcp_tool_call.rs:547-591、codex-rs/rollout-trace/src/thread.rs:401-417、codex-rs/rollout-trace/src/mcp.rs:1-67、codex-rs/rollout-trace/src/model/runtime.rs:23-130、codex-rs/rollout-trace/src/reducer/code_cell.rs:88-161、codex-rs/rollout-trace/src/reducer/tool/terminal.rs:156-249、codex-rs/rollout-trace/src/reducer/tool/agents.rs:373-475、codex-rs/core/src/tools/registry.rs:415-462、codex-rs/rollout-trace/src/payload.rs:12-49、codex-rs/core/src/compact_remote_v2.rs:209-275、codex-rs/rollout-trace/src/reducer/conversation.rs:283-355、codex-rs/cli/src/main.rs:1635-1645、codex-rs/core/src/turn_timing.rs:53-101。",
+          "children": []
+        },
+        {
+          "title": "可观测性",
+          "name": "deep-dive/observability",
+          "description": "追踪本地日志、OpenTelemetry 三种信号、跨进程上下文、指标语义和本地验证。",
+          "prompt": "追踪本地日志、OpenTelemetry 三种信号、跨进程上下文、指标语义和本地验证。 核对源码 codex-rs/app-server/README.md:1211-1247、codex-rs/core/src/session/mod.rs:2527-2547、codex-rs/rollout-trace/README.md:1-38、codex-rs/otel/src/provider.rs:77-153、codex-rs/app-server/src/lib.rs:613-651、codex-rs/tui/src/lib.rs:1216-1256、docs/install.md:20-62、codex-rs/otel/src/provider.rs:156-190、codex-rs/otel/src/targets.rs:1-11、codex-rs/otel/src/trace_context.rs:29-129、codex-rs/otel/src/events/session_telemetry.rs:86-133、codex-rs/otel/src/events/session_telemetry.rs:511-570、codex-rs/core/src/otel_init.rs:22-94、codex-rs/app-server/src/outgoing_message.rs:155-173、codex-rs/analytics/src/client.rs:55-136、codex-rs/analytics/src/reducer.rs:373-437、codex-rs/core/src/session/session.rs:675-711、codex-rs/rollout-trace/src/inference.rs:121-196、codex-rs/rollout-trace/src/reducer/mod.rs:44-82、codex-rs/app-server/src/lib.rs:498-525、codex-rs/exec/src/lib.rs:451-502、codex-rs/tui/src/lib.rs:1068-1104、codex-rs/config/src/types.rs:476-548、codex-rs/otel/src/config.rs:13-35、codex-rs/otel/src/provider.rs:391-449、codex-rs/otel/src/provider.rs:63-75、codex-rs/app-server-protocol/src/jsonrpc_lite.rs:17-84、codex-rs/app-server/src/app_server_tracing.rs:24-83、codex-rs/app-server/src/app_server_tracing.rs:94-141、codex-rs/app-server/src/outgoing_message.rs:52-76、codex-rs/app-server/src/request_processors/turn_processor.rs:317-339、codex-rs/core/src/session/handlers.rs:887-929、codex-rs/core/src/tasks/mod.rs:301-365、codex-rs/app-server/src/message_processor_tracing_tests.rs:637-707、codex-rs/core/src/client.rs:1570-1642、codex-rs/core/src/client.rs:1423-1467、codex-rs/core/src/client.rs:1262-1319、codex-rs/core/src/mcp_tool_call.rs:547-591、codex-rs/rollout-trace/src/thread.rs:401-417、codex-rs/rollout-trace/src/mcp.rs:1-67、codex-rs/otel/src/trace_context.rs:135-166、codex-rs/core/src/turn_timing.rs:53-101、codex-rs/core/src/turn_timing.rs:114-172、codex-rs/core/src/session/mod.rs:1786-1817、codex-rs/core/src/client.rs:2117-2150、codex-rs/core/src/client.rs:1777-1899、codex-rs/otel/src/events/session_telemetry.rs:695-752、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/tasks/mod.rs:769-808、codex-rs/rollout-trace/src/model/runtime.rs:23-130、codex-rs/otel/src/events/session_telemetry.rs:948-990、codex-rs/state/src/log_db.rs:286-334、codex-rs/state/src/log_db.rs:112-162、codex-rs/state/src/log_db.rs:356-410、codex-rs/rollout-trace/src/raw_event.rs:29-162、codex-rs/rollout-trace/src/writer.rs:49-147、codex-rs/rollout-trace/src/reducer/conversation.rs:34-129、codex-rs/otel/tests/suite/otlp_http_loopback.rs:257-345、codex-rs/otel/tests/suite/otlp_http_loopback.rs:143-226。",
+          "children": []
+        },
+        {
+          "title": "模型请求与响应流",
+          "name": "deep-dive/model-transport",
+          "description": "从 Prompt 追到 provider、Responses 请求、传输切换和流事件。",
+          "prompt": "从 Prompt 追到 provider、Responses 请求、传输切换和流事件。 核对源码 codex-rs/model-provider/src/provider.rs:81-155、codex-rs/models-manager/src/manager.rs:140-174、codex-rs/core/src/client.rs:219-247、codex-rs/core/src/client_common.rs:25-62、codex-rs/core/src/session/turn.rs:863-947、codex-rs/core/src/client.rs:717-805、codex-rs/core/src/client.rs:996-1074、codex-rs/core/src/client.rs:1570-1642、codex-rs/codex-api/src/endpoint/responses.rs:69-115、codex-rs/codex-api/src/common.rs:72-150、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/session/turn.rs:947-1021、codex-rs/rollout-trace/src/inference.rs:174-237。",
+          "children": []
+        },
+        {
+          "title": "配置、技能与 MCP",
+          "name": "deep-dive/config-extensions",
+          "description": "从配置分层、需求和项目可信度走到 skill 注入与 MCP 工具调用。",
+          "prompt": "从配置分层、需求和项目可信度走到 skill 注入与 MCP 工具调用。 核对源码 codex-rs/config/src/loader/mod.rs:111-245、codex-rs/config/src/loader/mod.rs:864-914、codex-rs/config/src/state.rs:449-475、codex-rs/core/src/config/mod.rs:1063-1140、codex-rs/core-skills/src/manager.rs:90-165、codex-rs/core/src/session/turn.rs:432-552、codex-rs/core/src/session/turn.rs:131-183、codex-rs/codex-mcp/src/connection_manager.rs:368-403、codex-rs/core/src/session/mcp.rs:290-326、codex-rs/codex-mcp/src/connection_manager.rs:590-641。",
+          "children": []
+        },
+        {
+          "title": "子代理与线程关系",
+          "name": "deep-dive/multi-agent",
+          "description": "从子代理创建到独立线程、任务递送、关闭与多代理轨迹。",
+          "prompt": "从子代理创建到独立线程、任务递送、关闭与多代理轨迹。 核对源码 codex-rs/core/src/agent/control.rs:185-281、codex-rs/core/src/agent/control.rs:682-733、codex-rs/core/src/agent/control.rs:784-827、codex-rs/features/src/lib.rs:916-936、codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs:1-85、codex-rs/core/src/thread_manager.rs:803-872、codex-rs/rollout-trace/README.md:172-212、codex-rs/app-server/README.md:1211-1247。",
+          "children": []
+        },
+        {
+          "title": "长期记忆的写入与读取",
+          "name": "deep-dive/memories",
+          "description": "追踪会话提取、全局整理、摘要注入与本地记忆工具。",
+          "prompt": "追踪会话提取、全局整理、摘要注入与本地记忆工具。 核对源码 codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/memories/write/src/start.rs:22-75、codex-rs/memories/README.md:31-78、codex-rs/memories/write/src/phase1.rs:225-322、codex-rs/memories/write/src/phase2.rs:43-153、codex-rs/memories/write/src/phase2.rs:294-358、codex-rs/memories/write/src/lib.rs:118-136、codex-rs/memories/read/src/prompts.rs:22-55、codex-rs/ext/memories/src/extension.rs:23-98、codex-rs/core/src/thread_manager.rs:640-685。",
+          "children": []
+        }
+      ]
+    }
+  ]
+}

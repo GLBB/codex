@@ -1,0 +1,48 @@
+# Codex 源码 Wiki
+
+> 中文源码导览。Codex CLI 通过 app-server 和 Core 启动会话与回合，调用模型与工具，并记录可恢复历史。源码引用固定到提交 9f42c89c01。
+
+会话 JSONL 用于恢复，诊断 bundle 可离线重放成运行图，OpenTelemetry 提供日志、跨度和指标。协议目录按发送方与消费者定位实现。
+
+## 首页
+
+- [Codex 源码 Wiki](./index.md): 文档地图与本地预览命令。
+
+## 角色指南
+
+- [角色指南](./onboarding/index.md): 按贡献者、架构工程师、工程管理者或产品经理的任务选择起点。
+- [贡献者指南](./onboarding/contributor-guide.md): 从熟悉的异步与接口概念入手，走过构建、源码阅读和定向验证。
+- [架构工程师指南](./onboarding/staff-engineer-guide.md): 用不同层的接口与验证证据评估架构改动。
+- [工程管理者指南](./onboarding/executive-guide.md): 从任务能力、外部依赖和可观测证据评估集成与运营成本。
+- [产品经理指南](./onboarding/product-manager-guide.md): 围绕开始任务、等待审批、查看进度与恢复会话梳理使用体验。
+
+## 核心架构
+
+- [Agent Loop](./architecture/agent-loop.md): 从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。
+- [工具调度与权限](./architecture/tools-permissions.md): 沿模型工具调用追到路由、执行、审批和工具结果回传。
+- [上下文与会话](./architecture/session-state.md): 追踪 ResponseItem 在内存历史、会话 JSONL、索引和恢复流程中的不同用途。
+- [app-server 与客户端协议](./architecture/app-server.md): 从 initialize、thread/start 到 turn/start、item 事件和审批回包。
+
+## 开始阅读
+
+- [本地运行与读日志](./getting-started/run-locally.md): 核对源码构建、离线握手、JSONL 观察及定向测试入口。
+
+## 协议设计
+
+- [协议设计总览](./protocols/index.md): 按生产者、消费者、传输和长期兼容边界定位 Codex 的协议专题。
+- [app-server、CLI 与 SDK 的线协议](./protocols/app-server-wire.md): 核对 JSON-RPC 载体、连接门槛、请求并发、反向请求和 SDK 适配。
+- [Core 操作、事件与会话文件](./protocols/core-history.md): 区分活跃运行接口、持久化历史和客户端历史投影。
+- [模型请求与响应协议](./protocols/model-wire.md): 核对 Responses 对象、SSE/WS 流、增量前缀与模型调用关联。
+- [工具调用、审批与动态工具协议](./protocols/tools-approval.md): 跟踪模型 call ID、工具 dispatch、用户审批的反向 RPC，以及客户端执行能力的回包。
+- [MCP 与 Hook 扩展协议](./protocols/mcp-hooks.md): 跟踪 Codex 的 MCP 双向角色，以及本地命令 Hook 的 stdin、stdout 与决策。
+- [进程、文件系统与远端执行协议](./protocols/execution.md): 跟踪 exec-server 的握手、进程流、恢复窗口和 protobuf relay。
+- [配置、能力与 schema 演进](./protocols/config-schema.md): 解释配置层的有效值、实验能力门槛，以及 Rust 到 TS/JSON Schema 的生成边界。
+
+## 子系统详解
+
+- [Trajectory 的设计与实现](./deep-dive/trajectory.md): 从 Core 生命周期到 raw bundle 和 reducer，重建请求、工具、压缩与跨线程关系。
+- [可观测性](./deep-dive/observability.md): 追踪本地日志、OpenTelemetry 三种信号、跨进程上下文、指标语义和本地验证。
+- [模型请求与响应流](./deep-dive/model-transport.md): 从 Prompt 追到 provider、Responses 请求、传输切换和流事件。
+- [配置、技能与 MCP](./deep-dive/config-extensions.md): 从配置分层、需求和项目可信度走到 skill 注入与 MCP 工具调用。
+- [子代理与线程关系](./deep-dive/multi-agent.md): 从子代理创建到独立线程、任务递送、关闭与多代理轨迹。
+- [长期记忆的写入与读取](./deep-dive/memories.md): 追踪会话提取、全局整理、摘要注入与本地记忆工具。
