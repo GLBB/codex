@@ -69,7 +69,7 @@
         {
           "title": "Codex 模块架构全景",
           "name": "architecture/module-overview",
-          "description": "从客户端、Core、模型、工具、扩展和存储理解 Codex 的运行边界，并查阅 179 个 Rust workspace 成员。",
+          "description": "读懂 Codex 的客户端与 Core 主链，查阅 179 个 Rust workspace 成员和仓库中的独立包。",
           "prompt": "从客户端与 app-server 进入 Core，再按模型、工具、存储和扩展定位模块。核对源码 codex-rs/Cargo.toml:1-176、codex-rs/app-server/src/message_processor.rs:372-423、codex-rs/app-server/src/request_processors/turn_processor.rs:727-809、codex-rs/core/src/session/turn.rs:663-698。",
           "children": []
         },

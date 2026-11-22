@@ -18,7 +18,7 @@
 
 ## 核心架构
 
-- [Codex 模块架构全景](./wiki/architecture/module-overview.md): 从客户端、Core、模型、工具、扩展和存储理解 Codex 的运行边界，并查阅 179 个 Rust workspace 成员。
+- [Codex 模块架构全景](./wiki/architecture/module-overview.md): 读懂 Codex 的客户端与 Core 主链，查阅 179 个 Rust workspace 成员和仓库中的独立包。
 - [Agent Loop](./wiki/architecture/agent-loop.md): 从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。
 - [工具调度与权限](./wiki/architecture/tools-permissions.md): 沿模型工具调用追到路由、执行、审批和工具结果回传。
 - [上下文与会话](./wiki/architecture/session-state.md): 追踪 ResponseItem 在内存历史、会话 JSONL、索引和恢复流程中的不同用途。
