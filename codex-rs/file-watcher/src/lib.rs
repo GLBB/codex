@@ -253,6 +253,49 @@ impl ThrottledWatchReceiver {
     }
 }
 
+/// Coalesces file watcher notifications that arrive within a fixed debounce
+/// window after the first event in each batch.
+pub struct DebouncedWatchReceiver {
+    rx: Receiver,
+    interval: Duration,
+    changed_paths: BTreeSet<PathBuf>,
+}
+
+impl DebouncedWatchReceiver {
+    /// Creates a debouncing wrapper around a raw watcher [`Receiver`].
+    pub fn new(rx: Receiver, interval: Duration) -> Self {
+        Self {
+            rx,
+            interval,
+            changed_paths: BTreeSet::new(),
+        }
+    }
+
+    /// Receives the next debounced event batch.
+    pub async fn recv(&mut self) -> Option<FileWatcherEvent> {
+        while self.changed_paths.is_empty() {
+            self.changed_paths.extend(self.rx.recv().await?.paths);
+        }
+        let deadline = Instant::now() + self.interval;
+
+        loop {
+            tokio::select! {
+                event = self.rx.recv() => match event {
+                    Some(event) => self.changed_paths.extend(event.paths),
+                    None => break,
+                },
+                _ = sleep_until(deadline) => break,
+            }
+        }
+
+        Some(FileWatcherEvent {
+            paths: std::mem::take(&mut self.changed_paths)
+                .into_iter()
+                .collect(),
+        })
+    }
+}
+
 /// Handle used to register watched paths for one logical consumer.
 pub struct FileWatcherSubscriber {
     id: SubscriberId,
@@ -275,9 +318,10 @@ impl FileWatcherSubscriber {
                 }
             })
             .collect::<Vec<_>>();
-        self.file_watcher.register_paths(self.id, &watched_paths);
+        let registration_succeeded = self.file_watcher.register_paths(self.id, &watched_paths);
 
         WatchRegistration {
+            registration_succeeded,
             file_watcher: Arc::downgrade(&self.file_watcher),
             subscriber_id: self.id,
             watched_paths: watched_paths
@@ -301,14 +345,23 @@ impl Drop for FileWatcherSubscriber {
 
 /// RAII guard for a set of active path registrations.
 pub struct WatchRegistration {
+    registration_succeeded: bool,
     file_watcher: std::sync::Weak<FileWatcher>,
     subscriber_id: SubscriberId,
     watched_paths: Vec<SubscriberWatchKey>,
 }
 
+impl WatchRegistration {
+    /// Whether all required OS watches registered successfully at creation time.
+    pub fn registration_succeeded(&self) -> bool {
+        self.registration_succeeded
+    }
+}
+
 impl Default for WatchRegistration {
     fn default() -> Self {
         Self {
+            registration_succeeded: false,
             file_watcher: std::sync::Weak::new(),
             subscriber_id: 0,
             watched_paths: Vec::new(),
@@ -390,7 +443,7 @@ impl FileWatcher {
         &self,
         subscriber_id: SubscriberId,
         watched_paths: &[SubscriberWatchRegistration],
-    ) {
+    ) -> bool {
         let mut state = self
             .state
             .write()
@@ -400,7 +453,7 @@ impl FileWatcher {
         for registration in watched_paths {
             let actual = {
                 let Some(subscriber) = state.subscribers.get_mut(&subscriber_id) else {
-                    return;
+                    return false;
                 };
                 match subscriber.watched_paths.entry(registration.key.clone()) {
                     std::collections::hash_map::Entry::Occupied(mut entry) => {
@@ -430,6 +483,29 @@ impl FileWatcher {
                 self.reconfigure_watch(&actual.path, next_mode, &mut inner_guard);
             }
         }
+
+        // Registration remains best-effort. Check that every requested path has an OS watch.
+        let Some(inner) = &self.inner else {
+            return false;
+        };
+        let guard = inner_guard.get_or_insert_with(|| {
+            inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        });
+        let Some(subscriber) = state.subscribers.get(&subscriber_id) else {
+            return false;
+        };
+        watched_paths.iter().all(|registration| {
+            let Some(watch) = subscriber.watched_paths.get(&registration.key) else {
+                return false;
+            };
+            match guard.watched_paths.get(&watch.actual.path) {
+                Some(RecursiveMode::Recursive) => true,
+                Some(RecursiveMode::NonRecursive) => !watch.actual.recursive,
+                None => false,
+            }
+        })
     }
 
     fn unregister_paths(&self, subscriber_id: SubscriberId, watched_paths: &[SubscriberWatchKey]) {

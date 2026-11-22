@@ -1,6 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "McpServerStartupFailureReason": {
+      "enum": [
+        "reauthenticationRequired"
+      ],
+      "type": "string"
+    },
     "McpServerStartupState": {
       "enum": [
         "starting",
@@ -12,10 +18,27 @@
     }
   },
   "properties": {
+    "environmentId": {
+      "description": "Registration scope, not necessarily the server's execution environment.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "error": {
       "type": [
         "string",
         "null"
+      ]
+    },
+    "failureReason": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/McpServerStartupFailureReason"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "name": {
@@ -23,6 +46,12 @@
     },
     "status": {
       "$ref": "#/definitions/McpServerStartupState"
+    },
+    "threadId": {
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [

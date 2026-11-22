@@ -1,14 +1,13 @@
 //! Low-level markdown event renderer for the TUI transcript.
 //!
 //! This module consumes `pulldown-cmark` events and emits styled `ratatui`
-//! lines, including table layout, width-aware wrapping, and local file-link
+//! lines, including table layout, task-list checkboxes, Mermaid previews, wrapping, and local file-link
 //! display. It is the final rendering stage used by higher-level helpers in
-//! `markdown.rs`.
+//! `markdown.rs`. Launch-time `tui.rendering` preferences preserve disabled features as source.
 //!
-//! This renderer intentionally treats local file links differently from normal web links. For
-//! local paths, the displayed text comes from the destination, not the markdown label, so
-//! transcripts show the real file target (including normalized location suffixes) and can shorten
-//! absolute paths relative to a known working directory.
+//! Local file-link parsing and display policy live in [`local_links`].
+//! List spacing stays a renderer policy: compact while streaming in an owned viewport, uniform
+//! after source-backed consolidation, and historical spacing for native scrollback.
 //!
 //! ## Table rendering pipeline
 //!
@@ -20,30 +19,48 @@
 //!    artifacts of pulldown-cmark's lenient parsing.
 //! 2. **Normalize column counts** -- pad or truncate so every row matches the
 //!    alignment count.
-//! 3. **Compute column widths** -- allocate widths with Narrative/Structured
+//! 3. **Compute column widths** -- allocate widths with content-aware
 //!    priority and iterative shrinking.
-//! 4. **Render box grid** -- Unicode borders (`┌───┬───┐`) or fallback to pipe
-//!    format when the minimum cannot fit.
+//! 4. **Choose presentation** -- render theme-accented row-separated columns
+//!    while values remain scannable, otherwise transpose body rows
+//!    into key/value records separated by muted rules.
 //! 5. **Append spillover** -- extracted spillover rows rendered as plain text
 //!    after the table.
 //!
 //! ## Width allocation
 //!
-//! Columns are classified as Narrative (long prose, >= 4 avg words or >= 28
-//! avg char width) or Structured (short tokens).  The shrink loop removes
-//! one character at a time, preferring Narrative columns, until the total
-//! fits the available width.  A guard cost penalises shrinking below a
-//! column's header token width.  When even 3-char-wide columns cannot fit,
-//! the table falls back to pipe-delimited format.
+//! Columns are classified as Narrative (long prose), TokenHeavy (paths, URLs,
+//! or hashes), or Compact (short values such as counts and status labels).
+//! Token-heavy columns give up excess width before narrative columns so an
+//! oversized path does not collapse readable prose; compact values are
+//! preserved last. When compact values split, token-heavy values collapse into
+//! unusably short chunks, expansive cells form tall narrow strips across enough
+//! body rows, or even 3-char-wide columns cannot fit, body rows render as
+//! key/value records.
+//!
+//! Markdown prose uses foregrounds from the active syntax theme's markup scopes,
+//! retaining its usual modifiers and falling back when a scope has no foreground.
+//! Inline code and local file paths share the active syntax theme's raw-markup foreground.
 
+use crate::line_truncation::span_width;
+use crate::markdown_text_merge::DecodedTextMerge;
+use crate::render::highlight::current_syntax_theme;
+use crate::render::highlight::foreground_color_for_scopes;
+use crate::render::highlight::foreground_style_for_scopes;
 use crate::render::highlight::highlight_code_to_lines;
+use crate::render::highlight::with_syntax_theme;
 use crate::render::line_utils::line_to_static;
-use crate::render::line_utils::push_owned_lines;
+use crate::style::accent_color;
+use crate::style::table_separator_style;
+use crate::terminal_hyperlinks::HyperlinkLine;
+use crate::terminal_hyperlinks::TerminalHyperlink;
+use crate::terminal_hyperlinks::markdown_destination;
+use crate::terminal_hyperlinks::remap_wrapped_line;
+use crate::terminal_hyperlinks::source_span_width;
+use crate::terminal_hyperlinks::visible_lines;
+use crate::width::display_width;
 use crate::wrapping::RtOptions;
-use crate::wrapping::adaptive_wrap_line;
 use crate::wrapping::word_wrap_line;
-use codex_utils_string::normalize_markdown_hash_location_suffix;
-use dirs::home_dir;
 use pulldown_cmark::Alignment;
 use pulldown_cmark::CodeBlockKind;
 use pulldown_cmark::CowStr;
@@ -54,17 +71,74 @@ use pulldown_cmark::Parser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 use ratatui::style::Style;
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
 use ratatui::text::Text;
-use regex_lite::Regex;
 use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::LazyLock;
-use unicode_width::UnicodeWidthStr;
-use url::Url;
+use unicode_segmentation::UnicodeSegmentation;
+
+mod inline_directives;
+mod list_spacing;
+mod local_links;
+pub(crate) use local_links::FileLink;
+pub(crate) use local_links::SourceLocation;
+pub(crate) use local_links::is_markdown_file;
+pub(crate) use local_links::sidebar_file_link;
+mod math;
+mod mermaid;
+pub(crate) mod preferences;
+mod source_tables;
+mod streaming;
+pub(crate) use streaming::render_with_copy_sources;
+mod table_key_value;
+mod task_lists;
+mod web_links;
+
+use inline_directives::InlineDirectives;
+pub(crate) use inline_directives::followup_labels;
+pub(crate) use list_spacing::ListSpacing;
+use list_spacing::UniformList;
+use local_links::is_local_path_like_link;
+use local_links::render_local_link_target;
+pub(crate) use streaming::StreamingMarkdownRender;
+pub(crate) use streaming::render_streaming_markdown_lines_with_width_and_cwd;
+#[cfg(test)]
+#[path = "markdown_render/list_spacing_tests.rs"]
+mod list_spacing_tests;
+#[cfg(test)]
+#[path = "markdown_render/task_list_tests.rs"]
+mod task_list_tests;
+pub(crate) use web_links::hide_web_link_destination;
+
+/// Find file destinations in source order, including Codex file citations.
+pub(crate) fn file_links(input: &str, cwd: Option<&Path>) -> Vec<FileLink> {
+    let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES;
+    let directives = InlineDirectives::new(input, options);
+    directives
+        .events(
+            Parser::new_ext(&directives.markdown, options).into_offset_iter(),
+            cwd,
+        )
+        .filter_map(|(event, _)| match event {
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                sidebar_file_link(&dest_url)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn hide_reader_link_destination(destination: &str) -> bool {
+    hide_web_link_destination(destination) || local_links::sidebar_file_link(destination).is_some()
+}
+use web_links::style_bare_web_urls;
+
+const TABLE_COLUMN_GAP: usize = 2;
+const TABLE_CELL_PADDING: usize = 1;
+const TABLE_HEADER_SEPARATOR_CHAR: char = '━';
+const TABLE_BODY_SEPARATOR_CHAR: char = '─';
 
 struct MarkdownStyles {
     h1: Style,
@@ -85,21 +159,51 @@ struct MarkdownStyles {
 
 impl Default for MarkdownStyles {
     fn default() -> Self {
+        with_syntax_theme(Self::for_theme)
+    }
+}
+
+impl MarkdownStyles {
+    fn for_theme(theme: &syntect::highlighting::Theme) -> Self {
+        let highlighter = syntect::highlighting::Highlighter::new(theme);
+        let color = |scopes: &[&str]| foreground_color_for_scopes(&highlighter, scopes);
+        let foreground = |scopes: &[&str]| Style {
+            fg: color(scopes).map(|c| crate::style::readable_color_on(c, /*background*/ None)),
+            ..Style::default()
+        };
         Self {
-            h1: Style::new().bold().underlined(),
-            h2: Style::new().bold(),
-            h3: Style::new().bold().italic(),
-            h4: Style::new().italic(),
-            h5: Style::new().italic(),
-            h6: Style::new().italic(),
-            code: Style::new().cyan(),
-            emphasis: Style::new().italic(),
-            strong: Style::new().bold(),
+            h1: foreground(&["markup.heading.1.markdown", "markup.heading.markdown"])
+                .bold()
+                .underlined(),
+            h2: foreground(&["markup.heading.2.markdown", "markup.heading.markdown"]).bold(),
+            h3: foreground(&["markup.heading.3.markdown", "markup.heading.markdown"])
+                .bold()
+                .italic(),
+            h4: foreground(&["markup.heading.4.markdown", "markup.heading.markdown"]).italic(),
+            h5: foreground(&["markup.heading.5.markdown", "markup.heading.markdown"]).italic(),
+            h6: foreground(&["markup.heading.6.markdown", "markup.heading.markdown"]).italic(),
+            code: Style::new().fg(color(&[
+                "markup.inline.raw.string.markdown",
+                "markup.raw.inline.markdown",
+            ])
+            .unwrap_or_else(accent_color)),
+            emphasis: foreground(&["markup.italic.markdown"]).italic(),
+            strong: foreground(&["markup.bold.markdown"]).bold(),
             strikethrough: Style::new().crossed_out(),
-            ordered_list_marker: Style::new().light_blue(),
-            unordered_list_marker: Style::new(),
-            link: Style::new().cyan().underlined(),
-            blockquote: Style::new().green(),
+            ordered_list_marker: Style::new()
+                .light_blue()
+                .patch(foreground(&["markup.list.numbered.markdown"])),
+            unordered_list_marker: foreground(&[
+                "markup.list.unnumbered.markdown",
+                "markup.list.bullet.markdown",
+            ]),
+            link: Style::new()
+                .fg(accent_color())
+                .patch(foreground(&["markup.underline.link.markdown"]))
+                .underlined(),
+            blockquote: Style::new()
+                .green()
+                .patch(foreground(&["markup.quote.markdown"])),
         }
     }
 }
@@ -108,16 +212,56 @@ impl Default for MarkdownStyles {
 struct IndentContext {
     prefix: Vec<Span<'static>>,
     marker: Option<Vec<Span<'static>>>,
+    copy_marker: String,
     is_list: bool,
 }
 
 impl IndentContext {
     fn new(prefix: Vec<Span<'static>>, marker: Option<Vec<Span<'static>>>, is_list: bool) -> Self {
+        // Keep the canonical marker separate from depth-dependent display padding.
+        let copy_marker = marker
+            .iter()
+            .flatten()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+            .trim_start()
+            .replace('•', "-");
         Self {
             prefix,
             marker,
+            copy_marker,
             is_list,
         }
+    }
+}
+
+/// Measures each span of an append-only line at most once, when a link needs its column.
+#[derive(Clone, Debug, Default)]
+struct SpanColumns {
+    measured_spans: usize,
+    width: usize,
+}
+
+impl SpanColumns {
+    fn measure(&mut self, line: &HyperlinkLine, width: impl Fn(&Span<'_>) -> usize) -> usize {
+        self.width += line.line.spans[self.measured_spans..]
+            .iter()
+            .map(width)
+            .sum::<usize>();
+        self.measured_spans = line.line.spans.len();
+        self.width
+    }
+
+    fn append_annotated(&mut self, line: &mut HyperlinkLine, mut appended: HyperlinkLine) {
+        if !appended.hyperlinks.is_empty() {
+            let shift = self.measure(line, span_width);
+            line.hyperlinks
+                .extend(appended.hyperlinks.into_iter().map(|mut link| {
+                    link.columns = link.columns.start + shift..link.columns.end + shift;
+                    link
+                }));
+        }
+        line.line.spans.append(&mut appended.line.spans);
     }
 }
 
@@ -128,7 +272,9 @@ impl IndentContext {
 /// `lines` are used for final rendering.
 #[derive(Clone, Debug, Default)]
 struct TableCell {
-    lines: Vec<Line<'static>>,
+    lines: Vec<HyperlinkLine>,
+    copies: Vec<crate::markdown_copy::CopyLine>,
+    columns: SpanColumns,
 }
 
 // TableCell mutators inlined — called per-span during table event parsing.
@@ -136,21 +282,34 @@ impl TableCell {
     #[inline]
     fn ensure_line(&mut self) {
         if self.lines.is_empty() {
-            self.lines.push(Line::default());
+            self.lines.push(HyperlinkLine::new(Line::default()));
+            self.copies.push(Default::default());
         }
     }
 
-    #[inline]
-    fn push_span(&mut self, span: Span<'static>) {
+    fn push_annotated(&mut self, appended: HyperlinkLine, inline: &[crate::markdown_copy::Inline]) {
         self.ensure_line();
+        if let Some(copy) = self.copies.last_mut() {
+            copy.push(
+                appended
+                    .line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.len())
+                    .sum(),
+                inline,
+            );
+        }
         if let Some(line) = self.lines.last_mut() {
-            line.push_span(span);
+            self.columns.append_annotated(line, appended);
         }
     }
 
     #[inline]
     fn hard_break(&mut self) {
-        self.lines.push(Line::default());
+        self.lines.push(HyperlinkLine::new(Line::default()));
+        self.copies.push(Default::default());
+        self.columns = SpanColumns::default();
     }
 
     fn plain_text(&self) -> String {
@@ -160,7 +319,7 @@ impl TableCell {
             if i > 0 {
                 buf.push(' ');
             }
-            for span in &line.spans {
+            for span in &line.line.spans {
                 let _ = write!(buf, "{}", span.content);
             }
         }
@@ -207,30 +366,28 @@ impl TableState {
 
 /// Rendered table output split by wrapping behavior.
 ///
-/// `table_lines` are either prewrapped grid rows (box rendering) or pipe
-/// fallback rows that should still pass through normal wrapping.
+/// `table_lines` are prewrapped aligned rows or key/value records, except
+/// header-only tables may retain pipe fallback rows for normal wrapping.
 /// `spillover_lines` are prose rows extracted from parser artifacts and should
 /// be routed through normal wrapping.
 struct RenderedTableLines {
-    table_lines: Vec<Line<'static>>,
+    table_lines: Vec<HyperlinkLine>,
     table_lines_prewrapped: bool,
-    spillover_lines: Vec<Line<'static>>,
+    spillover_lines: Vec<HyperlinkLine>,
 }
 
 /// Classification of a table column for width-allocation priority.
 ///
-/// Narrative columns (long prose, many words per cell) are shrunk first when the table exceeds
-/// available width.  Structured columns (short tokens like dates, status words, numbers) are
-/// preserved as long as possible to keep their content on a single line.
-///
-/// The heuristic is simple: >= 4 average words per cell OR >= 28 average character width →
-/// Narrative. Everything else → Structured.
+/// Token-heavy columns such as paths and URLs are allowed to wrap before prose becomes unreadable.
+/// Compact columns such as counts or status words resist wrapping so their values stay scannable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TableColumnKind {
     /// Long-form prose content (>= 4 avg words/cell or >= 28 avg char width).
     Narrative,
-    /// Short, token-like content that should resist wrapping.
-    Structured,
+    /// Content dominated by long tokens, such as paths, URLs, and hashes.
+    TokenHeavy,
+    /// Short values, such as counts and status labels, that should resist wrapping.
+    Compact,
 }
 
 /// Per-column statistics used to drive the width-allocation algorithm.
@@ -245,11 +402,7 @@ struct TableColumnMetrics {
     header_token_width: usize,
     /// Display width of the longest whitespace-delimited token across body rows.
     body_token_width: usize,
-    /// Average number of whitespace-delimited words per non-empty body cell.
-    avg_words_per_cell: f64,
-    /// Average display width of non-empty body cells.
-    avg_cell_width: f64,
-    /// Classification derived from `avg_words_per_cell` and `avg_cell_width`.
+    /// Classification derived from body token density and average cell content.
     kind: TableColumnKind,
 }
 
@@ -265,11 +418,11 @@ pub fn render_markdown_text(input: &str) -> Text<'static> {
 
 /// Render markdown constrained to a known terminal width.
 ///
-/// The renderer preserves table structure when possible and falls back to
-/// pipe-table output when a box table cannot fit the available width. Passing
-/// `None` keeps intrinsic line widths and disables width-driven wrapping in the
-/// markdown writer. Local file links render relative to the current process
-/// working directory.
+/// The renderer preserves columnar table structure while values remain
+/// scannable and falls back to key/value records when body rows cannot fit
+/// readably. Passing `None` keeps intrinsic line widths and disables
+/// width-driven wrapping in the markdown writer. Local file links render
+/// relative to the current process working directory.
 pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>) -> Text<'static> {
     let cwd = std::env::current_dir().ok();
     render_markdown_text_with_width_and_cwd(input, width, cwd.as_deref())
@@ -285,44 +438,88 @@ pub(crate) fn render_markdown_text_with_width_and_cwd(
     width: Option<usize>,
     cwd: Option<&Path>,
 ) -> Text<'static> {
+    Text::from(visible_lines(render_markdown_lines_with_width_and_cwd(
+        input, width, cwd,
+    )))
+}
+
+/// Keep destinations visible by default, including for callers that discard hyperlink metadata.
+/// Semantic output paths supply their hidden-destination policy explicitly.
+pub(crate) fn render_markdown_lines_with_width_and_cwd(
+    input: &str,
+    width: Option<usize>,
+    cwd: Option<&Path>,
+) -> Vec<HyperlinkLine> {
+    render_markdown_lines_with_width_cwd_and_hidden_link_destinations(
+        input,
+        width,
+        cwd,
+        &never_hide_link_destination,
+    )
+}
+
+fn never_hide_link_destination(_: &str) -> bool {
+    false
+}
+
+pub(crate) fn render_markdown_lines_with_width_cwd_and_hidden_link_destinations(
+    input: &str,
+    width: Option<usize>,
+    cwd: Option<&Path>,
+    is_hidden_link_destination: &dyn Fn(&str) -> bool,
+) -> Vec<HyperlinkLine> {
+    render_markdown_lines_with_list_spacing(
+        input,
+        width,
+        cwd,
+        is_hidden_link_destination,
+        ListSpacing::AfterMultiline,
+    )
+}
+
+pub(crate) fn render_markdown_lines_with_list_spacing(
+    input: &str,
+    width: Option<usize>,
+    cwd: Option<&Path>,
+    is_hidden_link_destination: &dyn Fn(&str) -> bool,
+    list_spacing: ListSpacing,
+) -> Vec<HyperlinkLine> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
-    let parser = Parser::new_ext(input, options).into_offset_iter();
-    let mut w = Writer::new(input, parser, width, cwd);
-    w.run();
+    options.set(Options::ENABLE_TASKLISTS, preferences::current().lists);
+    let math = math::MathMarkdown::new(input, options, width);
+    let parser = DecodedTextMerge::new(source_tables::preserve(
+        input,
+        math.events(Parser::new_ext(&math.markdown, options).into_offset_iter()),
+    ));
+    let mut w = Writer::new(input, width, cwd, is_hidden_link_destination);
+    w.list_spacing = list_spacing;
+    // Drop the consumed parser before the rendering state, including on unwind.
+    let mut parser = parser;
+    w.run(&mut parser);
     w.text
 }
 
 #[derive(Clone, Debug)]
 struct LinkState {
     destination: String,
+    source: usize,
     show_destination: bool,
+    style_label: bool,
+    has_visible_label: bool,
     /// Pre-rendered display text for local file links.
     ///
-    /// When this is present, the markdown label is intentionally suppressed so the rendered
-    /// transcript always reflects the real target path.
+    /// When this is present, label spans are buffered until the link closes so path-like labels
+    /// can collapse to this canonical target without losing descriptive labels.
     local_target_display: Option<String>,
+    local_label_spans: Vec<Span<'static>>,
+    local_label_inline: Vec<Vec<crate::markdown_copy::Inline>>,
 }
 
 fn should_render_link_destination(dest_url: &str) -> bool {
     !is_local_path_like_link(dest_url)
 }
-
-static COLON_LOCATION_SUFFIX_RE: LazyLock<Regex> =
-    LazyLock::new(
-        || match Regex::new(r":\d+(?::\d+)?(?:[-–]\d+(?::\d+)?)?$") {
-            Ok(regex) => regex,
-            Err(error) => panic!("invalid location suffix regex: {error}"),
-        },
-    );
-
-// Covered by load_location_suffix_regexes.
-static HASH_LOCATION_SUFFIX_RE: LazyLock<Regex> =
-    LazyLock::new(|| match Regex::new(r"^L\d+(?:C\d+)?(?:-L\d+(?:C\d+)?)?$") {
-        Ok(regex) => regex,
-        Err(error) => panic!("invalid hash location regex: {error}"),
-    });
 
 /// Stateful pulldown-cmark event consumer that builds styled `ratatui` output.
 ///
@@ -330,31 +527,42 @@ static HASH_LOCATION_SUFFIX_RE: LazyLock<Regex> =
 /// and an optional `TableState` for accumulating table events.  The
 /// `wrap_width` field enables width-aware line wrapping and table column
 /// allocation; when `None`, lines keep their intrinsic width.
-struct Writer<'a, I>
-where
-    I: Iterator<Item = (Event<'a>, Range<usize>)>,
-{
+/// Layout state is independent of the parser so rendering routines are compiled
+/// once; event traversal remains statically dispatched over each iterator.
+struct Writer<'a, 'policy> {
     input: &'a str,
-    iter: I,
-    text: Text<'static>,
+    text: Vec<HyperlinkLine>,
     styles: MarkdownStyles,
     inline_styles: Vec<Style>,
+    copy_inline: Vec<crate::markdown_copy::Inline>,
+    blocks: crate::markdown_copy::block::Stack,
+    copy_line: crate::markdown_copy::CopyLine,
+    quote_sources: Vec<std::sync::Arc<str>>,
+    code_sources: Vec<crate::markdown_copy::SourceBlock>,
+    transformed_code_source: Option<std::sync::Arc<str>>,
     indent_stack: Vec<IndentContext>,
     list_indices: Vec<Option<u64>>,
     list_needs_blank_before_next_item: Vec<bool>,
-    list_item_contains_code_block: Vec<bool>,
+    list_item_start_line_counts: Vec<usize>,
+    list_spacing: ListSpacing,
+    uniform_lists: Vec<UniformList>,
     link: Option<LinkState>,
     needs_newline: bool,
     pending_marker_line: bool,
+    last_task_marker_end: usize,
     in_paragraph: bool,
     in_code_block: bool,
     code_block_lang: Option<String>,
     code_block_buffer: String,
+    code_block_content: Range<usize>,
     wrap_width: Option<usize>,
     cwd: Option<PathBuf>,
+    is_hidden_link_destination: &'policy dyn Fn(&str) -> bool,
     line_ends_with_local_link_target: bool,
     pending_local_link_soft_break: bool,
-    current_line_content: Option<Line<'static>>,
+    current_line_content: Option<HyperlinkLine>,
+    display_columns: SpanColumns,
+    source_columns: SpanColumns,
     current_initial_indent: Vec<Span<'static>>,
     current_subsequent_indent: Vec<Span<'static>>,
     current_line_style: Style,
@@ -362,33 +570,47 @@ where
     table_state: Option<TableState>,
 }
 
-impl<'a, I> Writer<'a, I>
-where
-    I: Iterator<Item = (Event<'a>, Range<usize>)>,
-{
-    fn new(input: &'a str, iter: I, wrap_width: Option<usize>, cwd: Option<&Path>) -> Self {
+impl<'a, 'policy> Writer<'a, 'policy> {
+    fn new(
+        input: &'a str,
+        wrap_width: Option<usize>,
+        cwd: Option<&Path>,
+        is_hidden_link_destination: &'policy dyn Fn(&str) -> bool,
+    ) -> Self {
         Self {
             input,
-            iter,
-            text: Text::default(),
+            text: Vec::new(),
             styles: MarkdownStyles::default(),
             inline_styles: Vec::new(),
+            copy_inline: Vec::new(),
+            blocks: Default::default(),
+            copy_line: Default::default(),
+            quote_sources: Vec::new(),
+            code_sources: Vec::new(),
+            transformed_code_source: None,
             indent_stack: Vec::new(),
             list_indices: Vec::new(),
             list_needs_blank_before_next_item: Vec::new(),
-            list_item_contains_code_block: Vec::new(),
+            list_item_start_line_counts: Vec::new(),
+            list_spacing: ListSpacing::default(),
+            uniform_lists: Vec::new(),
             link: None,
             needs_newline: false,
             pending_marker_line: false,
+            last_task_marker_end: 0,
             in_paragraph: false,
             in_code_block: false,
             code_block_lang: None,
             code_block_buffer: String::new(),
+            code_block_content: 0..0,
             wrap_width,
             cwd: cwd.map(Path::to_path_buf),
+            is_hidden_link_destination,
             line_ends_with_local_link_target: false,
             pending_local_link_soft_break: false,
             current_line_content: None,
+            display_columns: SpanColumns::default(),
+            source_columns: SpanColumns::default(),
             current_initial_indent: Vec::new(),
             current_subsequent_indent: Vec::new(),
             current_line_style: Style::default(),
@@ -397,34 +619,93 @@ where
         }
     }
 
-    fn run(&mut self) {
-        while let Some((ev, range)) = self.iter.next() {
-            self.handle_event(ev, range);
+    fn run<I>(&mut self, iter: &mut I)
+    where
+        I: Iterator<Item = (Event<'a>, Range<usize>)>,
+    {
+        while let Some((ev, range)) = iter.next() {
+            self.handle_event(ev, range, iter);
         }
         self.flush_current_line();
     }
 
-    fn handle_event(&mut self, event: Event<'a>, range: Range<usize>) {
+    fn handle_event<I>(&mut self, event: Event<'a>, range: Range<usize>, iter: &mut I)
+    where
+        I: Iterator<Item = (Event<'a>, Range<usize>)>,
+    {
+        let source = self
+            .code_sources
+            .iter()
+            .find(|source| source.range.contains(&range.start))
+            .map(|source| std::sync::Arc::clone(&source.content));
+        let same_source = match (&source, &self.transformed_code_source) {
+            (Some(source), Some(current)) => std::sync::Arc::ptr_eq(source, current),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same_source {
+            self.flush_current_line();
+            self.transformed_code_source = source;
+        }
         self.prepare_for_event(&event);
+        let copy_inline = crate::markdown_copy::Inline::from_event(&event);
+        if let Some(inline) = &copy_inline {
+            self.copy_inline.push(inline.clone());
+        }
+        let close_inline = matches!(
+            event,
+            Event::Code(_)
+                | Event::End(
+                    TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link
+                )
+        );
         match event {
-            Event::Start(tag) => self.start_tag(tag, range),
-            Event::End(tag) => self.end_tag(tag),
-            Event::Text(text) => self.text(text),
+            Event::Start(tag) => {
+                if let Some(kind) = crate::markdown_copy::block::Stack::kind(&tag) {
+                    let prefix = self.copy_prefix(/*pending_marker_line*/ false).len();
+                    self.blocks.push(kind, prefix);
+                }
+                self.start_tag(tag, range, iter);
+            }
+            Event::End(tag) => {
+                self.end_tag(tag, range);
+                self.blocks.end(tag);
+            }
+            Event::Text(text) => {
+                if self.in_code_block {
+                    self.code_block_content.start = self.code_block_content.start.min(range.start);
+                    self.code_block_content.end = range.end;
+                }
+                self.text(text);
+            }
             Event::Code(code) => self.code(code),
             Event::SoftBreak => self.soft_break(),
             Event::HardBreak => self.hard_break(),
             Event::Rule => {
                 self.flush_current_line();
-                if !self.text.lines.is_empty() {
+                if !self.text.is_empty() {
                     self.push_blank_line();
                 }
                 self.push_line(Line::from("———"));
+                self.copy_line.rule = true;
                 self.needs_newline = true;
             }
             Event::Html(html) => self.html(html, /*inline*/ false),
             Event::InlineHtml(html) => self.html(html, /*inline*/ true),
             Event::FootnoteReference(_) => {}
-            Event::TaskListMarker(_) => {}
+            Event::TaskListMarker(checked) => {
+                // The parser can emit a recovered empty item's marker in a later paragraph.
+                if range.start >= self.last_task_marker_end {
+                    self.last_task_marker_end = range.end;
+                    self.task_list_marker(checked);
+                    if self.current_line_content.is_none() {
+                        self.push_line(Line::default());
+                    }
+                }
+            }
+        }
+        if close_inline {
+            self.copy_inline.pop();
         }
     }
 
@@ -445,12 +726,22 @@ where
         self.push_line(Line::default());
     }
 
-    fn start_tag(&mut self, tag: Tag<'a>, range: Range<usize>) {
+    fn start_tag<I>(&mut self, tag: Tag<'a>, range: Range<usize>, iter: &mut I)
+    where
+        I: Iterator<Item = (Event<'a>, Range<usize>)>,
+    {
         match tag {
             Tag::Paragraph => self.start_paragraph(),
             Tag::Heading { level, .. } => self.start_heading(level),
-            Tag::BlockQuote => self.start_blockquote(),
+            Tag::BlockQuote => {
+                self.start_blockquote();
+                let source = self.quote_sources.first().cloned().unwrap_or_else(|| {
+                    crate::markdown_copy::quote_content(&self.input[range]).into()
+                });
+                self.quote_sources.push(source);
+            }
             Tag::CodeBlock(kind) => {
+                self.code_block_content = range.end..range.end;
                 let indent = match kind {
                     CodeBlockKind::Fenced(_) => None,
                     CodeBlockKind::Indented => Some(Span::from(" ".repeat(4))),
@@ -461,12 +752,54 @@ where
                 };
                 self.start_codeblock(lang, indent)
             }
-            Tag::List(start) => self.start_list(start),
-            Tag::Item => self.start_item(),
+            Tag::List(start) => {
+                if self.pending_marker_line
+                    && self.input[..range.start]
+                        .rsplit('\n')
+                        .next()
+                        .is_some_and(|line| line.trim_matches(['>', ' ', '\t']).is_empty())
+                {
+                    self.push_line(Line::default());
+                }
+                self.start_list(start);
+            }
+            Tag::Item => {
+                self.start_item();
+                if let Some((next, next_range)) = iter.next() {
+                    // Recover markers consumed without an event before block content or empty items.
+                    let content_start = if matches!(next, Event::End(TagEnd::Item)) {
+                        range.end
+                    } else {
+                        next_range.start
+                    };
+                    if preferences::current().lists
+                        && let Some(prefix) = self.input.get(range.start..content_start)
+                        && let Some(prefix) = prefix.lines().next()
+                        && let Some((_, marker)) = prefix.trim().split_once(char::is_whitespace)
+                        && let Some(checked) = match marker.trim() {
+                            "[ ]" => Some(false),
+                            "[x]" | "[X]" => Some(true),
+                            _ => None,
+                        }
+                    {
+                        self.last_task_marker_end = content_start;
+                        self.task_list_marker(checked);
+                        if matches!(
+                            next,
+                            Event::Start(Tag::List(_) | Tag::HtmlBlock)
+                                | Event::End(TagEnd::Item)
+                                | Event::Rule
+                        ) {
+                            self.push_line(Line::default());
+                        }
+                    }
+                    self.handle_event(next, next_range, iter);
+                }
+            }
             Tag::Emphasis => self.push_inline_style(self.styles.emphasis),
             Tag::Strong => self.push_inline_style(self.styles.strong),
             Tag::Strikethrough => self.push_inline_style(self.styles.strikethrough),
-            Tag::Link { dest_url, .. } => self.push_link(dest_url.to_string()),
+            Tag::Link { dest_url, .. } => self.push_link(dest_url.to_string(), range.start),
             Tag::Table(alignments) => self.start_table(alignments),
             Tag::TableHead => self.start_table_head(),
             Tag::TableRow => self.start_table_row(range),
@@ -478,15 +811,38 @@ where
         }
     }
 
-    fn end_tag(&mut self, tag: TagEnd) {
+    fn end_tag(&mut self, tag: TagEnd, range: Range<usize>) {
         match tag {
-            TagEnd::Paragraph => self.end_paragraph(),
+            TagEnd::Paragraph => {
+                // At a streaming EOF, the parser omits a trailing hard-break event. Retain it
+                // before this line is committed and a later delta supplies the next line.
+                self.copy_line.hard_break |= self
+                    .input
+                    .get(..range.end)
+                    .is_some_and(|prefix| prefix.ends_with("  \n") || prefix.ends_with("  \r\n"));
+                self.end_paragraph();
+            }
             TagEnd::Heading(_) => self.end_heading(),
-            TagEnd::BlockQuote => self.end_blockquote(),
-            TagEnd::CodeBlock => self.end_codeblock(),
+            TagEnd::BlockQuote => {
+                self.flush_current_line();
+                self.end_blockquote();
+                self.quote_sources.pop();
+            }
+            TagEnd::CodeBlock => self.end_codeblock(range),
             TagEnd::List(_) => self.end_list(),
             TagEnd::Item => {
-                if self.list_item_contains_code_block.pop().unwrap_or(false)
+                if self.pending_marker_line {
+                    self.push_line(Line::default());
+                }
+                self.flush_current_line();
+                let start_line_count = self.list_item_start_line_counts.pop().unwrap_or_default();
+                if let Some(list) = self.uniform_lists.last_mut() {
+                    let rows = &self.text[start_line_count..];
+                    list.multiline |= rows.len() > 1
+                        || (rows.len() == 1
+                            && self.wrap_width.is_some_and(|width| rows[0].width() > width));
+                }
+                if self.text.len().saturating_sub(start_line_count) > 1
                     && let Some(needs_blank) = self.list_needs_blank_before_next_item.last_mut()
                 {
                     *needs_blank = true;
@@ -545,7 +901,9 @@ where
             HeadingLevel::H6 => self.styles.h6,
         };
         let content = format!("{} ", "#".repeat(level as usize));
+        let heading = content.len();
         self.push_line(Line::from(vec![Span::styled(content, heading_style)]));
+        self.copy_line.heading = heading;
         self.push_inline_style(heading_style);
         self.needs_newline = false;
     }
@@ -582,7 +940,14 @@ where
     }
 
     fn text(&mut self, text: CowStr<'a>) {
-        if self.suppressing_local_link_label() {
+        if self.collecting_local_link_label() {
+            let style = self.inline_styles.last().copied().unwrap_or_default();
+            for (index, line) in text.lines().enumerate() {
+                if index > 0 {
+                    self.push_local_link_label_break();
+                }
+                self.push_local_link_label_span(Span::styled(line.to_string(), style));
+            }
             return;
         }
         self.line_ends_with_local_link_target = false;
@@ -609,12 +974,11 @@ where
             let has_content = self
                 .current_line_content
                 .as_ref()
-                .map(|line| !line.spans.is_empty())
+                .map(|line| !line.line.spans.is_empty())
                 .unwrap_or_else(|| {
                     self.text
-                        .lines
                         .last()
-                        .map(|line| !line.spans.is_empty())
+                        .map(|line| !line.line.spans.is_empty())
                         .unwrap_or(false)
                 });
             if has_content {
@@ -630,17 +994,15 @@ where
                 self.push_line(Line::default());
             }
             let content = line.to_string();
-            let span = Span::styled(
-                content,
-                self.inline_styles.last().copied().unwrap_or_default(),
-            );
-            self.push_span(span);
+            let style = self.inline_styles.last().copied().unwrap_or_default();
+            self.push_text_spans(&content, style);
         }
         self.needs_newline = false;
     }
 
     fn code(&mut self, code: CowStr<'a>) {
-        if self.suppressing_local_link_label() {
+        if self.collecting_local_link_label() {
+            self.push_local_link_label_span(Span::from(code.into_string()).style(self.styles.code));
             return;
         }
         self.line_ends_with_local_link_target = false;
@@ -658,7 +1020,17 @@ where
     }
 
     fn html(&mut self, html: CowStr<'a>, inline: bool) {
-        if self.suppressing_local_link_label() {
+        if self.collecting_local_link_label() {
+            let style = self.inline_styles.last().copied().unwrap_or_default();
+            for (index, line) in html.lines().enumerate() {
+                if index > 0 {
+                    self.push_local_link_label_break();
+                }
+                self.push_local_link_label_span(Span::styled(line.to_string(), style));
+            }
+            if !inline {
+                self.push_local_link_label_break();
+            }
             return;
         }
         self.line_ends_with_local_link_target = false;
@@ -691,7 +1063,8 @@ where
     }
 
     fn hard_break(&mut self) {
-        if self.suppressing_local_link_label() {
+        if self.collecting_local_link_label() {
+            self.push_local_link_label_break();
             return;
         }
         self.line_ends_with_local_link_target = false;
@@ -699,11 +1072,13 @@ where
             self.push_table_cell_hard_break();
             return;
         }
+        self.copy_line.hard_break = true;
         self.push_line(Line::default());
     }
 
     fn soft_break(&mut self) {
-        if self.suppressing_local_link_label() {
+        if self.collecting_local_link_label() {
+            self.push_local_link_label_break();
             return;
         }
         if self.in_table_cell() {
@@ -726,25 +1101,56 @@ where
         }
         self.list_indices.push(index);
         self.list_needs_blank_before_next_item.push(false);
+        if self.list_spacing == ListSpacing::Uniform {
+            self.uniform_lists.push(UniformList::default());
+        }
     }
 
     fn end_list(&mut self) {
+        self.flush_current_line();
+        if let Some(list) = self.uniform_lists.pop() {
+            list.finish(&mut self.text);
+        }
         self.list_indices.pop();
         self.list_needs_blank_before_next_item.pop();
         self.needs_newline = true;
     }
 
     fn start_item(&mut self) {
-        if self
+        let after_multiline = self
             .list_needs_blank_before_next_item
             .last_mut()
             .map(std::mem::take)
-            .unwrap_or(false)
-        {
+            .unwrap_or(/*default*/ false);
+        self.flush_current_line();
+        let separate = match self.list_spacing {
+            ListSpacing::AfterMultiline => after_multiline,
+            ListSpacing::Compact => false,
+            ListSpacing::Uniform => self.uniform_lists.last().is_some_and(|list| list.has_item),
+        };
+        if separate {
+            let index = self.text.len();
             self.push_blank_line();
+            if let Some(line) = self.text.get_mut(index) {
+                let mut source = line.source.clone().unwrap_or_else(|| {
+                    crate::terminal_hyperlinks::LogicalLineSource::from_line(&line.line)
+                });
+                let mut copy = crate::markdown_copy::CopyLine::default();
+                copy.omit = true;
+                source.copy = Some(std::sync::Arc::new(copy));
+                line.source = Some(source);
+            }
+            if self.text.len() > index
+                && let Some(list) = self.uniform_lists.last_mut()
+            {
+                list.separators.push(index);
+            }
         }
+        if let Some(list) = self.uniform_lists.last_mut() {
+            list.has_item = true;
+        }
+        self.list_item_start_line_counts.push(self.text.len());
         self.pending_marker_line = true;
-        self.list_item_contains_code_block.push(false);
         let depth = self.list_indices.len();
         let is_ordered = self
             .list_indices
@@ -755,7 +1161,12 @@ where
         let marker = if let Some(last_index) = self.list_indices.last_mut() {
             match last_index {
                 None => Some(vec![Span::styled(
-                    " ".repeat(width - 1) + "- ",
+                    " ".repeat(width - 1)
+                        + if preferences::current().lists {
+                            "• "
+                        } else {
+                            "- "
+                        },
                     self.styles.unordered_list_marker,
                 )]),
                 Some(index) => {
@@ -784,11 +1195,15 @@ where
     }
 
     fn start_codeblock(&mut self, lang: Option<String>, indent: Option<Span<'static>>) {
-        for item_contains_code_block in &mut self.list_item_contains_code_block {
-            *item_contains_code_block = true;
-        }
         self.flush_current_line();
-        if !self.text.lines.is_empty() {
+        let first_item_block = self.pending_marker_line
+            && self
+                .indent_stack
+                .last()
+                .is_some_and(|context| context.is_list);
+        if !self.text.is_empty()
+            && (self.list_spacing == ListSpacing::AfterMultiline || !first_item_block)
+        {
             self.push_blank_line();
         }
         self.in_code_block = true;
@@ -813,14 +1228,50 @@ where
         self.needs_newline = true;
     }
 
-    fn end_codeblock(&mut self) {
-        // If we buffered code for a known language, syntax-highlight it now.
+    fn end_codeblock(&mut self, range: Range<usize>) {
+        // Completed Mermaid fences can replace source with a diagram; other blocks keep highlighting.
         if let Some(lang) = self.code_block_lang.take() {
             let code = std::mem::take(&mut self.code_block_buffer);
             if !code.is_empty() {
-                let highlighted = highlight_code_to_lines(&code, &lang);
+                // Disabled Markdown tables are rendered with the opening fence in the text
+                // event. Ordinary fenced code text starts after the opening fence.
+                let literal_markdown_fence = self.code_block_content.start == range.start
+                    && crate::table_detect::is_markdown_fence_info(&lang, /*marker_len*/ 0);
+                let diagram = if preferences::current().mermaid
+                    && lang == "mermaid"
+                    && mermaid::has_closing_fence(self.input, range, self.code_block_content.end)
+                {
+                    let indent =
+                        Self::spans_display_width(&self.prefix_spans(self.pending_marker_line));
+                    Some(mermaid::render(
+                        &code,
+                        self.wrap_width.map(|width| width.saturating_sub(indent)),
+                        &current_syntax_theme(),
+                    ))
+                } else {
+                    None
+                };
+                let code_language: Option<std::sync::Arc<str>> = diagram
+                    .is_none()
+                    .then(|| lang.split('`').next().unwrap_or_default().into());
+                let highlighted = match diagram {
+                    Some(diagram) => diagram,
+                    None => highlight_code_to_lines(&code, &lang),
+                };
+                let source = if literal_markdown_fence
+                    && let Some(crate::markdown::CopyTarget::Code { content, .. }) =
+                        crate::markdown::extract_copy_targets(&code)
+                            .into_iter()
+                            .next()
+                {
+                    content
+                } else {
+                    code.into()
+                };
                 for hl_line in highlighted {
                     self.push_line(Line::default());
+                    self.copy_line.code_source = Some(std::sync::Arc::clone(&source));
+                    self.copy_line.code_language = code_language.clone();
                     for span in hl_line.spans {
                         self.push_span(span);
                     }
@@ -847,24 +1298,51 @@ where
             return;
         };
 
+        let table: std::sync::Arc<[&str]> = table_state
+            .alignments
+            .iter()
+            .map(|alignment| match alignment {
+                Alignment::None => "---",
+                Alignment::Left => ":---",
+                Alignment::Center => ":---:",
+                Alignment::Right => "---:",
+            })
+            .collect();
         let RenderedTableLines {
             table_lines,
             table_lines_prewrapped,
             spillover_lines,
-        } = self.render_table_lines(table_state);
+        } = self.render_table_lines(table_state, &table);
         let mut pending_marker_line = self.pending_marker_line;
-        for line in table_lines {
+        for mut line in table_lines {
+            if line
+                .source
+                .as_ref()
+                .and_then(|source| source.copy.as_ref())
+                .is_none()
+            {
+                crate::markdown_copy::table::attach(
+                    &mut line,
+                    Some(crate::markdown_copy::table::TableLine::empty(&table)),
+                );
+            }
             if table_lines_prewrapped {
                 self.push_prewrapped_line(line, pending_marker_line);
             } else {
-                self.push_line(line);
+                let table = line
+                    .source
+                    .as_ref()
+                    .and_then(|source| source.copy.as_ref())
+                    .and_then(|copy| copy.table.clone());
+                self.push_hyperlink_line(line);
+                self.copy_line.table = table;
                 self.flush_current_line();
             }
             pending_marker_line = false;
         }
         self.pending_marker_line = false;
         for spillover_line in spillover_lines {
-            self.push_line(spillover_line);
+            self.push_hyperlink_line(spillover_line);
             self.flush_current_line();
         }
         self.needs_newline = true;
@@ -963,10 +1441,24 @@ where
     }
 
     fn push_span_to_table_cell(&mut self, span: Span<'static>) {
+        let span = self.style_link_label(span);
+        let annotated = if let Some(path) = self.label_document_path() {
+            self.document_label_span(span, path)
+        } else {
+            let mut annotated = HyperlinkLine::default();
+            annotated.push_span(
+                span,
+                self.link.as_ref().map(|link| link.destination.as_str()),
+            );
+            if let Some(link) = annotated.hyperlinks.last_mut() {
+                link.markdown_source = self.link.as_ref().map(|link| link.source);
+            }
+            annotated
+        };
         if let Some(table_state) = self.table_state.as_mut()
             && let Some(cell) = table_state.current_cell.as_mut()
         {
-            cell.push_span(span);
+            cell.push_annotated(annotated, &self.copy_inline);
         }
     }
 
@@ -984,22 +1476,31 @@ where
             if i > 0 {
                 self.push_table_cell_hard_break();
             }
-            self.push_span_to_table_cell(Span::styled(line.to_string(), style));
+            let annotated = self.annotate_text_span(line, style);
+            if let Some(table_state) = self.table_state.as_mut()
+                && let Some(cell) = table_state.current_cell.as_mut()
+            {
+                cell.push_annotated(annotated, &self.copy_inline);
+            }
         }
     }
 
-    /// Convert a completed `TableState` into styled `Line`s with Unicode
-    /// box-drawing borders.
+    /// Convert a completed `TableState` into styled table `Line`s.
     ///
     /// Pipeline: filter spillover rows -> normalize column counts -> compute
-    /// column widths -> render box grid (or fall back to pipe format if the
-    /// minimum column widths exceed available terminal width). Spillover rows
-    /// are appended as plain text after the table grid.
+    /// column widths -> render aligned rows or key/value records when values
+    /// systemically lose token readability or expansive cells become tall
+    /// narrow strips. Spillover rows are appended as plain text after the
+    /// table.
     ///
-    /// Falls back to `render_table_pipe_fallback` (raw `| A | B |` format)
-    /// when `compute_column_widths` returns `None` (terminal too narrow for
-    /// even 3-char-wide columns).
-    fn render_table_lines(&self, mut table_state: TableState) -> RenderedTableLines {
+    /// Falls back to key/value records when body rows cannot fit in the aligned
+    /// grid; header-only tables retain raw pipe output because they contain no
+    /// records to transpose.
+    fn render_table_lines(
+        &self,
+        mut table_state: TableState,
+        table: &std::sync::Arc<[&'static str]>,
+    ) -> RenderedTableLines {
         let column_count = table_state.alignments.len();
         if column_count == 0 {
             return RenderedTableLines {
@@ -1033,16 +1534,50 @@ where
         for row in &mut rows {
             Self::normalize_row(row, column_count);
         }
+        for (row_index, row) in std::iter::once(&mut header)
+            .chain(rows.iter_mut())
+            .enumerate()
+        {
+            for (column, cell) in row.iter_mut().enumerate() {
+                cell.ensure_line();
+                crate::markdown_copy::table::annotate_cell(
+                    &mut cell.lines,
+                    std::mem::take(&mut cell.copies),
+                    table,
+                    row_index,
+                    column,
+                );
+            }
+        }
 
+        let metrics = Self::collect_table_column_metrics(&header, &rows, column_count);
         let available_width = self.available_table_width(column_count);
-        let widths =
-            self.compute_column_widths(&header, &rows, &table_state.alignments, available_width);
-        let spillover_lines: Vec<Line<'static>> = spillover_rows
+        let widths = Self::compute_column_widths(&metrics, available_width);
+        let spillover_lines: Vec<HyperlinkLine> = spillover_rows
             .into_iter()
             .flat_map(|spillover| spillover.lines)
             .collect();
+        let header_style =
+            foreground_style_for_scopes(&["entity.name.type", "support.type", "variable"])
+                .unwrap_or(self.styles.strong)
+                .bold();
+        let separator_style = table_separator_style();
 
         let Some(column_widths) = widths else {
+            if !rows.is_empty() {
+                return RenderedTableLines {
+                    table_lines: table_key_value::render_records(
+                        &header,
+                        &rows,
+                        &metrics,
+                        self.available_record_width(),
+                        header_style,
+                        separator_style,
+                    ),
+                    table_lines_prewrapped: true,
+                    spillover_lines,
+                };
+            }
             return RenderedTableLines {
                 table_lines: self.render_table_pipe_fallback(
                     &header,
@@ -1054,25 +1589,67 @@ where
             };
         };
 
-        let border_style = Style::new().dim();
-        let mut out = Vec::with_capacity(3 + rows.len() * 2);
-        out.push(self.render_border_line('┌', '┬', '┐', &column_widths, border_style));
+        if table_key_value::should_render_records(&rows, &column_widths, &metrics) {
+            return RenderedTableLines {
+                table_lines: table_key_value::render_records(
+                    &header,
+                    &rows,
+                    &metrics,
+                    self.available_record_width(),
+                    header_style,
+                    separator_style,
+                ),
+                table_lines_prewrapped: true,
+                spillover_lines,
+            };
+        }
+
+        let mut out = Vec::with_capacity(2 + rows.len() * 2);
         out.extend(self.render_table_row(
             &header,
             &column_widths,
             &table_state.alignments,
-            border_style,
+            header_style,
         ));
-        out.push(self.render_border_line('├', '┼', '┤', &column_widths, border_style));
-        for row in &rows {
+        out.push(Self::render_table_separator(
+            &column_widths,
+            TABLE_HEADER_SEPARATOR_CHAR,
+            separator_style,
+        ));
+        for (row_idx, row) in rows.iter().enumerate() {
             out.extend(self.render_table_row(
                 row,
                 &column_widths,
                 &table_state.alignments,
-                border_style,
+                Style::default(),
             ));
+            if row_idx + 1 < rows.len() {
+                out.push(Self::render_table_separator(
+                    &column_widths,
+                    TABLE_BODY_SEPARATOR_CHAR,
+                    separator_style,
+                ));
+            }
         }
-        out.push(self.render_border_line('└', '┴', '┘', &column_widths, border_style));
+        // Include columns whose text ends before a neighbor wraps or whose value is empty.
+        let mut end = 0;
+        let edges: std::sync::Arc<[usize]> = column_widths
+            .iter()
+            .map(|width| {
+                end += width + 2 * TABLE_CELL_PADDING + TABLE_COLUMN_GAP;
+                end - TABLE_COLUMN_GAP / 2
+            })
+            .collect();
+        for line in &mut out {
+            if let Some(table) = line
+                .source
+                .as_mut()
+                .and_then(|source| source.copy.as_mut())
+                .and_then(|copy| std::sync::Arc::make_mut(copy).table.as_mut())
+            {
+                table.grid_columns = Some(std::sync::Arc::clone(&edges));
+            }
+        }
         RenderedTableLines {
             table_lines: out,
             table_lines_prewrapped: true,
@@ -1085,32 +1662,39 @@ where
         row.resize(column_count, TableCell::default());
     }
 
-    /// subtracts the space eaten by border characters
+    /// Subtract horizontal gutters and per-cell padding from the content budget.
     fn available_table_width(&self, column_count: usize) -> Option<usize> {
         self.wrap_width.map(|wrap_width| {
             let prefix_width =
                 Self::spans_display_width(&self.prefix_spans(self.pending_marker_line));
-            let reserved = prefix_width + 1 + (column_count * 3);
+            let reserved = prefix_width
+                + (column_count.saturating_sub(1) * TABLE_COLUMN_GAP)
+                + (column_count * TABLE_CELL_PADDING * 2);
             wrap_width.saturating_sub(reserved)
         })
     }
 
-    /// Allocate column widths for box-drawing table rendering.
+    /// Return the full content budget for record fallback rendering.
+    fn available_record_width(&self) -> Option<usize> {
+        self.wrap_width.map(|wrap_width| {
+            let prefix_width =
+                Self::spans_display_width(&self.prefix_spans(self.pending_marker_line));
+            wrap_width.saturating_sub(prefix_width)
+        })
+    }
+
+    /// Allocate column widths for aligned, row-separated table rendering.
     ///
     /// Each column starts at its natural (max cell content) width, then columns
-    /// are iteratively shrunk one character at a time until the total fits within
-    /// `available_width`. Narrative columns (long prose) are shrunk before
-    /// Structured columns (short tokens). Returns `None` when even the minimum
-    /// width (3 chars per column) cannot fit.
+    /// are shrunk by priority until the total fits within `available_width`.
+    /// Token-heavy columns surrender excess width before narrative prose; compact
+    /// columns are preserved last. Returns `None` when even the minimum width
+    /// (3 chars per column) cannot fit.
     fn compute_column_widths(
-        &self,
-        header: &[TableCell],
-        rows: &[Vec<TableCell>],
-        alignments: &[Alignment],
+        metrics: &[TableColumnMetrics],
         available_width: Option<usize>,
     ) -> Option<Vec<usize>> {
         let min_column_width = 3usize;
-        let metrics = Self::collect_table_column_metrics(header, rows, alignments.len());
         let mut widths: Vec<usize> = metrics
             .iter()
             .map(|col| col.max_width.max(min_column_width))
@@ -1119,7 +1703,7 @@ where
         let Some(max_width) = available_width else {
             return Some(widths);
         };
-        let minimum_total = alignments.len() * min_column_width;
+        let minimum_total = metrics.len() * min_column_width;
         if max_width < minimum_total {
             return None;
         }
@@ -1128,43 +1712,19 @@ where
             .iter()
             .map(|col| Self::preferred_column_floor(col, min_column_width))
             .collect();
-        let mut floor_total: usize = floors.iter().sum();
+        let floor_total: usize = floors.iter().sum();
         if floor_total > max_width {
-            // Relax preferred floors (starting with narrative columns) until we can satisfy the
-            // width budget. We still keep hard minimums.
-            while floor_total > max_width {
-                let Some((idx, _)) = floors
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, floor)| **floor > min_column_width)
-                    .min_by_key(|(idx, floor)| {
-                        let kind_priority = match metrics[*idx].kind {
-                            TableColumnKind::Narrative => 0,
-                            TableColumnKind::Structured => 1,
-                        };
-                        (kind_priority, *floor)
-                    })
-                else {
-                    break;
-                };
-
-                floors[idx] -= 1;
-                floor_total -= 1;
-            }
+            let minimums = vec![min_column_width; floors.len()];
+            Self::shrink_columns(&mut floors, &minimums, metrics, floor_total - max_width);
         }
 
-        let mut total_width: usize = widths.iter().sum();
-
-        while total_width > max_width {
-            let Some(idx) = Self::next_column_to_shrink(&widths, &floors, &metrics) else {
-                break;
-            };
-            widths[idx] -= 1;
-            total_width -= 1;
-        }
-
+        let total_width: usize = widths.iter().sum();
         if total_width > max_width {
-            return None;
+            let remaining =
+                Self::shrink_columns(&mut widths, &floors, metrics, total_width - max_width);
+            if remaining > 0 {
+                return None;
+            }
         }
 
         Some(widths)
@@ -1182,6 +1742,8 @@ where
             let header_token_width = Self::longest_token_width(&header_plain);
             let mut max_width = Self::cell_display_width(header_cell);
             let mut body_token_width = 0usize;
+            let mut body_token_count = 0usize;
+            let mut long_body_token_count = 0usize;
             let mut total_words = 0usize;
             let mut total_cells = 0usize;
             let mut total_cell_width = 0usize;
@@ -1190,12 +1752,18 @@ where
                 let cell = &row[column];
                 max_width = max_width.max(Self::cell_display_width(cell));
                 let plain = cell.plain_text();
-                body_token_width = body_token_width.max(Self::longest_token_width(&plain));
-                let word_count = plain.split_whitespace().count();
+                let mut word_count = 0usize;
+                for token in plain.split_whitespace() {
+                    let token_width = display_width(token);
+                    body_token_width = body_token_width.max(token_width);
+                    long_body_token_count += usize::from(token_width >= 20);
+                    word_count += 1;
+                }
                 if word_count > 0 {
+                    body_token_count += word_count;
                     total_words += word_count;
                     total_cells += 1;
-                    total_cell_width += plain.width();
+                    total_cell_width += display_width(&plain);
                 }
             }
 
@@ -1205,26 +1773,24 @@ where
                 total_words as f64 / total_cells as f64
             };
             let avg_cell_width = if total_cells == 0 {
-                header_plain.width() as f64
+                display_width(&header_plain) as f64
             } else {
                 total_cell_width as f64 / total_cells as f64
             };
-            let kind = if body_token_width >= 20 && avg_words_per_cell <= 2.0 {
-                // URL-like/token-heavy columns should resist collapse even if their
-                // average cell width is high.
-                TableColumnKind::Structured
+            let kind = if long_body_token_count > 0
+                && long_body_token_count >= body_token_count.saturating_sub(long_body_token_count)
+            {
+                TableColumnKind::TokenHeavy
             } else if avg_words_per_cell >= 4.0 || avg_cell_width >= 28.0 {
                 TableColumnKind::Narrative
             } else {
-                TableColumnKind::Structured
+                TableColumnKind::Compact
             };
 
             metrics.push(TableColumnMetrics {
                 max_width,
                 header_token_width,
                 body_token_width,
-                avg_words_per_cell,
-                avg_cell_width,
                 kind,
             });
         }
@@ -1235,79 +1801,115 @@ where
     /// Compute the preferred minimum width for a column before the shrink loop
     /// starts reducing it further.
     ///
-    /// Narrative columns floor at the header's longest token (capped at 10).
-    /// Structured columns floor at the larger of the header and body token widths
+    /// Narrative and token-heavy columns retain a readable 16-cell soft floor.
+    /// Compact columns floor at the larger of the header and body token widths
     /// (body capped at 16). The result is clamped to `[min_column_width, max_width]`.
     fn preferred_column_floor(metrics: &TableColumnMetrics, min_column_width: usize) -> usize {
         let token_target = match metrics.kind {
-            TableColumnKind::Narrative => metrics.header_token_width.min(10),
-            TableColumnKind::Structured => metrics
+            TableColumnKind::Narrative | TableColumnKind::TokenHeavy => 16,
+            TableColumnKind::Compact => metrics
                 .header_token_width
                 .max(metrics.body_token_width.min(16)),
         };
         token_target.max(min_column_width).min(metrics.max_width)
     }
 
-    /// Pick the next column to shrink by one character during width allocation.
+    /// Shrink columns in priority order, balancing slack within each priority.
     ///
-    /// Priority: Narrative columns are shrunk before Structured. Within the same
-    /// kind, the column with the most slack above its floor is chosen. A guard
-    /// cost is added when the width would fall below the header's longest token
-    /// (to avoid truncating column headers).
-    fn next_column_to_shrink(
-        widths: &[usize],
+    /// Priority: TokenHeavy columns are shrunk before Narrative, then Compact.
+    /// Within the same kind, columns with the most slack above their floor are
+    /// shrunk first so similarly-shaped columns stay balanced. This produces the
+    /// same result as repeatedly shrinking one display cell, without repeatedly
+    /// scanning every column for long tokens.
+    fn shrink_columns(
+        widths: &mut [usize],
         floors: &[usize],
         metrics: &[TableColumnMetrics],
-    ) -> Option<usize> {
-        widths
-            .iter()
-            .enumerate()
-            .filter(|(idx, width)| **width > floors[*idx])
-            .min_by_key(|(idx, width)| {
-                let slack = width.saturating_sub(floors[*idx]);
-                let kind_cost = match metrics[*idx].kind {
-                    TableColumnKind::Narrative => 0i32,
-                    TableColumnKind::Structured => 2i32,
-                };
-                let header_guard = if **width <= metrics[*idx].header_token_width {
-                    3i32
-                } else {
-                    0i32
-                };
-                let density_guard = if metrics[*idx].avg_words_per_cell >= 4.0
-                    || metrics[*idx].avg_cell_width >= 24.0
-                {
-                    0i32
-                } else {
-                    1i32
-                };
-                (
-                    kind_cost + header_guard + density_guard,
-                    usize::MAX.saturating_sub(slack),
-                )
-            })
-            .map(|(idx, _)| idx)
-    }
+        mut amount: usize,
+    ) -> usize {
+        for kind in [
+            TableColumnKind::TokenHeavy,
+            TableColumnKind::Narrative,
+            TableColumnKind::Compact,
+        ] {
+            let slack_total = widths
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| metrics[*idx].kind == kind)
+                .map(|(idx, width)| width.saturating_sub(floors[idx]))
+                .sum::<usize>();
+            let to_remove = amount.min(slack_total);
+            if to_remove == 0 {
+                continue;
+            }
 
-    fn render_border_line(
-        &self,
-        left: char,
-        sep: char,
-        right: char,
-        column_widths: &[usize],
-        style: Style,
-    ) -> Line<'static> {
-        let mut spans = Vec::with_capacity(column_widths.len() * 2 + 1);
-        spans.push(Span::styled(String::from(left), style));
-        for (idx, width) in column_widths.iter().enumerate() {
-            spans.push(Span::styled("─".repeat(*width + 2), style));
-            if idx + 1 == column_widths.len() {
-                spans.push(Span::styled(String::from(right), style));
-            } else {
-                spans.push(Span::styled(String::from(sep), style));
+            let mut low = 0usize;
+            let mut high = widths
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| metrics[*idx].kind == kind)
+                .map(|(idx, width)| width.saturating_sub(floors[idx]))
+                .max()
+                .unwrap_or(/*default*/ 0);
+            while low < high {
+                let cap = low + (high - low) / 2;
+                let removed = widths
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, _)| metrics[*idx].kind == kind)
+                    .map(|(idx, width)| width.saturating_sub(floors[idx]).saturating_sub(cap))
+                    .sum::<usize>();
+                if removed > to_remove {
+                    low = cap + 1;
+                } else {
+                    high = cap;
+                }
+            }
+
+            let cap = low;
+            let mut removed = 0usize;
+            for (idx, width) in widths.iter_mut().enumerate() {
+                if metrics[idx].kind != kind {
+                    continue;
+                }
+                let reduction = width.saturating_sub(floors[idx]).saturating_sub(cap);
+                *width -= reduction;
+                removed += reduction;
+            }
+
+            let mut remainder = to_remove - removed;
+            for (idx, width) in widths.iter_mut().enumerate() {
+                if remainder == 0 {
+                    break;
+                }
+                if metrics[idx].kind == kind && width.saturating_sub(floors[idx]) == cap {
+                    *width -= 1;
+                    remainder -= 1;
+                }
+            }
+
+            amount -= to_remove;
+            if amount == 0 {
+                break;
             }
         }
-        Line::from(spans)
+
+        amount
+    }
+
+    fn render_table_separator(
+        column_widths: &[usize],
+        separator_char: char,
+        style: Style,
+    ) -> HyperlinkLine {
+        let segment_char = separator_char.to_string();
+        let gap = " ".repeat(TABLE_COLUMN_GAP);
+        let text = column_widths
+            .iter()
+            .map(|width| segment_char.repeat(*width + (TABLE_CELL_PADDING * 2)))
+            .collect::<Vec<_>>()
+            .join(&gap);
+        HyperlinkLine::new(Line::from(Span::styled(text, style)))
     }
 
     fn render_table_row(
@@ -1315,9 +1917,9 @@ where
         row: &[TableCell],
         column_widths: &[usize],
         alignments: &[Alignment],
-        border_style: Style,
-    ) -> Vec<Line<'static>> {
-        let wrapped_cells: Vec<Vec<Line<'static>>> = row
+        row_style: Style,
+    ) -> Vec<HyperlinkLine> {
+        let wrapped_cells: Vec<Vec<HyperlinkLine>> = row
             .iter()
             .zip(column_widths)
             .map(|(cell, width)| self.wrap_cell(cell, *width))
@@ -1326,15 +1928,35 @@ where
 
         let mut out = Vec::with_capacity(row_height);
         for row_line in 0..row_height {
+            let Some(last_visible_column) = wrapped_cells.iter().rposition(|lines| {
+                lines
+                    .get(row_line)
+                    .is_some_and(|line| Self::line_display_width(&line.line) > 0)
+            }) else {
+                let mut line = wrapped_cells
+                    .iter()
+                    .find_map(|cell| cell.get(row_line))
+                    .cloned()
+                    .unwrap_or_default();
+                line.line.style = row_style;
+                out.push(line);
+                continue;
+            };
             let mut spans = Vec::new();
-            spans.push(Span::styled("│", border_style));
-            for (column, width) in column_widths.iter().enumerate() {
-                spans.push(Span::raw(" "));
-                let line = wrapped_cells[column]
+            let mut copy = None;
+            let mut byte_offset = 0;
+            for (column, width) in column_widths
+                .iter()
+                .enumerate()
+                .take(last_visible_column + 1)
+            {
+                spans.push(Span::raw(" ".repeat(TABLE_CELL_PADDING)));
+                byte_offset += TABLE_CELL_PADDING;
+                let mut line = wrapped_cells[column]
                     .get(row_line)
                     .cloned()
                     .unwrap_or_default();
-                let line_width = Self::line_display_width(&line);
+                let line_width = Self::line_display_width(&line.line);
                 let remaining = width.saturating_sub(line_width);
                 let (left_padding, right_padding) = match alignments[column] {
                     Alignment::Left | Alignment::None => (0, remaining),
@@ -1344,50 +1966,178 @@ where
                 if left_padding > 0 {
                     spans.push(Span::raw(" ".repeat(left_padding)));
                 }
-                spans.extend(line.spans);
-                if right_padding > 0 {
-                    spans.push(Span::raw(" ".repeat(right_padding)));
+                byte_offset += left_padding;
+                if let Some(source) = &line.source {
+                    crate::markdown_copy::table::append(&mut copy, source, byte_offset);
                 }
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled("│", border_style));
+                byte_offset += line
+                    .line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.len())
+                    .sum::<usize>();
+                spans.append(&mut line.line.spans);
+                let is_last_column = column == last_visible_column;
+                if right_padding > 0 && !is_last_column {
+                    spans.push(Span::raw(" ".repeat(right_padding)));
+                    byte_offset += right_padding;
+                }
+                if !is_last_column {
+                    spans.push(Span::raw(" ".repeat(TABLE_CELL_PADDING)));
+                    byte_offset += TABLE_CELL_PADDING;
+                }
+                if !is_last_column {
+                    spans.push(Span::raw(" ".repeat(TABLE_COLUMN_GAP)));
+                    byte_offset += TABLE_COLUMN_GAP;
+                }
             }
-            out.push(Line::from(spans));
+            let mut out_line = HyperlinkLine::new(Line::from(spans).style(row_style));
+            crate::markdown_copy::table::attach(&mut out_line, copy);
+            let mut column_start = 0usize;
+            for (column, width) in column_widths
+                .iter()
+                .enumerate()
+                .take(last_visible_column + 1)
+            {
+                column_start += TABLE_CELL_PADDING;
+                if let Some(line) = wrapped_cells[column].get(row_line) {
+                    let remaining = width.saturating_sub(Self::line_display_width(&line.line));
+                    let left_padding = match alignments[column] {
+                        Alignment::Left | Alignment::None => 0,
+                        Alignment::Center => remaining / 2,
+                        Alignment::Right => remaining,
+                    };
+                    out_line
+                        .hyperlinks
+                        .extend(line.hyperlinks.iter().cloned().map(|mut link| {
+                            link.columns = link.columns.start + column_start + left_padding
+                                ..link.columns.end + column_start + left_padding;
+                            link
+                        }));
+                }
+                column_start += *width + TABLE_CELL_PADDING + TABLE_COLUMN_GAP;
+            }
+            out.push(out_line);
         }
         out
     }
 
-    /// Render the table as raw pipe-delimited lines (`| A | B |`).
+    /// Render a header-only table as raw pipe-delimited lines (`| A | B |`).
     ///
-    /// Used when `compute_column_widths` returns `None` (terminal too narrow
-    /// for even 3-char-wide columns).  Pipe characters inside cell content are
-    /// escaped as `\|` so downstream parsers keep cell boundaries intact.
+    /// Used when `compute_column_widths` returns `None` and there are no body
+    /// records to transpose. Pipe characters inside cell content are escaped
+    /// as `\|` so downstream parsers keep cell boundaries intact.
     fn render_table_pipe_fallback(
         &self,
         header: &[TableCell],
         rows: &[Vec<TableCell>],
         alignments: &[Alignment],
-    ) -> Vec<Line<'static>> {
+    ) -> Vec<HyperlinkLine> {
         let mut out = Vec::new();
-        out.push(Line::from(Self::row_to_pipe_string(header)));
-        out.push(Line::from(Self::alignments_to_pipe_delimiter(alignments)));
-        out.extend(
-            rows.iter()
-                .map(|row| Line::from(Self::row_to_pipe_string(row))),
-        );
+        out.push(Self::row_to_pipe_line(header));
+        out.push(HyperlinkLine::new(Line::from(
+            Self::alignments_to_pipe_delimiter(alignments),
+        )));
+        out.extend(rows.iter().map(|row| Self::row_to_pipe_line(row)));
         out
     }
 
-    fn row_to_pipe_string(row: &[TableCell]) -> String {
-        let mut out = String::new();
-        out.push('|');
+    fn row_to_pipe_line(row: &[TableCell]) -> HyperlinkLine {
+        let mut out = HyperlinkLine::new(Line::default());
+        let mut copy = None;
+        let mut byte_offset = 1;
+        let mut output_column = 1;
+        out.push_span("|".into(), /*destination*/ None);
         for cell in row {
-            out.push(' ');
-            // Preserve literal `|` inside cell text in markdown fallback mode so
-            // downstream markdown parsers keep the cell content intact.
-            out.push_str(&cell.plain_text().replace('|', "\\|"));
-            out.push(' ');
-            out.push('|');
+            out.push_span(" ".into(), /*destination*/ None);
+            byte_offset += 1;
+            output_column += 1;
+            for (index, line) in cell.lines.iter().enumerate() {
+                if index > 0 {
+                    out.push_span(" ".into(), /*destination*/ None);
+                    byte_offset += 1;
+                    output_column += 1;
+                }
+                let text = line
+                    .line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>();
+                // Link ranges count graphemes within each original span. Flattening
+                // the line can join graphemes across style boundaries.
+                let mut source_graphemes = line
+                    .line
+                    .spans
+                    .iter()
+                    .flat_map(|span| span.content.graphemes(/*is_extended*/ true))
+                    .peekable();
+                let mut source_byte = 0;
+                let mut source_column = 0;
+                let mut current_link = None;
+                let mut run_start = output_column;
+                let mut current_text = String::new();
+                let flush = |out: &mut HyperlinkLine,
+                             current_text: &mut String,
+                             link: Option<&TerminalHyperlink>,
+                             columns: std::ops::Range<usize>| {
+                    if current_text.is_empty() {
+                        return;
+                    }
+                    let span = Span::raw(std::mem::take(current_text));
+                    out.push_span(span, /*destination*/ None);
+                    if let Some(link) = link
+                        && !columns.is_empty()
+                    {
+                        out.hyperlinks.push(link.with_columns(columns));
+                    }
+                };
+                for (byte, grapheme) in text.grapheme_indices(/*is_extended*/ true) {
+                    while let Some(source) =
+                        source_graphemes.next_if(|source| source_byte + source.len() <= byte)
+                    {
+                        source_byte += source.len();
+                        source_column += display_width(source);
+                    }
+                    let link = line
+                        .hyperlinks
+                        .iter()
+                        .find(|link| link.columns.contains(&source_column));
+                    if link != current_link {
+                        flush(
+                            &mut out,
+                            &mut current_text,
+                            current_link,
+                            run_start..output_column,
+                        );
+                        current_link = link;
+                        run_start = output_column;
+                    }
+                    if grapheme.starts_with('|') {
+                        current_text.push('\\');
+                        byte_offset += 1;
+                        output_column += 1;
+                    }
+                    current_text.push_str(grapheme);
+                    if let Some(mut source) = line.source.clone() {
+                        source.range = byte..byte + grapheme.len();
+                        crate::markdown_copy::table::append(&mut copy, &source, byte_offset);
+                    }
+                    byte_offset += grapheme.len();
+                    output_column += display_width(grapheme);
+                }
+                flush(
+                    &mut out,
+                    &mut current_text,
+                    current_link,
+                    run_start..output_column,
+                );
+            }
+            out.push_span(" |".into(), /*destination*/ None);
+            byte_offset += 2;
+            output_column += 2;
         }
+        crate::markdown_copy::table::attach(&mut out, copy);
         out
     }
 
@@ -1413,21 +2163,25 @@ where
     /// Each logical line within the cell (separated by hard breaks) is wrapped
     /// independently.  Empty cells produce a single blank line so the row grid
     /// stays aligned.
-    fn wrap_cell(&self, cell: &TableCell, width: usize) -> Vec<Line<'static>> {
+    fn wrap_cell(&self, cell: &TableCell, width: usize) -> Vec<HyperlinkLine> {
         if cell.lines.is_empty() {
-            return vec![Line::default()];
+            return vec![HyperlinkLine::new(Line::default())];
         }
         let mut wrapped = Vec::new();
         for source_line in &cell.lines {
-            let rendered = word_wrap_line(source_line, RtOptions::new(width.max(1)));
+            let rendered =
+                word_wrap_line(&source_line.line, RtOptions::new(width.max(/*other*/ 1)))
+                    .into_iter()
+                    .map(|line| line_to_static(&line))
+                    .collect::<Vec<_>>();
             if rendered.is_empty() {
-                wrapped.push(Line::default());
+                wrapped.push(source_line.clone());
             } else {
-                push_owned_lines(&rendered, &mut wrapped);
+                wrapped.extend(remap_wrapped_line(source_line, rendered));
             };
         }
         if wrapped.is_empty() {
-            wrapped.push(Line::default());
+            wrapped.push(HyperlinkLine::new(Line::default()));
         }
         wrapped
     }
@@ -1527,7 +2281,10 @@ where
 
     #[inline]
     fn spans_display_width(spans: &[Span<'_>]) -> usize {
-        spans.iter().map(|span| span.content.width()).sum()
+        spans
+            .iter()
+            .map(|span| display_width(span.content.as_ref()))
+            .sum()
     }
 
     #[inline]
@@ -1539,14 +2296,17 @@ where
     fn cell_display_width(cell: &TableCell) -> usize {
         cell.lines
             .iter()
-            .map(Self::line_display_width)
+            .map(|line| Self::line_display_width(&line.line))
             .max()
             .unwrap_or(0)
     }
 
     #[inline]
     fn longest_token_width(text: &str) -> usize {
-        text.split_whitespace().map(str::width).max().unwrap_or(0)
+        text.split_whitespace()
+            .map(display_width)
+            .max()
+            .unwrap_or(0)
     }
 
     fn push_inline_style(&mut self, style: Style) {
@@ -1559,37 +2319,77 @@ where
         self.inline_styles.pop();
     }
 
-    fn push_link(&mut self, dest_url: String) {
-        let show_destination = should_render_link_destination(&dest_url);
+    fn style_link_label(&mut self, mut span: Span<'static>) -> Span<'static> {
+        if let Some(link) = self.link.as_mut()
+            && (link.style_label || markdown_destination(&link.destination).is_some())
+        {
+            link.has_visible_label |=
+                !span.content.trim().is_empty() && display_width(&span.content) > 0;
+            span.style = span.style.patch(self.styles.link);
+        }
+        span
+    }
+
+    fn push_link(&mut self, dest_url: String, source: usize) {
+        let style_label = (self.is_hidden_link_destination)(&dest_url);
+        if style_label {
+            self.push_inline_style(self.styles.link);
+        }
+        let show_destination = !style_label && should_render_link_destination(&dest_url);
         self.link = Some(LinkState {
+            source,
             show_destination,
-            local_target_display: if is_local_path_like_link(&dest_url) {
-                render_local_link_target(&dest_url, self.cwd.as_deref())
+            style_label,
+            has_visible_label: false,
+            local_target_display: if !style_label && is_local_path_like_link(&dest_url) {
+                Some(
+                    render_local_link_target(&dest_url, self.cwd.as_deref())
+                        .unwrap_or_else(|| dest_url.clone()),
+                )
             } else {
                 None
             },
+            local_label_spans: Vec::new(),
+            local_label_inline: Vec::new(),
             destination: dest_url,
         });
     }
 
     fn pop_link(&mut self) {
-        if let Some(link) = self.link.take() {
-            if link.show_destination {
+        if let Some(mut link) = self.link.take() {
+            if link.style_label
+                && !link.has_visible_label
+                && local_links::sidebar_file_link(&link.destination).is_some()
+            {
+                link.local_target_display = Some(
+                    render_local_link_target(&link.destination, self.cwd.as_deref())
+                        .unwrap_or_else(|| link.destination.clone()),
+                );
+            }
+            if link.style_label {
+                self.pop_inline_style();
+            }
+            if link.show_destination
+                || (!link.has_visible_label && markdown_destination(&link.destination).is_some())
+            {
                 // Link destinations are rendered as " (url)" suffixes. When parsing table cells,
                 // append the suffix into the active cell buffer rather than the outer paragraph
                 // line to avoid detached url lines.
+                let span = Span::styled(link.destination.clone(), self.styles.link);
                 if self.in_table_cell() {
                     self.push_span_to_table_cell(" (".into());
-                    self.push_span_to_table_cell(Span::styled(link.destination, self.styles.link));
+                    self.push_link_target(span, &link.destination, link.source);
                     self.push_span_to_table_cell(")".into());
                 } else {
                     self.push_span(" (".into());
-                    self.push_span(Span::styled(link.destination, self.styles.link));
+                    self.push_link_target(span, &link.destination, link.source);
                     self.push_span(")".into());
                 }
             } else if let Some(local_target_display) = link.local_target_display {
-                // Local file links are rendered as code-like path text so the transcript shows the
-                // resolved target instead of arbitrary caller-provided label text.
+                let show_label = link
+                    .local_label_spans
+                    .iter()
+                    .any(|span| !span.content.trim().is_empty());
                 let style = self
                     .inline_styles
                     .last()
@@ -1598,44 +2398,160 @@ where
                     .patch(self.styles.code);
                 let span = Span::styled(local_target_display, style);
                 if self.in_table_cell() {
-                    self.push_span_to_table_cell(span);
+                    if show_label {
+                        for (label_span, inline) in link
+                            .local_label_spans
+                            .into_iter()
+                            .zip(link.local_label_inline)
+                        {
+                            let previous = std::mem::replace(&mut self.copy_inline, inline);
+                            self.push_span_to_table_cell(label_span);
+                            self.copy_inline = previous;
+                        }
+                        self.push_span_to_table_cell(" (".into());
+                    }
+                    self.copy_inline.push(crate::markdown_copy::Inline::Literal);
+                    self.push_link_target(span, &link.destination, link.source);
+                    self.copy_inline.pop();
+                    if show_label {
+                        self.push_span_to_table_cell(")".into());
+                    }
                 } else {
                     if self.pending_marker_line {
                         self.push_line(Line::default());
                     }
-                    self.push_span(span);
+                    if show_label {
+                        for (label_span, inline) in link
+                            .local_label_spans
+                            .into_iter()
+                            .zip(link.local_label_inline)
+                        {
+                            let previous = std::mem::replace(&mut self.copy_inline, inline);
+                            self.push_span(label_span);
+                            self.copy_inline = previous;
+                        }
+                        self.push_span(" (".into());
+                    }
+                    self.copy_inline.push(crate::markdown_copy::Inline::Literal);
+                    self.push_link_target(span, &link.destination, link.source);
+                    self.copy_inline.pop();
+                    if show_label {
+                        self.push_span(")".into());
+                    }
                     self.line_ends_with_local_link_target = true;
                 }
             }
         }
     }
 
-    fn suppressing_local_link_label(&self) -> bool {
+    fn label_document_path(&self) -> Option<FileLink> {
+        let link = self.link.as_ref().filter(|link| link.style_label)?;
+        local_links::sidebar_file_link(&link.destination)
+    }
+
+    fn document_label_span(&self, span: Span<'static>, path: FileLink) -> HyperlinkLine {
+        let width = span_width(&span);
+        let mut line = HyperlinkLine::new(Line::from(span));
+        let mut link = TerminalHyperlink::document(0..width, path);
+        link.markdown_source = self.link.as_ref().map(|link| link.source);
+        line.hyperlinks.push(link);
+        line
+    }
+
+    fn push_link_target(&mut self, span: Span<'static>, destination: &str, source: usize) {
+        let mut target = HyperlinkLine::default();
+        if let Some(link) = sidebar_file_link(destination) {
+            let width = span_width(&span);
+            target.line.push_span(span);
+            target
+                .hyperlinks
+                .push(TerminalHyperlink::document(0..width, link));
+        } else {
+            target.push_span(span, Some(destination));
+        }
+        if let Some(link) = target.hyperlinks.last_mut() {
+            link.markdown_source = Some(source);
+        }
+        if let Some(cell) = self
+            .table_state
+            .as_mut()
+            .and_then(|table| table.current_cell.as_mut())
+        {
+            cell.push_annotated(target, &self.copy_inline);
+        } else {
+            self.push_annotated(target);
+        }
+    }
+
+    fn collecting_local_link_label(&self) -> bool {
         self.link
             .as_ref()
             .and_then(|link| link.local_target_display.as_ref())
             .is_some()
     }
 
+    fn push_local_link_label_span(&mut self, span: Span<'static>) {
+        if let Some(link) = self.link.as_mut() {
+            link.local_label_spans.push(span);
+            link.local_label_inline.push(
+                self.copy_inline[..self
+                    .copy_inline
+                    .len()
+                    .min(crate::markdown_copy::MAX_COPY_DEPTH)]
+                    .to_vec(),
+            );
+        }
+    }
+
+    fn push_local_link_label_break(&mut self) {
+        let needs_space = self
+            .link
+            .as_ref()
+            .and_then(|link| link.local_label_spans.last())
+            .and_then(|span| span.content.chars().last())
+            .is_some_and(|character| !character.is_whitespace());
+        if needs_space {
+            self.push_local_link_label_span(" ".into());
+        }
+    }
+
     fn flush_current_line(&mut self) {
-        if let Some(line) = self.current_line_content.take() {
+        if let Some(mut line) = self.current_line_content.take() {
             let style = self.current_line_style;
+            let mut source = crate::terminal_hyperlinks::LogicalLineSource::from_line(&line.line);
+            if !self.current_line_in_code_block
+                && crate::wrapping::text_contains_url_like(&source.text)
+            {
+                source.wrap_policy = crate::terminal_hyperlinks::LineWrapPolicy::UrlAware;
+            }
+            source.copy = Some(std::sync::Arc::new(std::mem::take(&mut self.copy_line)));
             // NB we don't wrap code in code blocks, in order to preserve whitespace for copy/paste.
             if !self.current_line_in_code_block
                 && let Some(width) = self.wrap_width
             {
+                line.source = Some(source);
                 let opts = RtOptions::new(width)
                     .initial_indent(self.current_initial_indent.clone().into())
                     .subsequent_indent(self.current_subsequent_indent.clone().into());
-                for wrapped in adaptive_wrap_line(&line, opts) {
-                    let owned = line_to_static(&wrapped).style(style);
-                    self.push_output_line(owned);
+                for wrapped in crate::terminal_hyperlinks::adaptive_wrap_hyperlink_lines(
+                    std::slice::from_ref(&line),
+                    opts,
+                ) {
+                    self.push_output_line(wrapped.style(style));
                 }
             } else {
                 let mut spans = self.current_initial_indent.clone();
-                let mut line = line;
-                spans.append(&mut line.spans);
-                self.push_output_line(Line::from_iter(spans).style(style));
+                source.prefix_bytes = spans.iter().map(|span| span.content.len()).sum();
+                source.continuation_indent = self.current_subsequent_indent.clone().into();
+                line.source = Some(source);
+                let shift = Self::spans_display_width(&spans);
+                spans.append(&mut line.line.spans);
+                for hyperlink in &mut line.hyperlinks {
+                    hyperlink.columns =
+                        hyperlink.columns.start + shift..hyperlink.columns.end + shift;
+                }
+                line.line = Line::from_iter(spans);
+                self.push_output_line(line.style(style));
             }
             self.current_initial_indent.clear();
             self.current_subsequent_indent.clear();
@@ -1647,28 +2563,50 @@ where
     /// Push a line that has already been laid out at the correct width, skipping
     /// word wrapping.
     ///
-    /// Table lines are pre-formatted with exact column widths and box-drawing
-    /// borders. Passing them through `word_wrap_line` would break the grid at
+    /// Table lines are pre-formatted with exact column widths and separators.
+    /// Passing them through `word_wrap_line` would break the layout at
     /// arbitrary positions. This method prepends the indent/blockquote prefix
-    /// and pushes directly to `self.text.lines`.
+    /// and pushes directly to `self.text`.
     fn is_blockquote_active(&self) -> bool {
         self.indent_stack
             .iter()
             .any(|ctx| ctx.prefix.iter().any(|p| p.content.contains('>')))
     }
 
-    fn push_prewrapped_line(&mut self, line: Line<'static>, pending_marker_line: bool) {
+    fn push_prewrapped_line(&mut self, mut line: HyperlinkLine, pending_marker_line: bool) {
         self.flush_current_line();
         let blockquote_active = self.is_blockquote_active();
         let style = if blockquote_active {
-            self.styles.blockquote.patch(line.style)
+            self.styles.blockquote.patch(line.line.style)
         } else {
-            line.style
+            line.line.style
         };
 
         let mut spans = self.prefix_spans(pending_marker_line);
-        spans.extend(line.spans);
-        self.push_output_line(Line::from(spans).style(style));
+        let mut source = crate::terminal_hyperlinks::LogicalLineSource::from_line(&line.line);
+        let mut copy = line
+            .source
+            .as_ref()
+            .and_then(|source| source.copy.as_deref())
+            .cloned()
+            .unwrap_or_default();
+        copy.block = self.blocks.current();
+        copy.code_source = self.transformed_code_source.clone();
+        copy.quote_source = self.quote_sources.first().cloned();
+        copy.prefix = self.copy_prefix(pending_marker_line);
+        copy.continuation = self.copy_prefix(/*pending_marker_line*/ false);
+        copy.item_prefix = self.copy_prefix(/*pending_marker_line*/ true);
+        source.copy = Some(std::sync::Arc::new(copy));
+        source.prefix_bytes = spans.iter().map(|span| span.content.len()).sum();
+        source.continuation_indent = self.prefix_spans(/*pending_marker_line*/ false).into();
+        line.source = Some(source);
+        let shift = Self::spans_display_width(&spans);
+        spans.append(&mut line.line.spans);
+        for hyperlink in &mut line.hyperlinks {
+            hyperlink.columns = hyperlink.columns.start + shift..hyperlink.columns.end + shift;
+        }
+        line.line = Line::from(spans);
+        self.push_output_line(line.style(style));
     }
 
     fn push_line(&mut self, line: Line<'static>) {
@@ -1684,33 +2622,147 @@ where
         self.current_initial_indent = self.prefix_spans(was_pending);
         self.current_subsequent_indent = self.prefix_spans(/*pending_marker_line*/ false);
         self.current_line_style = style;
-        self.current_line_content = Some(line);
+        self.copy_line = crate::markdown_copy::CopyLine::default();
+        self.copy_line.block = self.blocks.current();
+        self.copy_line.prefix = self.copy_prefix(was_pending);
+        self.copy_line.continuation = self.copy_prefix(/*pending_marker_line*/ false);
+        self.copy_line.item_prefix = self.copy_prefix(/*pending_marker_line*/ true);
+        self.copy_line.code = self.in_code_block;
+        self.copy_line.code_source = self.transformed_code_source.clone();
+        self.copy_line.quote_source = self.quote_sources.first().cloned();
+        // Heading markers are already visible; retain them as Markdown syntax.
+        self.copy_line
+            .push(line.spans.iter().map(|span| span.content.len()).sum(), &[]);
+        self.current_line_content = Some(HyperlinkLine::new(line));
+        self.display_columns = SpanColumns::default();
+        self.source_columns = SpanColumns::default();
         self.current_line_in_code_block = self.in_code_block;
         self.line_ends_with_local_link_target = false;
 
         self.pending_marker_line = false;
     }
 
+    fn push_hyperlink_line(&mut self, line: HyperlinkLine) {
+        let hyperlinks = line.hyperlinks;
+        self.push_line(line.line);
+        if let Some(current) = self.current_line_content.as_mut() {
+            current.hyperlinks = hyperlinks;
+        }
+    }
+
     fn push_span(&mut self, span: Span<'static>) {
+        let span = self.style_link_label(span);
+        if self.current_line_content.is_none() {
+            self.push_line(Line::default());
+        }
+        if let Some(path) = self.label_document_path() {
+            self.push_annotated(self.document_label_span(span, path));
+            return;
+        }
         if let Some(line) = self.current_line_content.as_mut() {
-            line.push_span(span);
+            self.copy_line.push(span.content.len(), &self.copy_inline);
+            if let Some(destination) = self
+                .link
+                .as_ref()
+                .and_then(|link| markdown_destination(&link.destination))
+            {
+                // Inline code and HTML retain source columns until the transcript expands tabs.
+                let start = self.source_columns.measure(line, source_span_width);
+                let previous = line.hyperlinks.len();
+                line.push_linked_span(span, start, destination);
+                if let Some(link) = line.hyperlinks.get_mut(previous) {
+                    link.markdown_source = self.link.as_ref().map(|link| link.source);
+                }
+            } else {
+                line.line.push_span(span);
+            }
+        }
+    }
+
+    fn push_annotated(&mut self, appended: HyperlinkLine) {
+        if self.current_line_content.is_none() {
+            self.push_line(Line::default());
+        }
+        if let Some(line) = self.current_line_content.as_mut() {
+            self.copy_line.push(
+                appended
+                    .line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.len())
+                    .sum(),
+                &self.copy_inline,
+            );
+            self.display_columns.append_annotated(line, appended);
+        }
+    }
+
+    fn push_text_spans(&mut self, text: &str, style: Style) {
+        let annotated = self.annotate_text_span(text, style);
+        self.push_annotated(annotated);
+    }
+
+    fn annotate_text_span(&mut self, text: &str, style: Style) -> HyperlinkLine {
+        let span = self.style_link_label(Span::styled(text.to_string(), style));
+        let destination = self
+            .link
+            .as_ref()
+            .and_then(|link| markdown_destination(&link.destination));
+        if let Some(path) = self.label_document_path() {
+            self.document_label_span(span, path)
+        } else if let Some(destination) = destination {
+            let mut annotated = HyperlinkLine::new(Line::default());
+            annotated.push_span(span, Some(&destination));
+            if let Some(link) = annotated.hyperlinks.last_mut() {
+                link.markdown_source = self.link.as_ref().map(|link| link.source);
+            }
+            annotated
+        } else if self.link.is_some() || self.in_code_block {
+            HyperlinkLine::new(Line::from(span))
         } else {
-            self.push_line(Line::from(vec![span]));
+            style_bare_web_urls(span, self.styles.link)
         }
     }
 
     fn push_blank_line(&mut self) {
         self.flush_current_line();
         if self.indent_stack.iter().all(|ctx| ctx.is_list) {
-            self.push_output_line(Line::default());
+            self.push_output_line(HyperlinkLine::new(Line::default()));
         } else {
             self.push_line(Line::default());
             self.flush_current_line();
         }
     }
 
-    fn push_output_line(&mut self, line: Line<'static>) {
-        self.text.lines.push(line);
+    fn push_output_line(&mut self, line: HyperlinkLine) {
+        self.text.push(line);
+    }
+
+    // Markdown needs relative container indentation, not the display's fixed-depth padding.
+    fn copy_prefix(&self, pending_marker_line: bool) -> String {
+        // Code's display padding is not a Markdown container. Keep only the innermost semantic
+        // containers so lazy continuation lines cannot each retain an arbitrarily deep prefix.
+        let containers =
+            &self.indent_stack[..self.indent_stack.len() - usize::from(self.in_code_block)];
+        let containers = &containers[containers
+            .len()
+            .saturating_sub(crate::markdown_copy::MAX_COPY_DEPTH)..];
+        let last_list = containers.iter().rposition(|context| context.is_list);
+        let mut prefix = String::new();
+        for (index, context) in containers.iter().enumerate() {
+            if context.is_list {
+                let marker = &context.copy_marker;
+                let width = marker.find('[').unwrap_or(marker.len());
+                if pending_marker_line && Some(index) == last_list {
+                    prefix.push_str(marker);
+                } else {
+                    prefix.extend(std::iter::repeat_n(' ', width));
+                }
+            } else {
+                prefix.extend(context.prefix.iter().map(|span| span.content.as_ref()));
+            }
+        }
+        prefix
     }
 
     fn prefix_spans(&self, pending_marker_line: bool) -> Vec<Span<'static>> {
@@ -1745,225 +2797,6 @@ where
 
         prefix
     }
-}
-
-fn is_local_path_like_link(dest_url: &str) -> bool {
-    dest_url.starts_with("file://")
-        || dest_url.starts_with('/')
-        || dest_url.starts_with("~/")
-        || dest_url.starts_with("./")
-        || dest_url.starts_with("../")
-        || dest_url.starts_with("\\\\")
-        || matches!(
-            dest_url.as_bytes(),
-            [drive, b':', separator, ..]
-                if drive.is_ascii_alphabetic() && matches!(separator, b'/' | b'\\')
-        )
-}
-
-/// Parse a local link target into normalized path text plus an optional location suffix.
-///
-/// This accepts the path shapes Codex emits today: `file://` URLs, absolute and relative paths,
-/// `~/...`, Windows paths, and `#L..C..` or `:line:col` suffixes.
-fn render_local_link_target(dest_url: &str, cwd: Option<&Path>) -> Option<String> {
-    let (path_text, location_suffix) = parse_local_link_target(dest_url)?;
-    let mut rendered = display_local_link_path(&path_text, cwd);
-    if let Some(location_suffix) = location_suffix {
-        rendered.push_str(&location_suffix);
-    }
-    Some(rendered)
-}
-
-/// Split a local-link destination into `(normalized_path_text, location_suffix)`.
-///
-/// The returned path text never includes a trailing `#L..` or `:line[:col]` suffix. Path
-/// normalization expands `~/...` when possible and rewrites path separators into display-stable
-/// forward slashes. The suffix, when present, is returned separately in normalized markdown form.
-///
-/// Returns `None` only when the destination looks like a `file://` URL but cannot be parsed into a
-/// local path. Plain path-like inputs always return `Some(...)` even if they are relative.
-fn parse_local_link_target(dest_url: &str) -> Option<(String, Option<String>)> {
-    if dest_url.starts_with("file://") {
-        let url = Url::parse(dest_url).ok()?;
-        let path_text = file_url_to_local_path_text(&url)?;
-        let location_suffix = url
-            .fragment()
-            .and_then(normalize_hash_location_suffix_fragment);
-        return Some((path_text, location_suffix));
-    }
-
-    let mut path_text = dest_url;
-    let mut location_suffix = None;
-    // Prefer `#L..` style fragments when both forms are present so URLs like `path#L10` do not
-    // get misparsed as a plain path ending in `:10`.
-    if let Some((candidate_path, fragment)) = dest_url.rsplit_once('#')
-        && let Some(normalized) = normalize_hash_location_suffix_fragment(fragment)
-    {
-        path_text = candidate_path;
-        location_suffix = Some(normalized);
-    }
-    if location_suffix.is_none()
-        && let Some(suffix) = extract_colon_location_suffix(path_text)
-    {
-        let path_len = path_text.len().saturating_sub(suffix.len());
-        path_text = &path_text[..path_len];
-        location_suffix = Some(suffix);
-    }
-
-    let decoded_path_text =
-        urlencoding::decode(path_text).unwrap_or(std::borrow::Cow::Borrowed(path_text));
-    Some((expand_local_link_path(&decoded_path_text), location_suffix))
-}
-
-/// Normalize a hash fragment like `L12` or `L12C3-L14C9` into the display suffix we render.
-///
-/// Returns `None` for fragments that are not location references. This deliberately ignores other
-/// `#...` fragments so non-location hashes stay part of the path text.
-fn normalize_hash_location_suffix_fragment(fragment: &str) -> Option<String> {
-    HASH_LOCATION_SUFFIX_RE
-        .is_match(fragment)
-        .then(|| format!("#{fragment}"))
-        .and_then(|suffix| normalize_markdown_hash_location_suffix(&suffix))
-}
-
-/// Extract a trailing `:line`, `:line:col`, or range suffix from a plain path-like string.
-///
-/// The suffix must occur at the end of the input; embedded colons elsewhere in the path are left
-/// alone. This is what keeps Windows drive letters like `C:/...` from being misread as locations.
-fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
-    COLON_LOCATION_SUFFIX_RE
-        .find(path_text)
-        .filter(|matched| matched.end() == path_text.len())
-        .map(|matched| matched.as_str().to_string())
-}
-
-/// Expand home-relative paths and normalize separators for display.
-///
-/// If `~/...` cannot be expanded because the home directory is unavailable, the original text still
-/// goes through separator normalization and is returned as-is otherwise.
-fn expand_local_link_path(path_text: &str) -> String {
-    // Expand `~/...` eagerly so home-relative links can participate in the same normalization and
-    // cwd-relative shortening path as absolute links.
-    if let Some(rest) = path_text.strip_prefix("~/")
-        && let Some(home) = home_dir()
-    {
-        return normalize_local_link_path_text(&home.join(rest).to_string_lossy());
-    }
-
-    normalize_local_link_path_text(path_text)
-}
-
-/// Convert a `file://` URL into the normalized local-path text used for transcript rendering.
-///
-/// This prefers `Url::to_file_path()` for standard file URLs. When that rejects Windows-oriented
-/// encodings, we reconstruct a display path from the host/path parts so UNC paths and drive-letter
-/// URLs still render sensibly.
-fn file_url_to_local_path_text(url: &Url) -> Option<String> {
-    if let Ok(path) = url.to_file_path() {
-        return Some(normalize_local_link_path_text(&path.to_string_lossy()));
-    }
-
-    // Fall back to string reconstruction for cases `to_file_path()` rejects, especially UNC-style
-    // hosts and Windows drive paths encoded in URL form.
-    let mut path_text = url.path().to_string();
-    if let Some(host) = url.host_str()
-        && !host.is_empty()
-        && host != "localhost"
-    {
-        path_text = format!("//{host}{path_text}");
-    } else if matches!(
-        path_text.as_bytes(),
-        [b'/', drive, b':', b'/', ..] if drive.is_ascii_alphabetic()
-    ) {
-        path_text.remove(0);
-    }
-
-    Some(normalize_local_link_path_text(&path_text))
-}
-
-/// Normalize local-path text into the transcript display form.
-///
-/// Display normalization is intentionally lexical: it does not touch the filesystem, resolve
-/// symlinks, or collapse `.` / `..`. It only converts separators to forward slashes and rewrites
-/// UNC-style `\\\\server\\share` inputs into `//server/share` so later prefix checks operate on a
-/// stable representation.
-fn normalize_local_link_path_text(path_text: &str) -> String {
-    // Render all local link paths with forward slashes so display and prefix stripping are stable
-    // across mixed Windows and Unix-style inputs.
-    if let Some(rest) = path_text.strip_prefix("\\\\") {
-        format!("//{}", rest.replace('\\', "/").trim_start_matches('/'))
-    } else {
-        path_text.replace('\\', "/")
-    }
-}
-
-fn is_absolute_local_link_path(path_text: &str) -> bool {
-    path_text.starts_with('/')
-        || path_text.starts_with("//")
-        || matches!(
-            path_text.as_bytes(),
-            [drive, b':', b'/', ..] if drive.is_ascii_alphabetic()
-        )
-}
-
-/// Remove trailing separators from a local path without destroying root semantics.
-///
-/// Roots like `/`, `//`, and `C:/` stay intact so callers can still distinguish "the root itself"
-/// from "a path under the root".
-fn trim_trailing_local_path_separator(path_text: &str) -> &str {
-    if path_text == "/" || path_text == "//" {
-        return path_text;
-    }
-    if matches!(path_text.as_bytes(), [drive, b':', b'/'] if drive.is_ascii_alphabetic()) {
-        return path_text;
-    }
-    path_text.trim_end_matches('/')
-}
-
-/// Strip `cwd_text` from the start of `path_text` when `path_text` is strictly underneath it.
-///
-/// Returns the relative remainder without a leading slash. If the path equals the cwd exactly, this
-/// returns `None` so callers can keep rendering the full path instead of collapsing it to an empty
-/// string.
-fn strip_local_path_prefix<'a>(path_text: &'a str, cwd_text: &str) -> Option<&'a str> {
-    let path_text = trim_trailing_local_path_separator(path_text);
-    let cwd_text = trim_trailing_local_path_separator(cwd_text);
-    if path_text == cwd_text {
-        return None;
-    }
-
-    // Treat filesystem roots specially so `/tmp/x` under `/` becomes `tmp/x` instead of being
-    // left unchanged by the generic prefix-stripping branch.
-    if cwd_text == "/" || cwd_text == "//" {
-        return path_text.strip_prefix('/');
-    }
-
-    path_text
-        .strip_prefix(cwd_text)
-        .and_then(|rest| rest.strip_prefix('/'))
-}
-
-/// Choose the visible path text for a local link after normalization.
-///
-/// Relative paths stay relative. Absolute paths are shortened against `cwd` only when they are
-/// lexically underneath it; otherwise the absolute path is preserved. This is display logic only,
-/// not filesystem canonicalization.
-fn display_local_link_path(path_text: &str, cwd: Option<&Path>) -> String {
-    let path_text = normalize_local_link_path_text(path_text);
-    if !is_absolute_local_link_path(&path_text) {
-        return path_text;
-    }
-
-    if let Some(cwd) = cwd {
-        // Only shorten absolute paths that are under the provided session cwd; otherwise preserve
-        // the original absolute target for clarity.
-        let cwd_text = normalize_local_link_path_text(&cwd.to_string_lossy());
-        if let Some(stripped) = strip_local_path_prefix(&path_text, &cwd_text) {
-            return stripped.to_string();
-        }
-    }
-
-    path_text
 }
 
 #[cfg(test)]
@@ -2011,7 +2844,7 @@ mod tests {
         let lines = lines_to_strings(&rendered);
         assert_eq!(
             lines,
-            vec!["- first second".to_string(), "  third fourth".to_string(),]
+            vec!["• first second".to_string(), "  third fourth".to_string(),]
         );
     }
 
@@ -2024,10 +2857,10 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "- outer item with".to_string(),
+                "• outer item with".to_string(),
                 "  several words to".to_string(),
                 "  wrap".to_string(),
-                "    - inner item".to_string(),
+                "    • inner item".to_string(),
                 "      that also".to_string(),
                 "      needs wrapping".to_string(),
             ]
@@ -2052,9 +2885,20 @@ mod tests {
 
     #[test]
     fn wraps_blockquotes() {
-        let markdown = "> block quote with content that should wrap nicely";
-        let rendered = render_markdown_text_with_width(markdown, Some(22));
-        let lines = lines_to_strings(&rendered);
+        let markdown = "> block quote with **content** that should wrap nicely";
+        let rendered =
+            render_markdown_lines_with_width_and_cwd(markdown, Some(22), /*cwd*/ None);
+        let source = rendered[0].source.as_ref().expect("blockquote source");
+        let styles = MarkdownStyles::default();
+        assert_eq!(
+            source.styled_range(0..source.text.len()),
+            Line::from(vec![
+                Span::styled("block quote with ", styles.blockquote),
+                Span::styled("content", styles.blockquote.patch(styles.strong)),
+                Span::styled(" that should wrap nicely", styles.blockquote),
+            ])
+        );
+        let lines: Vec<_> = rendered.iter().map(|line| line.line.to_string()).collect();
         assert_eq!(
             lines,
             vec![
@@ -2073,7 +2917,7 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "- list item".to_string(),
+                "• list item".to_string(),
                 "  > block quote inside".to_string(),
                 "  > list that wraps".to_string(),
             ]
@@ -2127,7 +2971,13 @@ mod tests {
         // extracted (first word / comma-separated token) so highlighting works.
         for info in &["rust,no_run", "rust no_run", "rust title=\"demo\""] {
             let markdown = format!("```{info}\nfn main() {{}}\n```\n");
-            let rendered = render_markdown_text(&markdown);
+            let rendered = crate::terminal_palette::with_test_default_colors(
+                crate::terminal_probe::DefaultColors {
+                    fg: (220, 220, 220),
+                    bg: (20, 20, 20),
+                },
+                || render_markdown_text(&markdown),
+            );
             let has_rgb = rendered.lines.iter().any(|line| {
                 line.spans
                     .iter()
@@ -2158,16 +3008,22 @@ mod tests {
     #[test]
     fn wrap_cell_preserves_hard_break_lines() {
         let mut cell = TableCell::default();
-        cell.push_span("first line".into());
+        cell.push_annotated(Line::from("first line").into(), &[]);
         cell.hard_break();
-        cell.push_span("second line".into());
+        cell.push_annotated(Line::from("second line").into(), &[]);
 
-        let writer = W::new("", std::iter::empty(), Some(80), /*cwd*/ None);
+        let writer = W::new(
+            "",
+            /*wrap_width*/ Some(80),
+            /*cwd*/ None,
+            &never_hide_link_destination,
+        );
         let wrapped = writer.wrap_cell(&cell, /*width*/ 40);
         let rendered = wrapped
             .iter()
             .map(|line| {
-                line.spans
+                line.line
+                    .spans
                     .iter()
                     .map(|span| span.content.clone())
                     .collect::<String>()
@@ -2180,15 +3036,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn blank_table_continuations_do_not_repeat_the_first_cell() {
+        let mut cell = make_cell("first");
+        cell.hard_break();
+        cell.hard_break();
+        cell.push_annotated(Line::from("last").into(), &[]);
+        cell.hard_break();
+        let writer = W::new(
+            "",
+            /*wrap_width*/ Some(80),
+            /*cwd*/ None,
+            &never_hide_link_destination,
+        );
+        let lines = writer.render_table_row(
+            &[make_cell("short"), cell],
+            &[5, 5],
+            &[Alignment::None, Alignment::None],
+            Style::default(),
+        );
+        let rendered: Vec<_> = lines.iter().map(|line| line.line.to_string()).collect();
+        insta::assert_debug_snapshot!(rendered);
+    }
+
     // ---------------------------------------------------------------
     // Type alias for calling private associated functions on Writer.
     // ---------------------------------------------------------------
-    type W<'a> = Writer<'a, std::iter::Empty<(Event<'a>, Range<usize>)>>;
+    type W<'a> = Writer<'a, 'a>;
 
     /// Build a single-line `TableCell` from plain text.
     fn make_cell(text: &str) -> TableCell {
         let mut cell = TableCell::default();
-        cell.push_span(Span::raw(text.to_string()));
+        cell.push_annotated(Line::from(text.to_string()).into(), &[]);
         cell
     }
 
@@ -2203,7 +3082,7 @@ mod tests {
 
     #[test]
     fn column_classification_narrative_by_word_count() {
-        // Col 0: short tokens (1-2 words each) → Structured
+        // Col 0: short tokens (1-2 words each) -> Compact
         // Col 1: prose (≥4 words per cell) → Narrative
         let header = vec![make_cell("ID"), make_cell("Description")];
         let rows = vec![
@@ -2211,72 +3090,87 @@ mod tests {
             vec![make_cell("2"), make_cell("another verbose body cell here")],
         ];
         let metrics = W::collect_table_column_metrics(&header, &rows, /*column_count*/ 2);
-        assert_eq!(metrics[0].kind, TableColumnKind::Structured);
+        assert_eq!(metrics[0].kind, TableColumnKind::Compact);
         assert_eq!(metrics[1].kind, TableColumnKind::Narrative);
     }
 
     #[test]
-    fn column_classification_structured_by_url_like_token() {
-        // Col with short word count but ≥28 avg char width and long tokens → Structured
-        // (URL-like/token-heavy columns resist collapse)
+    fn column_classification_token_heavy_by_url_like_tokens() {
         let header = vec![make_cell("URL")];
         let rows = vec![
             vec![make_cell("https://example.com/very/long/path")],
             vec![make_cell("https://another.example.org/deep")],
         ];
         let metrics = W::collect_table_column_metrics(&header, &rows, /*column_count*/ 1);
-        assert!(metrics[0].avg_cell_width >= 28.0);
-        assert_eq!(metrics[0].kind, TableColumnKind::Structured);
+        assert_eq!(metrics[0].kind, TableColumnKind::TokenHeavy);
     }
 
     #[test]
-    fn column_classification_structured_all_short() {
-        // Both columns short tokens → both Structured
+    fn column_classification_token_heavy_for_local_path_lists() {
+        let header = vec![make_cell("Files")];
+        let rows = vec![
+            vec![make_cell(
+                "codex-rs/core/src/next_prompt_suggestion.rs:1, codex-rs/core/src/next_prompt_suggestion_tests.rs:1",
+            )],
+            vec![make_cell(
+                "codex-rs/core/src/context/next_prompt_suggestion.rs:1, codex-rs/core/src/context/contextual_user_message_tests.rs:1",
+            )],
+        ];
+        let metrics = W::collect_table_column_metrics(&header, &rows, /*column_count*/ 1);
+        assert_eq!(metrics[0].kind, TableColumnKind::TokenHeavy);
+    }
+
+    #[test]
+    fn column_classification_compact_all_short() {
+        // Both columns short tokens -> both Compact
         let header = vec![make_cell("Status"), make_cell("Count")];
         let rows = vec![
             vec![make_cell("ok"), make_cell("42")],
             vec![make_cell("err"), make_cell("7")],
         ];
         let metrics = W::collect_table_column_metrics(&header, &rows, /*column_count*/ 2);
-        assert_eq!(metrics[0].kind, TableColumnKind::Structured);
-        assert_eq!(metrics[1].kind, TableColumnKind::Structured);
+        assert_eq!(metrics[0].kind, TableColumnKind::Compact);
+        assert_eq!(metrics[1].kind, TableColumnKind::Compact);
     }
 
     #[test]
-    fn preferred_floor_narrative_caps_header_at_10() {
-        // Narrative col: header_token_width 15 → floors at 10
+    fn preferred_floor_narrative_retains_readable_width() {
         let m = TableColumnMetrics {
             max_width: 40,
             header_token_width: 15,
             body_token_width: 8,
-            avg_words_per_cell: 5.0,
-            avg_cell_width: 30.0,
             kind: TableColumnKind::Narrative,
         };
-        assert_eq!(W::preferred_column_floor(&m, /*min_column_width*/ 3), 10);
+        assert_eq!(W::preferred_column_floor(&m, /*min_column_width*/ 3), 16);
 
-        // Narrative col: header_token_width 6 → floors at 6 (below cap)
         let m2 = TableColumnMetrics {
-            max_width: 40,
+            max_width: 12,
             header_token_width: 6,
             body_token_width: 8,
-            avg_words_per_cell: 5.0,
-            avg_cell_width: 30.0,
             kind: TableColumnKind::Narrative,
         };
-        assert_eq!(W::preferred_column_floor(&m2, /*min_column_width*/ 3), 6);
+        assert_eq!(W::preferred_column_floor(&m2, /*min_column_width*/ 3), 12);
     }
 
     #[test]
-    fn preferred_floor_structured_uses_body_token() {
-        // Structured: max(header_token_width, body_token_width.min(16))
+    fn preferred_floor_token_heavy_retains_readable_width() {
+        let m = TableColumnMetrics {
+            max_width: 80,
+            header_token_width: 5,
+            body_token_width: 60,
+            kind: TableColumnKind::TokenHeavy,
+        };
+        assert_eq!(W::preferred_column_floor(&m, /*min_column_width*/ 3), 16);
+    }
+
+    #[test]
+    fn preferred_floor_compact_uses_body_token() {
+        // Compact: max(header_token_width, body_token_width.min(16))
         let m = TableColumnMetrics {
             max_width: 30,
             header_token_width: 5,
             body_token_width: 12,
-            avg_words_per_cell: 1.0,
-            avg_cell_width: 10.0,
-            kind: TableColumnKind::Structured,
+            kind: TableColumnKind::Compact,
         };
         // max(5, min(12, 16)) = max(5, 12) = 12
         assert_eq!(W::preferred_column_floor(&m, /*min_column_width*/ 3), 12);
@@ -2286,40 +3180,108 @@ mod tests {
             max_width: 30,
             header_token_width: 5,
             body_token_width: 20,
-            avg_words_per_cell: 1.0,
-            avg_cell_width: 10.0,
-            kind: TableColumnKind::Structured,
+            kind: TableColumnKind::Compact,
         };
         // max(5, min(20, 16)) = max(5, 16) = 16
         assert_eq!(W::preferred_column_floor(&m2, /*min_column_width*/ 3), 16);
     }
 
     #[test]
-    fn next_column_to_shrink_prefers_narrative() {
-        // Two columns: Narrative (col 0) and Structured (col 1), both with slack.
-        // Narrative should be shrunk first.
-        let widths = [20usize, 20];
-        let floors = [8usize, 8];
+    fn bulk_column_shrink_matches_one_cell_at_a_time() {
+        fn priority(kind: TableColumnKind) -> usize {
+            match kind {
+                TableColumnKind::TokenHeavy => 0,
+                TableColumnKind::Narrative => 1,
+                TableColumnKind::Compact => 2,
+            }
+        }
+
+        fn shrink_one_at_a_time(
+            widths: &mut [usize],
+            floors: &[usize],
+            metrics: &[TableColumnMetrics],
+            mut amount: usize,
+        ) -> usize {
+            while amount > 0 {
+                let Some(idx) = widths
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, width)| **width > floors[*idx])
+                    .min_by_key(|(idx, width)| {
+                        (
+                            priority(metrics[*idx].kind),
+                            usize::MAX - width.saturating_sub(floors[*idx]),
+                        )
+                    })
+                    .map(|(idx, _)| idx)
+                else {
+                    break;
+                };
+                widths[idx] -= 1;
+                amount -= 1;
+            }
+            amount
+        }
+
+        for case in 0..64usize {
+            let metrics = (0..5)
+                .map(|idx| TableColumnMetrics {
+                    max_width: 100,
+                    header_token_width: 8,
+                    body_token_width: 8,
+                    kind: match (case + idx) % 3 {
+                        0 => TableColumnKind::TokenHeavy,
+                        1 => TableColumnKind::Narrative,
+                        _ => TableColumnKind::Compact,
+                    },
+                })
+                .collect::<Vec<_>>();
+            let floors = (0..5)
+                .map(|idx| 3 + (case * (idx + 1) + idx) % 14)
+                .collect::<Vec<_>>();
+            let initial = floors
+                .iter()
+                .enumerate()
+                .map(|(idx, floor)| floor + (case * (idx + 3) + idx * 7) % 41)
+                .collect::<Vec<_>>();
+            let slack = initial
+                .iter()
+                .zip(&floors)
+                .map(|(width, floor)| width - floor)
+                .sum::<usize>();
+
+            for amount in 0..=slack + 1 {
+                let mut expected = initial.clone();
+                let expected_remaining =
+                    shrink_one_at_a_time(&mut expected, &floors, &metrics, amount);
+                let mut actual = initial.clone();
+                let actual_remaining = W::shrink_columns(&mut actual, &floors, &metrics, amount);
+                assert_eq!((actual, actual_remaining), (expected, expected_remaining));
+            }
+        }
+    }
+
+    #[test]
+    fn column_widths_bulk_shrink_large_token_heavy_column() {
         let metrics = [
             TableColumnMetrics {
-                max_width: 30,
-                header_token_width: 8,
-                body_token_width: 6,
-                avg_words_per_cell: 5.0,
-                avg_cell_width: 30.0,
-                kind: TableColumnKind::Narrative,
+                max_width: 1_000_000,
+                header_token_width: 4,
+                body_token_width: 1_000_000,
+                kind: TableColumnKind::TokenHeavy,
             },
             TableColumnMetrics {
-                max_width: 30,
-                header_token_width: 8,
-                body_token_width: 6,
-                avg_words_per_cell: 1.0,
-                avg_cell_width: 10.0,
-                kind: TableColumnKind::Structured,
+                max_width: 8,
+                header_token_width: 5,
+                body_token_width: 8,
+                kind: TableColumnKind::Compact,
             },
         ];
-        let idx = W::next_column_to_shrink(&widths, &floors, &metrics);
-        assert_eq!(idx, Some(0), "Narrative column should be shrunk first");
+
+        assert_eq!(
+            W::compute_column_widths(&metrics, /*available_width*/ Some(24)),
+            Some(vec![16, 8])
+        );
     }
 
     // ===== Spillover-detection unit tests =====
@@ -2402,5 +3364,113 @@ mod tests {
             /*has_table_pipe_syntax*/ true,
         );
         assert!(!W::is_spillover_row(&row, Some(&next)));
+    }
+
+    #[test]
+    fn annotates_explicit_web_link_label_and_visible_destination() {
+        let lines = render_markdown_lines_with_width_and_cwd(
+            "See [docs](https://example.com/reference).",
+            /*width*/ Some(80),
+            /*cwd*/ None,
+        );
+        let links = lines
+            .iter()
+            .flat_map(|line| line.hyperlinks.iter())
+            .collect::<Vec<_>>();
+
+        assert_eq!(links.len(), 2);
+        assert!(
+            links
+                .iter()
+                .all(|link| link.destination == "https://example.com/reference")
+        );
+    }
+
+    #[test]
+    fn wrapped_table_url_fragments_keep_complete_web_destination() {
+        let destination = "https://example.com/a/very/long/path/to/a/table/artifact";
+        let markdown = format!("| Item | URL |\n| --- | --- |\n| report | {destination} |\n");
+        let lines = render_markdown_lines_with_width_and_cwd(
+            &markdown,
+            /*width*/ Some(32),
+            /*cwd*/ None,
+        );
+        let linked_rows = lines
+            .iter()
+            .filter(|line| !line.hyperlinks.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(
+            linked_rows.len() > 1,
+            "expected a URL wrapped across table rows"
+        );
+        assert!(linked_rows.iter().all(|line| {
+            line.hyperlinks
+                .iter()
+                .all(|link| link.destination == destination)
+        }));
+    }
+
+    #[test]
+    fn table_widths_count_halfwidth_sound_marks() {
+        let cell = make_cell("ｶﾞﾊﾟ");
+        assert_eq!(W::cell_display_width(&cell), 4);
+        assert_eq!(W::longest_token_width("ｶﾞﾊﾟtail"), 8);
+    }
+
+    #[test]
+    fn key_value_table_keeps_web_annotations() {
+        let destination = "https://example.com/a/very/long/path";
+        let markdown = format!(
+            "| c1 | c2 | c3 | c4 | c5 | c6 |\n| --- | --- | --- | --- | --- | --- |\n| {destination} | 2 | 3 | 4 | 5 | 6 |\n"
+        );
+        let lines = render_markdown_lines_with_width_and_cwd(
+            &markdown,
+            /*width*/ Some(20),
+            /*cwd*/ None,
+        );
+        let destinations = lines
+            .iter()
+            .flat_map(|line| line.hyperlinks.iter().map(|link| link.destination.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(!destinations.is_empty());
+        assert!(destinations.iter().all(|link| *link == destination));
+    }
+
+    #[test]
+    fn does_not_annotate_code_or_non_web_markdown_links() {
+        let markdown = "`https://example.com/inline`\n\n```text\nhttps://example.com/block\n```\n\n[mail](mailto:test@example.com)\n\n[https://example.com/label](mailto:test@example.com)\n\n| Target |\n| --- |\n| [https://example.com/table-label](mailto:test@example.com) |";
+        let lines = render_markdown_lines_with_width_and_cwd(
+            markdown,
+            /*width*/ Some(80),
+            /*cwd*/ None,
+        );
+
+        assert!(lines.iter().all(|line| line.hyperlinks.is_empty()));
+    }
+
+    #[test]
+    fn pipe_table_fallback_keeps_web_annotations() {
+        let destination = "https://example.com/a/long/path";
+        let target = "https://target.example/path";
+        let code_url = "https://code.example/not-a-link";
+        let markdown = format!(
+            "| URL | Code | Label |\n| --- | --- | --- |\n| {destination} | `{code_url}` | [https://shown.example]({target}) |\n"
+        );
+        let lines = render_markdown_lines_with_width_and_cwd(
+            &markdown,
+            /*width*/ Some(5),
+            /*cwd*/ None,
+        );
+        let destinations = lines
+            .iter()
+            .flat_map(|line| line.hyperlinks.iter().map(|link| link.destination.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(destinations.contains(&destination));
+        assert!(destinations.contains(&target));
+        assert!(!destinations.contains(&code_url));
+        assert!(!destinations.contains(&"https://shown.example"));
     }
 }

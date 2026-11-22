@@ -13,8 +13,8 @@ use codex_app_server_protocol::FsGetMetadataResponse;
 use codex_app_server_protocol::FsReadDirectoryEntry;
 use codex_app_server_protocol::FsReadDirectoryParams;
 use codex_app_server_protocol::FsReadDirectoryResponse;
+use codex_app_server_protocol::FsReadFileBytes;
 use codex_app_server_protocol::FsReadFileParams;
-use codex_app_server_protocol::FsReadFileResponse;
 use codex_app_server_protocol::FsRemoveParams;
 use codex_app_server_protocol::FsRemoveResponse;
 use codex_app_server_protocol::FsUnwatchParams;
@@ -29,6 +29,7 @@ use codex_exec_server::CreateDirectoryOptions;
 use codex_exec_server::EnvironmentManager;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::RemoveOptions;
+use codex_utils_path_uri::PathUri;
 use std::io;
 use std::sync::Arc;
 
@@ -63,15 +64,14 @@ impl FsRequestProcessor {
     pub(crate) async fn read_file(
         &self,
         params: FsReadFileParams,
-    ) -> Result<FsReadFileResponse, JSONRPCErrorError> {
-        let bytes = self
+    ) -> Result<FsReadFileBytes, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
+        let data = self
             .file_system()?
-            .read_file(&params.path, /*sandbox*/ None)
+            .read_file(&path, Default::default(), /*sandbox*/ None)
             .await
             .map_err(map_fs_error)?;
-        Ok(FsReadFileResponse {
-            data_base64: STANDARD.encode(bytes),
-        })
+        Ok(FsReadFileBytes { data })
     }
 
     pub(crate) async fn write_file(
@@ -83,8 +83,9 @@ impl FsRequestProcessor {
                 "fs/writeFile requires valid base64 dataBase64: {err}"
             ))
         })?;
+        let path = PathUri::from_abs_path(&params.path);
         self.file_system()?
-            .write_file(&params.path, bytes, /*sandbox*/ None)
+            .write_file(&path, bytes, Default::default(), /*sandbox*/ None)
             .await
             .map_err(map_fs_error)?;
         Ok(FsWriteFileResponse {})
@@ -94,11 +95,13 @@ impl FsRequestProcessor {
         &self,
         params: FsCreateDirectoryParams,
     ) -> Result<FsCreateDirectoryResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
         self.file_system()?
             .create_directory(
-                &params.path,
+                &path,
                 CreateDirectoryOptions {
                     recursive: params.recursive.unwrap_or(true),
+                    follow_symlinks: true,
                 },
                 /*sandbox*/ None,
             )
@@ -111,9 +114,10 @@ impl FsRequestProcessor {
         &self,
         params: FsGetMetadataParams,
     ) -> Result<FsGetMetadataResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
         let metadata = self
             .file_system()?
-            .get_metadata(&params.path, /*sandbox*/ None)
+            .get_metadata(&path, Default::default(), /*sandbox*/ None)
             .await
             .map_err(map_fs_error)?;
         Ok(FsGetMetadataResponse {
@@ -122,6 +126,7 @@ impl FsRequestProcessor {
             is_symlink: metadata.is_symlink,
             created_at_ms: metadata.created_at_ms,
             modified_at_ms: metadata.modified_at_ms,
+            size_bytes: metadata.is_file.then_some(metadata.size),
         })
     }
 
@@ -129,9 +134,10 @@ impl FsRequestProcessor {
         &self,
         params: FsReadDirectoryParams,
     ) -> Result<FsReadDirectoryResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
         let entries = self
             .file_system()?
-            .read_directory(&params.path, /*sandbox*/ None)
+            .read_directory(&path, /*sandbox*/ None)
             .await
             .map_err(map_fs_error)?;
         Ok(FsReadDirectoryResponse {
@@ -150,12 +156,14 @@ impl FsRequestProcessor {
         &self,
         params: FsRemoveParams,
     ) -> Result<FsRemoveResponse, JSONRPCErrorError> {
+        let path = PathUri::from_abs_path(&params.path);
         self.file_system()?
             .remove(
-                &params.path,
+                &path,
                 RemoveOptions {
                     recursive: params.recursive.unwrap_or(true),
                     force: params.force.unwrap_or(true),
+                    follow_symlinks: true,
                 },
                 /*sandbox*/ None,
             )
@@ -168,10 +176,12 @@ impl FsRequestProcessor {
         &self,
         params: FsCopyParams,
     ) -> Result<FsCopyResponse, JSONRPCErrorError> {
+        let source_path = PathUri::from_abs_path(&params.source_path);
+        let destination_path = PathUri::from_abs_path(&params.destination_path);
         self.file_system()?
             .copy(
-                &params.source_path,
-                &params.destination_path,
+                &source_path,
+                &destination_path,
                 CopyOptions {
                     recursive: params.recursive,
                 },

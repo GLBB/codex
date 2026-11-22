@@ -1,14 +1,20 @@
 use super::ContextualUserFragment;
+use codex_prompts::START_INSTRUCTIONS;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ContentItemKind;
+use codex_protocol::models::input_text;
 use codex_protocol::protocol::REALTIME_CONVERSATION_CLOSE_TAG;
 use codex_protocol::protocol::REALTIME_CONVERSATION_OPEN_TAG;
-
-const REALTIME_START_INSTRUCTIONS: &str = include_str!("prompts/realtime/realtime_start.md");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RealtimeStartInstructions;
 
 impl ContextualUserFragment for RealtimeStartInstructions {
-    fn role() -> &'static str {
+    fn content_kind(&self) -> ContentItemKind {
+        ContentItemKind("realtime_conversation.start_instructions".to_string())
+    }
+
+    fn role(&self) -> &'static str {
         "developer"
     }
 
@@ -23,7 +29,7 @@ impl ContextualUserFragment for RealtimeStartInstructions {
         )
     }
 
-    fn body(&self) -> String {
-        format!("\n{}\n", REALTIME_START_INSTRUCTIONS.trim())
+    fn body(&self) -> ContentItem {
+        input_text(format!("\n{}\n", START_INSTRUCTIONS.trim()))
     }
 }

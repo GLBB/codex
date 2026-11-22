@@ -64,6 +64,8 @@ fn auto_resize_reflow_max_rows(
         TerminalName::Alacritty => ALACRITTY_RESIZE_REFLOW_MAX_ROWS,
         TerminalName::AppleTerminal
         | TerminalName::Ghostty
+        | TerminalName::Rex
+        | TerminalName::Orca
         | TerminalName::Iterm2
         | TerminalName::WarpTerminal
         | TerminalName::Kitty
@@ -82,6 +84,7 @@ mod tests {
 
     fn test_terminal(name: TerminalName) -> TerminalInfo {
         TerminalInfo {
+            backend: None,
             name,
             term_program: None,
             version: None,
@@ -165,6 +168,7 @@ mod tests {
     #[test]
     fn unknown_terminal_uses_fallback_even_under_multiplexer() {
         let terminal = TerminalInfo {
+            backend: None,
             name: TerminalName::Unknown,
             term_program: None,
             version: None,

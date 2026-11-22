@@ -3,12 +3,16 @@ use crate::JsonSchema;
 use crate::LoadableToolSpec;
 use crate::ResponsesApiNamespace;
 use crate::ResponsesApiTool;
+use crate::default_namespace_description;
+use codex_protocol::DEFAULT_FUNCTION_NAMESPACE;
 use codex_protocol::config_types::WebSearchContextSize;
 use codex_protocol::config_types::WebSearchFilters as ConfigWebSearchFilters;
 use codex_protocol::config_types::WebSearchUserLocation as ConfigWebSearchUserLocation;
 use codex_protocol::config_types::WebSearchUserLocationType;
 use serde::Serialize;
 use serde_json::Value;
+use serde_json::value::RawValue;
+use std::sync::Arc;
 
 /// When serialized as JSON, this produces a valid "Tool" in the OpenAI
 /// Responses API.
@@ -25,18 +29,18 @@ pub enum ToolSpec {
         description: String,
         parameters: JsonSchema,
     },
-    #[serde(rename = "image_generation")]
-    ImageGeneration { output_format: String },
     // TODO: Understand why we get an error on web_search although the API docs
     // say it's supported.
     // https://platform.openai.com/docs/guides/tools-web-search?api-mode=responses#:~:text=%7B%20type%3A%20%22web_search%22%20%7D%2C
-    // The `external_web_access` field determines whether the web search is over
-    // cached or live content.
+    // `external_web_access` distinguishes cached from live-capable search, while
+    // `indexed_web_access` restricts live fetches to indexed URLs.
     // https://platform.openai.com/docs/guides/tools-web-search#live-internet-access
     #[serde(rename = "web_search")]
     WebSearch {
         #[serde(skip_serializing_if = "Option::is_none")]
         external_web_access: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        indexed_web_access: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         filters: Option<ResponsesApiWebSearchFilters>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,7 +60,6 @@ impl ToolSpec {
             ToolSpec::Function(tool) => tool.name.as_str(),
             ToolSpec::Namespace(namespace) => namespace.name.as_str(),
             ToolSpec::ToolSearch { .. } => "tool_search",
-            ToolSpec::ImageGeneration { .. } => "image_generation",
             ToolSpec::WebSearch { .. } => "web_search",
             ToolSpec::Freeform(tool) => tool.name.as_str(),
         }
@@ -86,6 +89,60 @@ pub fn create_tools_json_for_responses_api(
     }
 
     Ok(tools_json)
+}
+
+pub fn create_tools_json_for_responses_lite<'a>(
+    tools: impl IntoIterator<Item = &'a ToolSpec>,
+) -> Result<Vec<Value>, serde_json::Error> {
+    let mut members = Vec::new();
+    let mut description = None;
+    let mut functions_index = None;
+    let mut tools_json = Vec::new();
+
+    for tool in tools {
+        match tool {
+            ToolSpec::Function(_) | ToolSpec::Freeform(_) => {
+                members.push(serde_json::to_value(tool)?);
+            }
+            ToolSpec::Namespace(namespace) if namespace.name == DEFAULT_FUNCTION_NAMESPACE => {
+                if !namespace.description.trim().is_empty() {
+                    description = Some(&namespace.description);
+                }
+                for member in &namespace.tools {
+                    members.push(serde_json::to_value(member)?);
+                }
+            }
+            tool => {
+                tools_json.push(serde_json::to_value(tool)?);
+                continue;
+            }
+        }
+        functions_index.get_or_insert(tools_json.len());
+    }
+
+    if let Some(functions_index) = functions_index
+        && !members.is_empty()
+    {
+        // The serialized bytes feed the additional_tools ID. Keep the namespace field order.
+        let mut namespace = serde_json::to_value(ToolSpec::Namespace(ResponsesApiNamespace {
+            name: DEFAULT_FUNCTION_NAMESPACE.to_string(),
+            description: description
+                .cloned()
+                .unwrap_or_else(|| default_namespace_description(DEFAULT_FUNCTION_NAMESPACE)),
+            tools: Vec::new(),
+        }))?;
+        namespace["tools"] = Value::Array(members);
+        tools_json.insert(functions_index, namespace);
+    }
+
+    Ok(tools_json)
+}
+
+/// Returns raw JSON that can be embedded directly in a Responses API request.
+pub fn create_tools_raw_json_for_responses_api(
+    tools: &[ToolSpec],
+) -> Result<Arc<RawValue>, serde_json::Error> {
+    serde_json::value::to_raw_value(tools).map(Arc::from)
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

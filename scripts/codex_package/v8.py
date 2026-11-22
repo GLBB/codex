@@ -11,11 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlopen
 
-from .targets import REPO_ROOT
-from .targets import TargetSpec
-
+from .targets import REPO_ROOT, TargetSpec
 
 DOWNLOAD_TIMEOUT_SECS = 120
+V8_ARTIFACT_PROFILE = "ptrcomp_sandbox_release"
 
 
 @dataclass(frozen=True)
@@ -30,9 +29,6 @@ def resolve_codex_v8_cargo_env(
     environ: Mapping[str, str] | None = None,
     cache_root: Path | None = None,
 ) -> dict[str, str]:
-    if spec.is_windows:
-        return {}
-
     environ = os.environ if environ is None else environ
     if environ.get("V8_FROM_SOURCE") in {"true", "1", "yes"}:
         return {}
@@ -43,8 +39,7 @@ def resolve_codex_v8_cargo_env(
         return {}
     if archive_override or binding_override:
         raise RuntimeError(
-            "Cargo package builds need RUSTY_V8_ARCHIVE and "
-            "RUSTY_V8_SRC_BINDING_PATH set together."
+            "Cargo package builds need RUSTY_V8_ARCHIVE and RUSTY_V8_SRC_BINDING_PATH set together."
         )
 
     artifacts = fetch_codex_v8_artifacts(spec, cache_root=cache_root)
@@ -60,21 +55,38 @@ def fetch_codex_v8_artifacts(
     version: str | None = None,
     cache_root: Path | None = None,
 ) -> RustyV8ArtifactPair:
-    if spec.is_windows:
-        raise RuntimeError(f"No Codex-built V8 release artifacts for target: {spec.target}")
-
     version = version or resolved_v8_crate_version()
     release_url = (
-        "https://github.com/openai/codex/releases/download/"
-        f"rusty-v8-v{version}"
+        f"https://github.com/openai/codex/releases/download/rusty-v8-v{version}"
     )
     target = spec.target
     cache_dir = (cache_root or default_cache_root()) / f"rusty-v8-{version}-{target}"
-    archive = cache_dir / f"librusty_v8_release_{target}.a.gz"
-    binding = cache_dir / f"src_binding_release_{target}.rs"
-    checksums = cache_dir / f"rusty_v8_release_{target}.sha256"
 
-    download_file(f"{release_url}/{checksums.name}", checksums)
+    if spec.is_windows:
+        archive_name = f"rusty_v8_{V8_ARTIFACT_PROFILE}_{target}.lib.gz"
+    else:
+        archive_name = f"librusty_v8_{V8_ARTIFACT_PROFILE}_{target}.a.gz"
+    binding_name = f"src_binding_{V8_ARTIFACT_PROFILE}_{target}.rs"
+    checksums_name = f"rusty_v8_{V8_ARTIFACT_PROFILE}_{target}.sha256"
+
+    archive = cache_dir / archive_name
+    binding = cache_dir / binding_name
+    checksums = cache_dir / checksums_name
+
+    # A cached manifest is sufficient only while it matches this checkout's
+    # release pin. Probe without deleting it in case refresh is unavailable.
+    cached_manifest_valid = False
+    try:
+        if not checksums.is_symlink():
+            verify_release_checksum_manifest(
+                checksums, version=version, remove_invalid=False
+            )
+            cached_manifest_valid = True
+    except (OSError, RuntimeError, ValueError):
+        pass
+    if not cached_manifest_valid:
+        download_file(f"{release_url}/{checksums.name}", checksums)
+        verify_release_checksum_manifest(checksums, version=version)
     expected_checksums = load_checksums(checksums, {archive.name, binding.name})
     for artifact in [archive, binding]:
         ensure_valid_artifact(
@@ -98,7 +110,9 @@ def resolved_v8_crate_version() -> str:
         }
     )
     if len(versions) != 1:
-        raise RuntimeError(f"Expected exactly one resolved v8 version, found: {versions}")
+        raise RuntimeError(
+            f"Expected exactly one resolved v8 version, found: {versions}"
+        )
     return versions[0]
 
 
@@ -106,23 +120,55 @@ def default_cache_root() -> Path:
     return Path(tempfile.gettempdir()) / "codex-package"
 
 
+def verify_release_checksum_manifest(
+    checksums_path: Path, *, version: str, remove_invalid: bool = True
+) -> None:
+    version_suffix = version.replace(".", "_")
+    trusted_checksums = (
+        REPO_ROOT
+        / "third_party"
+        / "v8"
+        / f"rusty_v8_{version_suffix}_release_manifests.sha256"
+    )
+
+    for line in trusted_checksums.read_text(encoding="utf-8").splitlines():
+        digest, artifact_name = line.split(maxsplit=1)
+        if artifact_name != checksums_path.name:
+            continue
+        if has_checksum(checksums_path, digest):
+            return
+
+        if remove_invalid:
+            checksums_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"V8 checksum manifest {checksums_path} does not match its trusted SHA-256."
+        )
+
+    raise RuntimeError(
+        f"V8 checksum manifest {checksums_path.name} has no trusted SHA-256 for {version}."
+    )
+
+
 def load_checksums(checksums_path: Path, artifact_names: set[str]) -> dict[str, str]:
     checksums: dict[str, str] = {}
     lines = checksums_path.read_text(encoding="utf-8").splitlines()
     if len(lines) != len(artifact_names):
         raise RuntimeError(
-            f"Expected {len(artifact_names)} V8 checksums in {checksums_path}, "
-            f"found {len(lines)}."
+            f"Expected {len(artifact_names)} V8 checksums in {checksums_path}, found {len(lines)}."
         )
 
     for line in lines:
         parts = line.split(maxsplit=1)
         if len(parts) != 2:
-            raise RuntimeError(f"Invalid V8 checksum line in {checksums_path}: {line!r}")
+            raise RuntimeError(
+                f"Invalid V8 checksum line in {checksums_path}: {line!r}"
+            )
 
         digest, artifact_name = parts[0], parts[1].strip()
         if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
-            raise RuntimeError(f"Invalid V8 checksum digest in {checksums_path}: {digest}")
+            raise RuntimeError(
+                f"Invalid V8 checksum digest in {checksums_path}: {digest}"
+            )
         if artifact_name not in artifact_names:
             raise RuntimeError(
                 f"Unexpected V8 checksum artifact in {checksums_path}: {artifact_name}"
@@ -146,7 +192,9 @@ def ensure_valid_artifact(artifact: Path, checksum: str, url: str) -> None:
         return
 
     artifact.unlink(missing_ok=True)
-    raise RuntimeError(f"Codex-built V8 artifact {artifact} failed checksum validation.")
+    raise RuntimeError(
+        f"Codex-built V8 artifact {artifact} failed checksum validation."
+    )
 
 
 def has_checksum(path: Path, expected: str) -> bool:

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 #[test]
 fn list_mcp_resources_tool_matches_expected_spec() {
     assert_eq!(
-        create_list_mcp_resources_tool(),
+        create_list_mcp_resources_tool(/*messages*/ None, /*include_environment_id*/ false),
         ToolSpec::Function(ResponsesApiTool {
             name: "list_mcp_resources".to_string(),
             description: "Lists resources provided by MCP servers. Resources allow servers to share data that provides context to language models, such as files, database schemas, or application-specific information. Prefer resources over web search when possible.".to_string(),
@@ -16,14 +16,14 @@ fn list_mcp_resources_tool_matches_expected_spec() {
                     (
                         "server".to_string(),
                         JsonSchema::string(Some(
-                                "Optional MCP server name. When omitted, lists resources from every configured server."
+                                "MCP server name. Omit to list resources from every configured server."
                                     .to_string(),
                             ),),
                     ),
                     (
                         "cursor".to_string(),
                         JsonSchema::string(Some(
-                                "Opaque cursor returned by a previous list_mcp_resources call for the same server."
+                                "Opaque cursor from a previous list_mcp_resources call; omit for the first page."
                                     .to_string(),
                             ),),
                     ),
@@ -36,7 +36,7 @@ fn list_mcp_resources_tool_matches_expected_spec() {
 #[test]
 fn list_mcp_resource_templates_tool_matches_expected_spec() {
     assert_eq!(
-        create_list_mcp_resource_templates_tool(),
+        create_list_mcp_resource_templates_tool(/*messages*/ None, /*include_environment_id*/ false),
         ToolSpec::Function(ResponsesApiTool {
             name: "list_mcp_resource_templates".to_string(),
             description: "Lists resource templates provided by MCP servers. Parameterized resource templates allow servers to share data that takes parameters and provides context to language models, such as files, database schemas, or application-specific information. Prefer resource templates over web search when possible.".to_string(),
@@ -46,14 +46,14 @@ fn list_mcp_resource_templates_tool_matches_expected_spec() {
                     (
                         "server".to_string(),
                         JsonSchema::string(Some(
-                                "Optional MCP server name. When omitted, lists resource templates from all configured servers."
+                                "MCP server name. Omit to list resource templates from every configured server."
                                     .to_string(),
                             ),),
                     ),
                     (
                         "cursor".to_string(),
                         JsonSchema::string(Some(
-                                "Opaque cursor returned by a previous list_mcp_resource_templates call for the same server."
+                                "Opaque cursor from a previous list_mcp_resource_templates call; omit for the first page."
                                     .to_string(),
                             ),),
                     ),
@@ -66,7 +66,7 @@ fn list_mcp_resource_templates_tool_matches_expected_spec() {
 #[test]
 fn read_mcp_resource_tool_matches_expected_spec() {
     assert_eq!(
-        create_read_mcp_resource_tool(),
+        create_read_mcp_resource_tool(/*messages*/ None, /*include_environment_id*/ false),
         ToolSpec::Function(ResponsesApiTool {
             name: "read_mcp_resource".to_string(),
             description:

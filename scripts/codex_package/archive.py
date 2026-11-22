@@ -59,7 +59,8 @@ def archive_format_for_path(path: Path) -> str:
 
 
 def write_tar_archive(package_dir: Path, archive_path: Path, *, mode: str) -> None:
-    with tarfile.open(archive_path, mode) as archive:
+    options = {"compresslevel": 6} if mode == "w:gz" else {}
+    with tarfile.open(archive_path, mode, **options) as archive:
         for path in package_entries(package_dir):
             archive.add(
                 path,
@@ -99,7 +100,9 @@ def resolve_zstd_command(
 
 
 def write_zip_archive(package_dir: Path, archive_path: Path) -> None:
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(
+        archive_path, "w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
         for path in package_entries(package_dir):
             relative_path = path.relative_to(package_dir)
             if path.is_dir():
@@ -109,4 +112,7 @@ def write_zip_archive(package_dir: Path, archive_path: Path) -> None:
 
 
 def package_entries(package_dir: Path) -> list[Path]:
-    return sorted(package_dir.rglob("*"), key=lambda path: path.relative_to(package_dir).as_posix())
+    return sorted(
+        package_dir.rglob("*"),
+        key=lambda path: path.relative_to(package_dir).as_posix(),
+    )

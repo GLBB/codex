@@ -1,20 +1,58 @@
-//! Proposed-plan and plan-update history cells.
+//! Proposed-plan and plan-update history cells, including foreground contrast on the plan fill.
 
+use super::markdown_render_cache::MarkdownRenderCache;
 use super::*;
+use crate::style::accent_color;
+use crate::terminal_hyperlinks::lines_with_sources_eq;
+
+/// Apply the plan surface after Markdown layout, keeping retained reflow styles in sync.
+pub(crate) fn style_proposed_plan_line(
+    mut line: HyperlinkLine,
+    plan_style: Style,
+) -> HyperlinkLine {
+    if plan_style.bg.is_none() {
+        return line.style(plan_style);
+    }
+    let adapt = |mut style: Style, background| {
+        style.fg = style
+            .fg
+            .map(|foreground| crate::style::readable_color_on(foreground, style.bg.or(background)));
+        style
+    };
+    line.line.style = adapt(line.line.style.patch(plan_style), plan_style.bg);
+    for span in &mut line.line.spans {
+        span.style = adapt(span.style, line.line.style.bg);
+    }
+    if let Some(source) = &mut line.source {
+        source.line_style = adapt(source.line_style.patch(plan_style), plan_style.bg);
+        source.span_style = adapt(source.span_style, source.line_style.bg);
+        for (_, style) in std::sync::Arc::make_mut(&mut source.styles) {
+            *style = adapt(*style, source.span_style.bg.or(source.line_style.bg));
+        }
+    }
+    line
+}
 
 /// Transient active-cell representation of the mutable tail of a proposed-plan stream.
 ///
 /// The controller prepares the full styled plan lines because plan tails need the same header,
 /// padding, and background treatment as committed `ProposedPlanStreamCell`s while remaining
 /// preview-only during streaming.
-#[derive(Debug)]
+#[derive(Debug, Eq)]
 pub(crate) struct StreamingPlanTailCell {
-    lines: Vec<Line<'static>>,
+    lines: Vec<HyperlinkLine>,
     is_stream_continuation: bool,
 }
 
+impl PartialEq for StreamingPlanTailCell {
+    fn eq(&self, other: &Self) -> bool {
+        self.is_stream_continuation == other.is_stream_continuation
+            && lines_with_sources_eq(&self.lines, &other.lines)
+    }
+}
+
 impl StreamingPlanTailCell {
-    pub(crate) fn new(lines: Vec<Line<'static>>, is_stream_continuation: bool) -> Self {
+    pub(crate) fn new(lines: Vec<HyperlinkLine>, is_stream_continuation: bool) -> Self {
         Self {
             lines,
             is_stream_continuation,
@@ -24,11 +62,19 @@ impl StreamingPlanTailCell {
 
 impl HistoryCell for StreamingPlanTailCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        visible_lines(self.lines.clone())
+    }
+
+    fn display_hyperlink_lines(&self, _width: u16) -> Vec<HyperlinkLine> {
         self.lines.clone()
     }
 
+    fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.display_hyperlink_lines(width)
+    }
+
     fn raw_lines(&self) -> Vec<Line<'static>> {
-        plain_lines(self.lines.clone())
+        plain_lines(visible_lines(self.lines.clone()))
     }
 
     fn is_stream_continuation(&self) -> bool {
@@ -38,7 +84,11 @@ impl HistoryCell for StreamingPlanTailCell {
 /// Render a user‑friendly plan update styled like a checkbox todo list.
 pub(crate) fn new_plan_update(update: UpdatePlanArgs) -> PlanUpdateCell {
     let UpdatePlanArgs { explanation, plan } = update;
-    PlanUpdateCell { explanation, plan }
+    PlanUpdateCell {
+        activity_id: format!("plan:{}", uuid::Uuid::new_v4()),
+        explanation,
+        plan,
+    }
 }
 
 /// Create a proposed-plan cell that snapshots the session cwd for later markdown rendering.
@@ -50,6 +100,7 @@ pub(crate) fn new_proposed_plan(plan_markdown: String, cwd: &Path) -> ProposedPl
     ProposedPlanCell {
         plan_markdown,
         cwd: cwd.to_path_buf(),
+        rendered_lines: MarkdownRenderCache::default(),
     }
 }
 
@@ -58,11 +109,11 @@ pub(crate) fn new_proposed_plan(plan_markdown: String, cwd: &Path) -> ProposedPl
 /// Stream cells are display fragments, not source-backed history. They should be replaced by
 /// `ProposedPlanCell` during consolidation before relying on resize reflow for finalized history.
 pub(crate) fn new_proposed_plan_stream(
-    lines: Vec<Line<'static>>,
+    lines: Vec<impl Into<HyperlinkLine>>,
     is_stream_continuation: bool,
 ) -> ProposedPlanStreamCell {
     ProposedPlanStreamCell {
-        lines,
+        lines: lines.into_iter().map(Into::into).collect(),
         is_stream_continuation,
     }
 }
@@ -76,6 +127,7 @@ pub(crate) struct ProposedPlanCell {
     plan_markdown: String,
     /// Session cwd used to keep local file-link display aligned with live streamed plan rendering.
     cwd: PathBuf,
+    rendered_lines: MarkdownRenderCache,
 }
 
 /// Transient proposed-plan history emitted while a plan is still streaming.
@@ -85,34 +137,67 @@ pub(crate) struct ProposedPlanCell {
 /// terminal resize.
 #[derive(Debug)]
 pub(crate) struct ProposedPlanStreamCell {
-    lines: Vec<Line<'static>>,
+    lines: Vec<HyperlinkLine>,
     is_stream_continuation: bool,
 }
 
+impl ProposedPlanCell {
+    fn render_lines(
+        &self,
+        width: u16,
+        list_spacing: crate::markdown_render::ListSpacing,
+    ) -> Vec<HyperlinkLine> {
+        self.rendered_lines.render(width, list_spacing, || {
+            let mut lines = vec![
+                HyperlinkLine::new(vec!["• ".dim(), "Proposed Plan".bold()].into()),
+                HyperlinkLine::new(Line::from(" ")),
+            ];
+
+            let mut plan_lines = vec![HyperlinkLine::new(Line::from(" "))];
+            let plan_style = proposed_plan_style();
+            let wrap_width = width.saturating_sub(4).max(1) as usize;
+            let mut body = crate::markdown::render_markdown_agent_with_list_spacing(
+                &self.plan_markdown,
+                Some(wrap_width),
+                Some(self.cwd.as_path()),
+                /*inline_visualization_context*/ None,
+                list_spacing,
+            );
+            if body.is_empty() {
+                body.push(HyperlinkLine::new(Line::from("(empty)".dim().italic())));
+            }
+            plan_lines.extend(prefix_hyperlink_lines(body, "  ".into(), "  ".into()));
+            plan_lines.push(HyperlinkLine::new(Line::from(" ")));
+
+            lines.extend(
+                plan_lines
+                    .into_iter()
+                    .map(|line| style_proposed_plan_line(line, plan_style)),
+            );
+            lines
+        })
+    }
+}
+
 impl HistoryCell for ProposedPlanCell {
+    fn copy_source(&self) -> Option<&str> {
+        Some(&self.plan_markdown)
+    }
+
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        lines.push(vec!["• ".dim(), "Proposed Plan".bold()].into());
-        lines.push(Line::from(" "));
+        visible_lines(self.display_hyperlink_lines(width))
+    }
 
-        let mut plan_lines: Vec<Line<'static>> = vec![Line::from(" ")];
-        let plan_style = proposed_plan_style();
-        let wrap_width = width.saturating_sub(4).max(1) as usize;
-        let mut body: Vec<Line<'static>> = Vec::new();
-        append_markdown_agent_with_cwd(
-            &self.plan_markdown,
-            Some(wrap_width),
-            Some(self.cwd.as_path()),
-            &mut body,
-        );
-        if body.is_empty() {
-            body.push(Line::from("(empty)".dim().italic()));
-        }
-        plan_lines.extend(prefix_lines(body, "  ".into(), "  ".into()));
-        plan_lines.push(Line::from(" "));
+    fn display_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.render_lines(width, crate::markdown_render::ListSpacing::AfterMultiline)
+    }
 
-        lines.extend(plan_lines.into_iter().map(|line| line.style(plan_style)));
-        lines
+    fn retained_hyperlink_lines(&self, width: u16, _detailed: bool) -> Vec<HyperlinkLine> {
+        self.render_lines(width, crate::markdown_render::ListSpacing::Uniform)
+    }
+
+    fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.display_hyperlink_lines(width)
     }
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
@@ -120,13 +205,25 @@ impl HistoryCell for ProposedPlanCell {
     }
 }
 
+#[cfg(test)]
+#[path = "plans_tests.rs"]
+mod tests;
+
 impl HistoryCell for ProposedPlanStreamCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        visible_lines(self.lines.clone())
+    }
+
+    fn display_hyperlink_lines(&self, _width: u16) -> Vec<HyperlinkLine> {
         self.lines.clone()
     }
 
+    fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.display_hyperlink_lines(width)
+    }
+
     fn raw_lines(&self) -> Vec<Line<'static>> {
-        plain_lines(self.lines.clone())
+        plain_lines(visible_lines(self.lines.clone()))
     }
 
     fn is_stream_continuation(&self) -> bool {
@@ -136,40 +233,117 @@ impl HistoryCell for ProposedPlanStreamCell {
 
 #[derive(Debug)]
 pub(crate) struct PlanUpdateCell {
+    activity_id: String,
     explanation: Option<String>,
     plan: Vec<PlanItemArg>,
 }
 
 impl HistoryCell for PlanUpdateCell {
+    fn tool_call_labels(&self) -> Vec<String> {
+        vec!["Updated plan".into()]
+    }
+
+    fn activity_ids(&self) -> Vec<String> {
+        vec![self.activity_id.clone()]
+    }
+
+    fn activity_disclosure(&self, width: u16) -> Option<super::ActivityDisclosure> {
+        (self
+            .explanation
+            .as_ref()
+            .is_some_and(|explanation| !explanation.trim().is_empty())
+            || self.plan.len() > super::activity_preview::DETAIL_PREVIEW_LINES
+            || self.plan.iter().any(|item| {
+                let step = item.step.split_whitespace().collect::<Vec<_>>().join(" ");
+                // The compact row reserves four columns for indentation and two for its marker.
+                Line::from(step).width() + 6 > usize::from(width)
+            }))
+        .then_some(super::ActivityDisclosure::Generic)
+    }
+
+    fn compact_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        use super::activity_preview::DETAIL_PREVIEW_LINES;
+        use super::activity_preview::clipped_line;
+
+        let completed = self
+            .plan
+            .iter()
+            .filter(|item| matches!(item.status, StepStatus::Completed))
+            .count();
+        let total = self.plan.len();
+        let mut lines = vec![clipped_line(
+            Line::from(vec![
+                "• ".dim(),
+                "Updated Plan".bold(),
+                format!(" · {completed}/{total} complete").dim(),
+            ]),
+            width,
+        )];
+        let mut steps: Vec<_> = self.plan.iter().collect();
+        steps.sort_by_key(|item| match item.status {
+            StepStatus::InProgress => 0,
+            StepStatus::Pending => 1,
+            StepStatus::Completed => 2,
+        });
+        for (index, item) in steps.into_iter().take(DETAIL_PREVIEW_LINES).enumerate() {
+            let (marker, style) = match item.status {
+                StepStatus::Completed => ("✔ ", Style::default().crossed_out().dim()),
+                StepStatus::InProgress => ("□ ", Style::default().fg(accent_color()).bold()),
+                StepStatus::Pending => ("□ ", Style::default().dim()),
+            };
+            let step = item.step.split_whitespace().collect::<Vec<_>>().join(" ");
+            lines.push(clipped_line(
+                Line::from(vec![
+                    if index == 0 { "  └ " } else { "    " }.dim(),
+                    marker.set_style(style),
+                    step.set_style(style),
+                ]),
+                width,
+            ));
+        }
+        if self.plan.is_empty() {
+            lines.push(clipped_line(
+                Line::from("  └ (no steps provided)".dim()),
+                width,
+            ));
+        }
+        lines
+    }
+
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let render_note = |text: &str| -> Vec<Line<'static>> {
+        visible_lines(self.display_hyperlink_lines(width))
+    }
+
+    fn display_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        let render_note = |text: &str| -> Vec<HyperlinkLine> {
             let wrap_width = width.saturating_sub(4).max(1) as usize;
-            let note = Line::from(text.to_string().dim().italic());
-            let wrapped = adaptive_wrap_line(&note, RtOptions::new(wrap_width));
-            let mut out = Vec::new();
-            push_owned_lines(&wrapped, &mut out);
-            out
+            let note = HyperlinkLine::new(Line::from(text.to_string().dim().italic()));
+            crate::terminal_hyperlinks::adaptive_wrap_hyperlink_lines(
+                &[note],
+                RtOptions::new(wrap_width),
+            )
         };
 
-        let render_step = |status: &StepStatus, text: &str| -> Vec<Line<'static>> {
+        let render_step = |status: &StepStatus, text: &str| -> Vec<HyperlinkLine> {
             let (box_str, step_style) = match status {
                 StepStatus::Completed => ("✔ ", Style::default().crossed_out().dim()),
-                StepStatus::InProgress => ("□ ", Style::default().cyan().bold()),
+                StepStatus::InProgress => ("□ ", Style::default().fg(accent_color()).bold()),
                 StepStatus::Pending => ("□ ", Style::default().dim()),
             };
 
             let opts = RtOptions::new(width.saturating_sub(4).max(1) as usize)
                 .initial_indent(box_str.into())
                 .subsequent_indent("  ".into());
-            let step = Line::from(text.to_string().set_style(step_style));
-            let wrapped = adaptive_wrap_line(&step, opts);
-            let mut out = Vec::new();
-            push_owned_lines(&wrapped, &mut out);
-            out
+            let step = HyperlinkLine::new(Line::from(text.to_string().set_style(step_style)));
+            let mut wrapped =
+                crate::terminal_hyperlinks::adaptive_wrap_hyperlink_lines(&[step], opts);
+            crate::terminal_hyperlinks::retain_initial_prefix(&mut wrapped, box_str);
+            wrapped
         };
 
-        let mut lines: Vec<Line<'static>> = vec![];
-        lines.push(vec!["• ".dim(), "Updated Plan".bold()].into());
+        let mut lines = vec![HyperlinkLine::new(
+            vec!["• ".dim(), "Updated Plan".bold()].into(),
+        )];
 
         let mut indented_lines = vec![];
         let note = self
@@ -182,15 +356,25 @@ impl HistoryCell for PlanUpdateCell {
         };
 
         if self.plan.is_empty() {
-            indented_lines.push(Line::from("(no steps provided)".dim().italic()));
+            indented_lines.push(HyperlinkLine::new(Line::from(
+                "(no steps provided)".dim().italic(),
+            )));
         } else {
             for PlanItemArg { step, status } in self.plan.iter() {
                 indented_lines.extend(render_step(status, step));
             }
         }
-        lines.extend(prefix_lines(indented_lines, "  └ ".dim(), "    ".into()));
+        lines.extend(prefix_hyperlink_lines(
+            indented_lines,
+            "  └ ".dim(),
+            "    ".into(),
+        ));
 
         lines
+    }
+
+    fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.display_hyperlink_lines(width)
     }
 
     fn raw_lines(&self) -> Vec<Line<'static>> {

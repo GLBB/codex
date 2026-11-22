@@ -1,22 +1,47 @@
 //! MCP tool-call, inventory, and output history cells.
+//! Tool output previews share a three-row budget across all result blocks;
+//! the expanded transcript retains the full text.
+//! Invocation and result rows retain exact logical source ranges through wrapping and gutters.
+//! Environment ownership is rendered separately from raw server names used by special handlers.
 
 use super::*;
+use crate::line_truncation::truncate_line_with_ellipsis_if_overflow;
 
-#[derive(Debug)]
-struct CompletedMcpToolCallWithImageOutput {
-    _image: DynamicImage,
-}
-impl HistoryCell for CompletedMcpToolCallWithImageOutput {
-    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        vec!["tool result (image output)".into()]
-    }
+use codex_protocol::mcp::is_node_repl_backed_server;
 
-    fn raw_lines(&self) -> Vec<Line<'static>> {
-        vec![Line::from("tool result (image output)")]
-    }
-}
+#[path = "mcp_result.rs"]
+mod result;
+
+#[path = "mcp_preview.rs"]
+mod preview;
+
+#[path = "computer_activity.rs"]
+mod computer_activity;
+pub(crate) use computer_activity::ComputerActivityCell;
+
+use crate::style::StatusTone;
+use crate::style::accent_color;
+use crate::style::accent_style;
+use crate::style::status_style;
+use crate::terminal_hyperlinks::LogicalLineSource;
+use crate::terminal_hyperlinks::adaptive_wrap_hyperlink_lines;
+use crate::terminal_hyperlinks::prefix_hyperlink_lines;
+use crate::terminal_hyperlinks::remap_source_wrapped_line;
+use crate::text_formatting::format_json_compact;
+use crate::tool_output::ToolOutputPreview;
+use codex_app_server_protocol::McpServerConnectionStatus;
+use result::McpContentBlock;
+use result::McpResultKind;
+use result::McpToolResult;
+use std::borrow::Cow;
+
+#[cfg(test)]
+#[path = "mcp_tests.rs"]
+mod tests;
+
 fn mcp_auth_status_label(status: McpAuthStatus) -> &'static str {
     match status {
+        McpAuthStatus::Unknown => "Unknown",
         McpAuthStatus::Unsupported => "Unsupported",
         McpAuthStatus::NotLoggedIn => "Not logged in",
         McpAuthStatus::BearerToken => "Bearer token",
@@ -29,15 +54,36 @@ pub(crate) struct McpToolCallCell {
     invocation: McpInvocation,
     start_time: Instant,
     duration: Option<Duration>,
-    result: Option<Result<codex_protocol::mcp::CallToolResult, String>>,
+    result: Option<Result<McpToolResult, String>>,
     animations_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct McpInvocation {
     pub(crate) server: String,
+    pub(crate) environment_id: Option<String>,
     pub(crate) tool: String,
     pub(crate) arguments: Option<serde_json::Value>,
+}
+
+impl McpInvocation {
+    pub(crate) fn is_computer_activity(&self) -> bool {
+        self.server == "cua_repl"
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum McpToolCallRenderMode {
+    /// Compact presentation used in normal conversation history.
+    Display,
+    /// Complete invocation and result used by the Ctrl+T transcript.
+    Transcript,
+}
+
+#[derive(serde::Deserialize)]
+struct NodeReplExecOutput {
+    exit_code: i64,
+    output: String,
 }
 
 impl McpToolCallCell {
@@ -64,17 +110,15 @@ impl McpToolCallCell {
         &mut self,
         duration: Duration,
         result: Result<codex_protocol::mcp::CallToolResult, String>,
-    ) -> Option<Box<dyn HistoryCell>> {
-        let image_cell = try_new_completed_mcp_tool_call_with_image_output(&result)
-            .map(|cell| Box::new(cell) as Box<dyn HistoryCell>);
+    ) {
+        let result = result.map(|result| McpToolResult::new(result, self.result_kind()));
         self.duration = Some(duration);
         self.result = Some(result);
-        image_cell
     }
 
     fn success(&self) -> Option<bool> {
         match self.result.as_ref() {
-            Some(Ok(result)) => Some(!result.is_error.unwrap_or(false)),
+            Some(Ok(result)) => Some(!result.is_error),
             Some(Err(_)) => Some(false),
             None => None,
         }
@@ -86,40 +130,29 @@ impl McpToolCallCell {
         self.result = Some(Err("interrupted".to_string()));
     }
 
-    fn render_content_block(block: &serde_json::Value, width: usize) -> String {
-        let content = match serde_json::from_value::<rmcp::model::Content>(block.clone()) {
-            Ok(content) => content,
-            Err(_) => {
-                return format_and_truncate_tool_result(
-                    &block.to_string(),
-                    TOOL_CALL_MAX_LINES,
-                    width,
-                );
-            }
-        };
+    pub(crate) fn freeze_snapshot(&mut self) {
+        self.animations_enabled = false;
+    }
 
-        match content.raw {
-            rmcp::model::RawContent::Text(text) => {
-                format_and_truncate_tool_result(&text.text, TOOL_CALL_MAX_LINES, width)
-            }
-            rmcp::model::RawContent::Image(_) => "<image content>".to_string(),
-            rmcp::model::RawContent::Audio(_) => "<audio content>".to_string(),
-            rmcp::model::RawContent::Resource(resource) => {
-                let uri = match resource.resource {
-                    rmcp::model::ResourceContents::TextResourceContents { uri, .. } => uri,
-                    rmcp::model::ResourceContents::BlobResourceContents { uri, .. } => uri,
-                };
-                format!("embedded resource: {uri}")
-            }
-            rmcp::model::RawContent::ResourceLink(link) => format!("link: {}", link.uri),
+    fn result_kind(&self) -> McpResultKind {
+        if self.invocation.is_computer_activity()
+            || (is_node_repl_backed_server(&self.invocation.server) && self.invocation.tool == "js")
+        {
+            McpResultKind::NodeRepl
+        } else {
+            McpResultKind::Standard
         }
     }
-}
 
-impl HistoryCell for McpToolCallCell {
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let mut lines: Vec<Line<'static>> = Vec::new();
+    fn render_hyperlink_lines(
+        &self,
+        width: u16,
+        mode: McpToolCallRenderMode,
+    ) -> Vec<HyperlinkLine> {
+        let mut lines: Vec<HyperlinkLine> = Vec::new();
         let status = self.success();
+        let node_repl = self.result_kind() == McpResultKind::NodeRepl;
+        let compact = node_repl && mode == McpToolCallRenderMode::Display;
         let bullet = match status {
             Some(true) => "•".green().bold(),
             Some(false) => "•".red().bold(),
@@ -136,80 +169,219 @@ impl HistoryCell for McpToolCallCell {
             "Calling"
         };
 
-        let invocation_line = line_to_static(&format_mcp_invocation(self.invocation.clone()));
-        let mut compact_spans = vec![bullet.clone(), " ".into(), header_text.bold(), " ".into()];
+        let title = self
+            .invocation
+            .arguments
+            .as_ref()
+            .filter(|_| compact)
+            .and_then(|arguments| arguments.get("title"))
+            .and_then(serde_json::Value::as_str)
+            .map(|title| title.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|title| !title.is_empty());
+        let invocation_line = if compact {
+            Line::from(self.compact_tool_name().fg(accent_color()))
+        } else {
+            line_to_static(&format_mcp_invocation(&self.invocation))
+        };
+        let mut compact_spans = vec![bullet.clone(), " ".into()];
+        if title.is_none() {
+            compact_spans.extend([header_text.bold(), " ".into()]);
+        }
         let mut compact_header = Line::from(compact_spans.clone());
         let reserved = compact_header.width();
 
         let inline_invocation =
-            invocation_line.width() <= (width as usize).saturating_sub(reserved);
+            compact || invocation_line.width() <= (width as usize).saturating_sub(reserved);
 
         if inline_invocation {
             compact_header.extend(invocation_line.spans.clone());
-            lines.push(compact_header);
+            lines.push(mcp_header_line(if compact {
+                truncate_line_with_ellipsis_if_overflow(compact_header, width as usize)
+            } else {
+                compact_header
+            }));
         } else {
             compact_spans.pop(); // drop trailing space for standalone header
-            lines.push(Line::from(compact_spans));
+            lines.push(mcp_header_line(Line::from(compact_spans)));
 
-            let opts = RtOptions::new((width as usize).saturating_sub(4))
+            let opts = RtOptions::new((width as usize).saturating_sub(/*rhs*/ 4))
                 .initial_indent("".into())
                 .subsequent_indent("    ".into());
-            let wrapped = adaptive_wrap_line(&invocation_line, opts);
-            let body_lines: Vec<Line<'static>> = wrapped.iter().map(line_to_static).collect();
-            lines.extend(prefix_lines(body_lines, "  └ ".dim(), "    ".into()));
+            let body_lines =
+                adaptive_wrap_hyperlink_lines(&[HyperlinkLine::new(invocation_line)], opts);
+            lines.extend(prefix_hyperlink_lines(
+                body_lines,
+                "  └ ".dim(),
+                "    ".into(),
+            ));
         }
 
-        let mut detail_lines: Vec<Line<'static>> = Vec::new();
-        // Reserve four columns for the tree prefix ("  └ "/"    ") and ensure the wrapper still has at least one cell to work with.
-        let detail_wrap_width = (width as usize).saturating_sub(4).max(1);
-
-        if let Some(result) = &self.result {
-            match result {
-                Ok(codex_protocol::mcp::CallToolResult { content, .. }) => {
-                    if !content.is_empty() {
-                        for block in content {
-                            let text = Self::render_content_block(block, detail_wrap_width);
-                            for segment in text.split('\n') {
-                                let line = Line::from(segment.to_string().dim());
-                                let wrapped = adaptive_wrap_line(
-                                    &line,
-                                    RtOptions::new(detail_wrap_width)
-                                        .initial_indent("".into())
-                                        .subsequent_indent("    ".into()),
-                                );
-                                detail_lines.extend(wrapped.iter().map(line_to_static));
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    let err_text = format_and_truncate_tool_result(
-                        &format!("Error: {err}"),
-                        TOOL_CALL_MAX_LINES,
-                        width as usize,
-                    );
-                    let err_line = Line::from(err_text.dim());
-                    let wrapped = adaptive_wrap_line(
-                        &err_line,
-                        RtOptions::new(detail_wrap_width)
-                            .initial_indent("".into())
-                            .subsequent_indent("    ".into()),
-                    );
-                    detail_lines.extend(wrapped.iter().map(line_to_static));
-                }
-            }
-        }
-
+        let detail_lines = self.render_detail_lines(width, mode);
         if !detail_lines.is_empty() {
-            let initial_prefix: Span<'static> = if inline_invocation {
+            let initial_prefix = if inline_invocation {
                 "  └ ".dim()
             } else {
                 "    ".into()
             };
-            lines.extend(prefix_lines(detail_lines, initial_prefix, "    ".into()));
+            lines.extend(prefix_hyperlink_lines(
+                detail_lines,
+                initial_prefix,
+                "    ".into(),
+            ));
         }
-
         lines
+    }
+
+    /// Share one bounded preview across result blocks while retaining full transcript sources.
+    fn render_detail_lines(&self, width: u16, mode: McpToolCallRenderMode) -> Vec<HyperlinkLine> {
+        let detail_width = usize::from(width)
+            .saturating_sub(/*rhs*/ 4)
+            .max(/*other*/ 1);
+        let options = RtOptions::new(detail_width).subsequent_indent("    ".into());
+        let mut lines = Vec::new();
+        let mut preview = ToolOutputPreview::new(detail_width, /*omitted*/ 0);
+        match &self.result {
+            Some(Ok(result)) => {
+                for block in &result.content {
+                    // Image blocks can carry text as well as their image indication.
+                    if self.result_kind() == McpResultKind::NodeRepl
+                        && block.is_image
+                        && block.text().is_some()
+                    {
+                        let marker = HyperlinkLine::new("Returned image".dim().into());
+                        if mode == McpToolCallRenderMode::Display {
+                            preview.push_hyperlink_line(marker);
+                        } else {
+                            lines.extend(remap_source_wrapped_line(
+                                &marker,
+                                crate::wrapping::word_wrap_line_with_source(
+                                    &marker.line,
+                                    detail_width,
+                                ),
+                            ));
+                        }
+                    }
+                    let Some(text) = self.result_block_text(block, mode) else {
+                        continue;
+                    };
+                    for segment in text.lines() {
+                        if mode == McpToolCallRenderMode::Display {
+                            preview.push_line(Line::from(segment.dim()));
+                        } else {
+                            let line = Line::from(segment.to_owned().dim());
+                            lines.extend(adaptive_wrap_hyperlink_lines(
+                                &[HyperlinkLine::new(line)],
+                                options.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+            Some(Err(error)) => {
+                let text = format!("Error: {error}");
+                for segment in text.lines() {
+                    if mode == McpToolCallRenderMode::Display {
+                        preview.push_line(Line::from(segment.dim()));
+                    } else {
+                        let line = Line::from(segment.to_owned().dim());
+                        lines.extend(adaptive_wrap_hyperlink_lines(
+                            &[HyperlinkLine::new(line)],
+                            options.clone(),
+                        ));
+                    }
+                }
+            }
+            None => {}
+        }
+        if mode == McpToolCallRenderMode::Display {
+            preview.finish_hyperlink_lines()
+        } else {
+            lines
+        }
+    }
+
+    /// Keep compact code-mode summaries while retaining complete transcript code and output.
+    fn result_block_text<'a>(
+        &self,
+        block: &'a McpContentBlock,
+        mode: McpToolCallRenderMode,
+    ) -> Option<Cow<'a, str>> {
+        let node_repl = self.result_kind() == McpResultKind::NodeRepl;
+        if mode == McpToolCallRenderMode::Transcript {
+            return Some(Cow::Borrowed(block.render_full()));
+        }
+        if node_repl && self.success() == Some(true) {
+            let meaningful_output = block.text().and_then(|text| {
+                if text.starts_with("Script completed\n") {
+                    return text
+                        .split_once("\nOutput:\n")
+                        .map(|(_, output)| Cow::Borrowed(output));
+                }
+                serde_json::from_str::<NodeReplExecOutput>(text)
+                    .ok()
+                    .filter(|output| output.exit_code == 0)
+                    .map(|output| Cow::Owned(output.output))
+            });
+            match meaningful_output {
+                Some(output) if output.is_empty() => None,
+                Some(output) => Some(
+                    format_json_compact(&output)
+                        .map(Cow::Owned)
+                        .unwrap_or(output),
+                ),
+                None => Some(block.text().map_or_else(
+                    || block.render(),
+                    |text| {
+                        format_json_compact(text)
+                            .map(Cow::Owned)
+                            .unwrap_or(Cow::Borrowed(text))
+                    },
+                )),
+            }
+        } else if node_repl && let Some(output) = block.text() {
+            Some(
+                format_json_compact(output)
+                    .map(Cow::Owned)
+                    .unwrap_or(Cow::Borrowed(output)),
+            )
+        } else {
+            Some(block.render())
+        }
+    }
+}
+
+impl HistoryCell for McpToolCallCell {
+    fn tool_call_labels(&self) -> Vec<String> {
+        let verb = match self.success() {
+            Some(true) => "Called",
+            Some(false) => "Failed",
+            None => "Calling",
+        };
+        vec![format!("{verb} {}", self.compact_tool_name())]
+    }
+
+    fn activity_ids(&self) -> Vec<String> {
+        vec![format!("mcp:{}", self.call_id)]
+    }
+
+    fn compact_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.compact_mcp_lines(width)
+    }
+
+    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+        visible_lines(self.display_hyperlink_lines(width))
+    }
+
+    fn transcript_lines(&self, width: u16) -> Vec<Line<'static>> {
+        visible_lines(self.transcript_hyperlink_lines(width))
+    }
+
+    fn display_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.render_hyperlink_lines(width, McpToolCallRenderMode::Display)
+    }
+
+    fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.render_hyperlink_lines(width, McpToolCallRenderMode::Transcript)
     }
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
@@ -220,15 +392,15 @@ impl HistoryCell for McpToolCallCell {
         };
         let mut lines = vec![Line::from(format!(
             "{header_text} {}",
-            format_mcp_invocation(self.invocation.clone())
+            format_mcp_invocation(&self.invocation)
         ))];
 
         if let Some(result) = &self.result {
             match result {
-                Ok(codex_protocol::mcp::CallToolResult { content, .. }) => {
+                Ok(McpToolResult { content, .. }) => {
                     for block in content {
-                        let text = Self::render_content_block(block, RAW_TOOL_OUTPUT_WIDTH);
-                        lines.extend(raw_lines_from_source(&text));
+                        let text = block.render_full();
+                        lines.extend(raw_lines_from_source(text));
                     }
                 }
                 Err(err) => lines.push(Line::from(format!("Error: {err}"))),
@@ -246,6 +418,22 @@ impl HistoryCell for McpToolCallCell {
     }
 }
 
+/// The first two spans are the status bullet and its space, not invocation source text.
+fn mcp_header_line(line: Line<'static>) -> HyperlinkLine {
+    let mut source = LogicalLineSource::from_line(&Line::from(
+        line.spans.iter().skip(/*n*/ 2).cloned().collect::<Vec<_>>(),
+    ));
+    source.prefix_bytes = line
+        .spans
+        .iter()
+        .take(/*n*/ 2)
+        .map(|span| span.content.len())
+        .sum();
+    let mut line = HyperlinkLine::new(line);
+    line.source = Some(source);
+    line
+}
+
 pub(crate) fn new_active_mcp_tool_call(
     call_id: String,
     invocation: McpInvocation,
@@ -253,86 +441,25 @@ pub(crate) fn new_active_mcp_tool_call(
 ) -> McpToolCallCell {
     McpToolCallCell::new(call_id, invocation, animations_enabled)
 }
-/// Returns an additional history cell if an MCP tool result includes a decodable image.
-///
-/// This intentionally returns at most one cell: the first image in `CallToolResult.content` that
-/// successfully base64-decodes and parses as an image. This is used as a lightweight “image output
-/// exists” affordance separate from the main MCP tool call cell.
-///
-/// Manual testing tip:
-/// - Run the rmcp stdio test server (`codex-rs/rmcp-client/src/bin/test_stdio_server.rs`) and
-///   register it as an MCP server via `codex mcp add`.
-/// - Use its `image_scenario` tool with cases like `text_then_image`,
-///   `invalid_base64_then_image`, or `invalid_image_bytes_then_image` to ensure this path triggers
-///   even when the first block is not a valid image.
-fn try_new_completed_mcp_tool_call_with_image_output(
-    result: &Result<codex_protocol::mcp::CallToolResult, String>,
-) -> Option<CompletedMcpToolCallWithImageOutput> {
-    let image = result
-        .as_ref()
-        .ok()?
-        .content
-        .iter()
-        .find_map(decode_mcp_image)?;
-
-    Some(CompletedMcpToolCallWithImageOutput { _image: image })
-}
-
-/// Decodes an MCP `ImageContent` block into an in-memory image.
-///
-/// Returns `None` when the block is not an image, when base64 decoding fails, when the format
-/// cannot be inferred, or when the image decoder rejects the bytes.
-fn decode_mcp_image(block: &serde_json::Value) -> Option<DynamicImage> {
-    let content = serde_json::from_value::<rmcp::model::Content>(block.clone()).ok()?;
-    let rmcp::model::RawContent::Image(image) = content.raw else {
-        return None;
-    };
-    let base64_data = if let Some(data_url) = image.data.strip_prefix("data:") {
-        data_url.split_once(',')?.1
-    } else {
-        image.data.as_str()
-    };
-    let raw_data = base64::engine::general_purpose::STANDARD
-        .decode(base64_data)
-        .map_err(|e| {
-            error!("Failed to decode image data: {e}");
-            e
-        })
-        .ok()?;
-    let reader = ImageReader::new(Cursor::new(raw_data))
-        .with_guessed_format()
-        .map_err(|e| {
-            error!("Failed to guess image format: {e}");
-            e
-        })
-        .ok()?;
-
-    reader
-        .decode()
-        .map_err(|e| {
-            error!("Image decoding failed: {e}");
-            e
-        })
-        .ok()
-}
 /// Render a summary of configured MCP servers from the current `Config`.
-pub(crate) fn empty_mcp_output() -> PlainHistoryCell {
-    let lines: Vec<Line<'static>> = vec![
-        "/mcp".magenta().into(),
-        "".into(),
-        vec!["🔌  ".into(), "MCP Tools".bold()].into(),
-        "".into(),
-        "  • No MCP servers configured.".italic().into(),
-        Line::from(vec![
-            "    See the ".into(),
-            "\u{1b}]8;;https://developers.openai.com/codex/mcp\u{7}MCP docs\u{1b}]8;;\u{7}"
-                .underlined(),
-            " to configure them.".into(),
-        ])
-        .style(Style::default().add_modifier(Modifier::DIM)),
+pub(crate) fn empty_mcp_output() -> WebHyperlinkHistoryCell {
+    let mut docs_line = HyperlinkLine::new(Line::from("    See the "));
+    docs_line.push_span(
+        "MCP docs".underlined(),
+        Some("https://developers.openai.com/codex/mcp"),
+    );
+    docs_line.push_span(" to configure them.".into(), /*destination*/ None);
+
+    let lines = vec![
+        HyperlinkLine::new("/mcp".magenta().into()),
+        HyperlinkLine::from(""),
+        HyperlinkLine::new(vec!["🔌  ".into(), "MCP Tools".bold()].into()),
+        HyperlinkLine::from(""),
+        HyperlinkLine::new("  • No MCP servers configured.".italic().into()),
+        docs_line.style(Style::default().add_modifier(Modifier::DIM)),
     ];
 
-    PlainHistoryCell { lines }
+    WebHyperlinkHistoryCell::new_hyperlink_lines(lines)
 }
 
 #[cfg(test)]
@@ -358,7 +485,7 @@ pub(crate) fn new_mcp_tools_output(
 
     let effective_servers = config.mcp_servers.get().clone();
     let mut servers: Vec<_> = effective_servers.iter().collect();
-    servers.sort_by(|(a, _), (b, _)| a.cmp(b));
+    servers.sort_by_key(|(server, _)| *server);
 
     for (server, cfg) in servers {
         let prefix = qualified_mcp_tool_name_prefix(server);
@@ -411,7 +538,7 @@ pub(crate) fn new_mcp_tools_output(
                 lines.push(vec!["    • Command: ".into(), cmd_display.into()].into());
 
                 if let Some(cwd) = cwd.as_ref() {
-                    lines.push(vec!["    • Cwd: ".into(), cwd.display().to_string().into()].into());
+                    lines.push(vec!["    • Cwd: ".into(), cwd.to_string().into()].into());
                 }
 
                 let env_display = format_env_display(env.as_ref(), env_vars);
@@ -430,7 +557,7 @@ pub(crate) fn new_mcp_tools_output(
                     && !headers.is_empty()
                 {
                     let mut pairs: Vec<_> = headers.iter().collect();
-                    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+                    pairs.sort_by_key(|(name, _)| *name);
                     let display = pairs
                         .into_iter()
                         .map(|(name, _)| format!("{name}=*****"))
@@ -442,7 +569,7 @@ pub(crate) fn new_mcp_tools_output(
                     && !headers.is_empty()
                 {
                     let mut pairs: Vec<_> = headers.iter().collect();
-                    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+                    pairs.sort_by_key(|(name, _)| *name);
                     let display = pairs
                         .into_iter()
                         .map(|(name, var)| format!("{name}={var}"))
@@ -512,14 +639,12 @@ pub(crate) fn new_mcp_tools_output(
 /// Build the `/mcp` history cell from app-server `McpServerStatus` responses.
 ///
 /// The server list comes directly from the app-server status response, sorted
-/// alphabetically. Local config is only used to enrich returned servers with
-/// transport details such as command, URL, cwd, and environment display.
+/// alphabetically. The TUI deliberately does not enrich these rows from
+/// client-local config because the app-server owns the remote MCP state.
 ///
-/// This mirrors the layout of [`new_mcp_tools_output`] but sources data from
-/// the paginated RPC response rather than the in-process `McpManager`. The
-/// `detail` flag controls whether resources and resource templates are rendered.
+/// Normal output is a compact connection summary. Full detail preserves the
+/// tool, auth, resource, and resource-template inventory.
 pub(crate) fn new_mcp_tools_output_from_statuses(
-    config: &Config,
     statuses: &[McpServerStatus],
     detail: McpServerStatusDetail,
 ) -> PlainHistoryCell {
@@ -530,46 +655,69 @@ pub(crate) fn new_mcp_tools_output_from_statuses(
         "".into(),
     ];
 
-    let mut statuses_by_name = HashMap::new();
-    for status in statuses {
-        statuses_by_name.insert(status.name.as_str(), status);
-    }
-
-    let mut server_names: Vec<String> = statuses.iter().map(|status| status.name.clone()).collect();
-    server_names.sort();
+    let mut statuses = statuses.iter().collect::<Vec<_>>();
+    statuses.sort_by(|a, b| (&a.name, &a.environment_id).cmp(&(&b.name, &b.environment_id)));
 
     let has_any_tools = statuses.iter().any(|status| !status.tools.is_empty());
-    if !has_any_tools {
+    if !has_any_tools && matches!(detail, McpServerStatusDetail::Full) {
         lines.push("  • No MCP tools available.".italic().into());
         lines.push("".into());
     }
 
-    for server in server_names {
-        let cfg = config.mcp_servers.get().get(server.as_str());
-        let status = statuses_by_name.get(server.as_str()).copied();
-        let header: Vec<Span<'static>> = vec!["  • ".into(), server.clone().into()];
-
-        lines.push(header.into());
-        if matches!(detail, McpServerStatusDetail::Full) {
-            let enabled = cfg.map(|cfg| cfg.enabled).unwrap_or(true);
-            let status_text = if enabled {
-                "enabled".green()
-            } else {
-                "disabled".red()
-            };
-            lines.push(vec!["    • Status: ".into(), status_text].into());
-            if let Some(reason) = cfg.and_then(|cfg| cfg.disabled_reason.as_ref()) {
-                lines.push(vec!["    • Reason: ".into(), reason.to_string().dim()].into());
+    for status in statuses {
+        let (label, style) = match status.runtime_status {
+            Some(McpServerConnectionStatus::Connected) => {
+                ("connected", status_style(StatusTone::Success))
             }
+            Some(McpServerConnectionStatus::Starting) => ("starting", accent_style()),
+            Some(McpServerConnectionStatus::AuthenticationRequired) => (
+                "authentication required",
+                status_style(StatusTone::Attention),
+            ),
+            Some(McpServerConnectionStatus::Failed) => {
+                ("failed", status_style(StatusTone::Failure))
+            }
+            Some(McpServerConnectionStatus::NotStarted) => ("not started", Style::default().dim()),
+            Some(McpServerConnectionStatus::Disabled) => ("disabled", Style::default().dim()),
+            Some(McpServerConnectionStatus::Cancelled) => ("cancelled", Style::default().dim()),
+            None if matches!(
+                status.auth_status,
+                codex_app_server_protocol::McpAuthStatus::NotLoggedIn
+            ) =>
+            {
+                (
+                    "authentication required",
+                    status_style(StatusTone::Attention),
+                )
+            }
+            None => ("unknown", Style::default().dim()),
+        };
+        let count = status.tools.len();
+        let unit = if count == 1 { "tool" } else { "tools" };
+        let name = match &status.environment_id {
+            Some(environment_id) => format!("{} (environment {environment_id})", status.name),
+            None => status.name.clone(),
+        };
+        lines.push(
+            vec![
+                "  • ".set_style(style),
+                name.bold(),
+                ": ".into(),
+                label.set_style(style),
+                format!(" ({count} {unit})").dim(),
+            ]
+            .into(),
+        );
+        if matches!(detail, McpServerStatusDetail::ToolsAndAuthOnly) {
+            continue;
         }
-        let auth_status = status
-            .map(|status| match status.auth_status {
-                codex_app_server_protocol::McpAuthStatus::Unsupported => McpAuthStatus::Unsupported,
-                codex_app_server_protocol::McpAuthStatus::NotLoggedIn => McpAuthStatus::NotLoggedIn,
-                codex_app_server_protocol::McpAuthStatus::BearerToken => McpAuthStatus::BearerToken,
-                codex_app_server_protocol::McpAuthStatus::OAuth => McpAuthStatus::OAuth,
-            })
-            .unwrap_or(McpAuthStatus::Unsupported);
+        let auth_status = match status.auth_status {
+            codex_app_server_protocol::McpAuthStatus::Unknown => McpAuthStatus::Unknown,
+            codex_app_server_protocol::McpAuthStatus::Unsupported => McpAuthStatus::Unsupported,
+            codex_app_server_protocol::McpAuthStatus::NotLoggedIn => McpAuthStatus::NotLoggedIn,
+            codex_app_server_protocol::McpAuthStatus::BearerToken => McpAuthStatus::BearerToken,
+            codex_app_server_protocol::McpAuthStatus::OAuth => McpAuthStatus::OAuth,
+        };
         lines.push(
             vec![
                 "    • Auth: ".into(),
@@ -578,72 +726,7 @@ pub(crate) fn new_mcp_tools_output_from_statuses(
             .into(),
         );
 
-        if let Some(cfg) = cfg {
-            match &cfg.transport {
-                McpServerTransportConfig::Stdio {
-                    command,
-                    args,
-                    env,
-                    env_vars,
-                    cwd,
-                } => {
-                    let args_suffix = if args.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {}", args.join(" "))
-                    };
-                    let cmd_display = format!("{command}{args_suffix}");
-                    lines.push(vec!["    • Command: ".into(), cmd_display.into()].into());
-
-                    if let Some(cwd) = cwd.as_ref() {
-                        lines.push(
-                            vec!["    • Cwd: ".into(), cwd.display().to_string().into()].into(),
-                        );
-                    }
-
-                    let env_display = format_env_display(env.as_ref(), env_vars.as_slice());
-                    if env_display != "-" {
-                        lines.push(vec!["    • Env: ".into(), env_display.into()].into());
-                    }
-                }
-                McpServerTransportConfig::StreamableHttp {
-                    url,
-                    http_headers,
-                    env_http_headers,
-                    ..
-                } => {
-                    lines.push(vec!["    • URL: ".into(), url.clone().into()].into());
-                    if let Some(headers) = http_headers.as_ref()
-                        && !headers.is_empty()
-                    {
-                        let mut pairs: Vec<_> = headers.iter().collect();
-                        pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
-                        let display = pairs
-                            .into_iter()
-                            .map(|(name, _)| format!("{name}=*****"))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        lines.push(vec!["    • HTTP headers: ".into(), display.into()].into());
-                    }
-                    if let Some(headers) = env_http_headers.as_ref()
-                        && !headers.is_empty()
-                    {
-                        let mut pairs: Vec<_> = headers.iter().collect();
-                        pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
-                        let display = pairs
-                            .into_iter()
-                            .map(|(name, var)| format!("{name}={var}"))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        lines.push(vec!["    • Env HTTP headers: ".into(), display.into()].into());
-                    }
-                }
-            }
-        }
-
-        let mut names = status
-            .map(|status| status.tools.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
+        let mut names = status.tools.keys().cloned().collect::<Vec<_>>();
         names.sort();
         if names.is_empty() {
             lines.push("    • Tools: (none)".into());
@@ -652,9 +735,7 @@ pub(crate) fn new_mcp_tools_output_from_statuses(
         }
 
         if matches!(detail, McpServerStatusDetail::Full) {
-            let server_resources = status
-                .map(|status| status.resources.clone())
-                .unwrap_or_default();
+            let server_resources = status.resources.clone();
             if server_resources.is_empty() {
                 lines.push("    • Resources: (none)".into());
             } else {
@@ -674,9 +755,7 @@ pub(crate) fn new_mcp_tools_output_from_statuses(
                 lines.push(spans.into());
             }
 
-            let server_templates = status
-                .map(|status| status.resource_templates.clone())
-                .unwrap_or_default();
+            let server_templates = status.resource_templates.clone();
             if server_templates.is_empty() {
                 lines.push("    • Resource templates: (none)".into());
             } else {
@@ -698,6 +777,11 @@ pub(crate) fn new_mcp_tools_output_from_statuses(
         }
 
         lines.push(Line::from(""));
+    }
+
+    if matches!(detail, McpServerStatusDetail::ToolsAndAuthOnly) {
+        lines.push("".into());
+        lines.push("  Use /mcp verbose for tools and resources.".dim().into());
     }
 
     PlainHistoryCell { lines }
@@ -758,7 +842,7 @@ impl HistoryCell for McpInventoryLoadingCell {
 pub(crate) fn new_mcp_inventory_loading(animations_enabled: bool) -> McpInventoryLoadingCell {
     McpInventoryLoadingCell::new(animations_enabled)
 }
-fn format_mcp_invocation<'a>(invocation: McpInvocation) -> Line<'a> {
+fn format_mcp_invocation(invocation: &McpInvocation) -> Line<'_> {
     let args_str = invocation
         .arguments
         .as_ref()
@@ -768,13 +852,16 @@ fn format_mcp_invocation<'a>(invocation: McpInvocation) -> Line<'a> {
         })
         .unwrap_or_default();
 
-    let invocation_spans = vec![
-        invocation.server.clone().cyan(),
+    let mut invocation_spans = vec![
+        invocation.server.as_str().fg(accent_color()),
         ".".into(),
-        invocation.tool.cyan(),
+        invocation.tool.as_str().fg(accent_color()),
         "(".into(),
         args_str.dim(),
         ")".into(),
     ];
+    if let Some(environment_id) = &invocation.environment_id {
+        invocation_spans.push(format!(" (environment {environment_id})").dim());
+    }
     invocation_spans.into()
 }

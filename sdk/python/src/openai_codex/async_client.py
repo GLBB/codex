@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from typing import AsyncIterator, Callable, ParamSpec, TypeVar
 
 from pydantic import BaseModel
 
-from .client import AppServerClient, AppServerConfig
+from ._goal import _GoalOperationState
+from ._message_router import _TurnSubscription
+from .client import CodexClient, CodexConfig
 from .generated.v2_all import (
     AccountLoginCompletedNotification,
     AgentMessageDeltaNotification,
@@ -21,6 +26,9 @@ from .generated.v2_all import (
     ThreadCompactStartResponse,
     ThreadForkParams as V2ThreadForkParams,
     ThreadForkResponse,
+    ThreadGoalClearResponse,
+    ThreadGoalSetResponse,
+    ThreadGoalStatus,
     ThreadListParams as V2ThreadListParams,
     ThreadListResponse,
     ThreadReadResponse,
@@ -42,21 +50,24 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 ParamsT = ParamSpec("ParamsT")
 ReturnT = TypeVar("ReturnT")
 
+# Bound workers while allowing cancellation cleanup to outlive an asyncio waiter.
+_TURN_START_EXECUTOR = ThreadPoolExecutor(thread_name_prefix="codex-turn-start")
 
-class AsyncAppServerClient:
-    """Async wrapper around AppServerClient using thread offloading."""
 
-    def __init__(self, config: AppServerConfig | None = None) -> None:
+class AsyncCodexClient:
+    """Async wrapper around CodexClient using thread offloading."""
+
+    def __init__(self, config: CodexConfig | None = None) -> None:
         """Create the wrapped sync client that owns the transport process."""
-        self._sync = AppServerClient(config=config)
+        self._sync = CodexClient(config=config)
 
-    async def __aenter__(self) -> "AsyncAppServerClient":
-        """Start the app-server process when entering an async context."""
+    async def __aenter__(self) -> "AsyncCodexClient":
+        """Start the Codex process when entering an async context."""
         await self.start()
         return self
 
     async def __aexit__(self, _exc_type, _exc, _tb) -> None:
-        """Close the app-server process when leaving an async context."""
+        """Close the Codex process when leaving an async context."""
         await self.close()
 
     async def _call_sync(
@@ -88,8 +99,11 @@ class AsyncAppServerClient:
         await self._call_sync(self._sync.close)
 
     async def initialize(self) -> InitializeResponse:
-        """Initialize the app-server session."""
+        """Initialize the Codex session."""
         return await self._call_sync(self._sync.initialize)
+
+    def _subscribe_turn_notifications(self, turn_id: str) -> _TurnSubscription:
+        return self._sync._subscribe_turn_notifications(turn_id)
 
     def register_turn_notifications(self, turn_id: str) -> None:
         """Register a turn notification queue on the wrapped sync client."""
@@ -106,6 +120,14 @@ class AsyncAppServerClient:
     def unregister_turn_notifications(self, turn_id: str) -> None:
         """Unregister a turn notification queue on the wrapped sync client."""
         self._sync.unregister_turn_notifications(turn_id)
+
+    def register_goal_operation(self, thread_id: str) -> _GoalOperationState:
+        """Register a logical goal route on the wrapped sync client."""
+        return self._sync.register_goal_operation(thread_id)
+
+    def unregister_goal_operation(self, state: _GoalOperationState) -> None:
+        """Release one logical goal route."""
+        self._sync.unregister_goal_operation(state)
 
     async def request(
         self,
@@ -192,14 +214,116 @@ class AsyncAppServerClient:
         """Start thread compaction using the wrapped sync client."""
         return await self._call_sync(self._sync.thread_compact, thread_id)
 
+    async def thread_goal_clear(self, thread_id: str) -> ThreadGoalClearResponse:
+        """Clear the persisted goal through the wrapped sync client."""
+        return await self._call_sync(self._sync.thread_goal_clear, thread_id)
+
+    async def thread_goal_set(
+        self,
+        thread_id: str,
+        *,
+        objective: str | None = None,
+        status: ThreadGoalStatus | None = None,
+    ) -> ThreadGoalSetResponse:
+        """Create or update a persisted goal through the wrapped sync client."""
+        return await self._call_sync(
+            self._sync.thread_goal_set,
+            thread_id,
+            objective=objective,
+            status=status,
+        )
+
+    async def pause_goal(self, thread_id: str) -> ThreadGoalSetResponse:
+        """Pause the active goal through the wrapped sync client."""
+        return await self._call_sync(self._sync.pause_goal, thread_id)
+
+    async def cancel_goal_operation(self, state: _GoalOperationState) -> None:
+        """Stop continuation work after a logical goal operation is cancelled."""
+        await self._call_sync(self._sync.cancel_goal_operation, state)
+
+    async def start_goal_operation(
+        self,
+        thread_id: str,
+        objective: str,
+    ) -> tuple[_GoalOperationState, str]:
+        """Start a logical goal through the wrapped sync client."""
+        operation: Future[tuple[_GoalOperationState, str]] = Future()
+
+        def start_operation() -> None:
+            try:
+                operation.set_result(self._sync.start_goal_operation(thread_id, objective))
+            except BaseException as exc:
+                operation.set_exception(exc)
+
+        worker = threading.Thread(
+            target=start_operation,
+            name="codex-goal-start",
+            daemon=True,
+        )
+        worker.start()
+        try:
+            return await asyncio.shield(asyncio.wrap_future(operation))
+        except asyncio.CancelledError:
+
+            def cleanup_cancelled_start(
+                completed: Future[tuple[_GoalOperationState, str]],
+            ) -> None:
+                try:
+                    state, _ = completed.result()
+                except BaseException:
+                    return
+
+                def stop_cancelled_goal() -> None:
+                    try:
+                        self._sync.cancel_goal_operation(state)
+                    finally:
+                        state.finish()
+                        self._sync.unregister_goal_operation(state)
+
+                threading.Thread(
+                    target=stop_cancelled_goal,
+                    name="codex-goal-start-cleanup",
+                    daemon=True,
+                ).start()
+
+            operation.add_done_callback(cleanup_cancelled_start)
+            raise
+
     async def turn_start(
         self,
         thread_id: str,
         input_items: list[JsonObject] | JsonObject | str,
         params: V2TurnStartParams | JsonObject | None = None,
     ) -> TurnStartResponse:
-        """Start a turn using the wrapped sync client."""
-        return await self._call_sync(self._sync.turn_start, thread_id, input_items, params)
+        """Start a turn, releasing an unclaimed result if the caller is cancelled."""
+        return (await self._start_turn(thread_id, input_items, params, for_handle=False))[0]
+
+    async def _start_turn(
+        self,
+        thread_id: str,
+        input_items: list[JsonObject] | JsonObject | str,
+        params: V2TurnStartParams | JsonObject | None,
+        for_handle: bool,
+    ) -> tuple[TurnStartResponse, _TurnSubscription | None]:
+        operation = _TURN_START_EXECUTOR.submit(
+            copy_context().run, self._sync._start_turn, thread_id, input_items, params, for_handle
+        )
+        try:
+            return await asyncio.wrap_future(operation)
+        except asyncio.CancelledError:
+
+            def discard_cancelled_result(
+                completed: Future[tuple[TurnStartResponse, _TurnSubscription | None]],
+            ) -> None:
+                try:
+                    _, subscription = completed.result()
+                except BaseException:
+                    return
+                if subscription is not None:
+                    subscription.close()
+
+            operation.add_done_callback(discard_cancelled_result)
+            raise
 
     async def turn_interrupt(self, thread_id: str, turn_id: str) -> TurnInterruptResponse:
         """Interrupt a turn using the wrapped sync client."""
@@ -255,6 +379,10 @@ class AsyncAppServerClient:
     async def next_turn_notification(self, turn_id: str) -> Notification:
         """Wait for the next notification routed to one turn."""
         return await self._call_sync(self._sync.next_turn_notification, turn_id)
+
+    async def next_goal_notification(self, state: _GoalOperationState) -> Notification:
+        """Wait for the next notification in a logical goal turn."""
+        return await self._call_sync(self._sync.next_goal_notification, state)
 
     async def wait_for_login_completed(
         self,
