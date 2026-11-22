@@ -91,4 +91,4 @@ stateDiagram-v2
 - [Agent Loop](agent-loop.md)
 - [上下文与会话](session-state.md)
 - [本地运行与读日志](../getting-started/run-locally.md)
-- [app-server、CLI 与 SDK 的线协议](../protocols/app-server-wire.md)
+- [app-server JSON-RPC](../protocols/app-server-wire.md) 与 [CLI JSONL 与 SDK](../protocols/cli-jsonl.md)

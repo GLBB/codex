@@ -49,7 +49,7 @@ function attachImages() {
 }
 
 onMounted(() => {
-  images = mediumZoom({ background: '#0d1117' })
+  images = mediumZoom({ background: 'var(--vp-c-bg-elv)' })
   attachImages()
   addDiagramControls()
   pageObserver = new MutationObserver(addDiagramControls)

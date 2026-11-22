@@ -96,4 +96,4 @@ stateDiagram-v2
 - [上下文与会话](session-state.md)
 - [工具调度与权限](tools-permissions.md)
 - [模型请求与响应流](../deep-dive/model-transport.md)
-- [Trajectory](../deep-dive/trajectory.md)
+- [Rollout Trace](../deep-dive/trajectory.md)

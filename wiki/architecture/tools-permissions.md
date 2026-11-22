@@ -81,4 +81,4 @@ stateDiagram-v2
 
 - [Agent Loop](agent-loop.md)
 - [配置、技能与 MCP](../deep-dive/config-extensions.md)
-- [工具调用、审批与动态工具协议](../protocols/tools-approval.md)
+- [工具调用、审批与动态工具](../protocols/tools-approval.md)

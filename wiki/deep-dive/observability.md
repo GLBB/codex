@@ -5,7 +5,7 @@ description: "追踪本地日志、OpenTelemetry 三种信号、跨进程上下�
 
 # 可观测性
 
-一次 Codex 运行可以从客户端进度、可恢复会话、诊断轨迹和遥测观察。这个专题从源码解释正在运行的进程发出哪些信号、各条记录如何关联，以及接收器拿到的数据够回答什么。需要还原模型请求与工具关系时参见 [Trajectory](trajectory.md)。 [codex-rs/app-server/README.md:1211-1247](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1211-L1247) [codex-rs/core/src/session/mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [codex-rs/rollout-trace/README.md:1-38](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/README.md#L1-L38) [codex-rs/otel/src/provider.rs:77-153](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/src/provider.rs#L77-L153)
+一次 Codex 运行可以从客户端进度、可恢复会话、诊断轨迹和遥测观察。这个专题从源码解释正在运行的进程发出哪些信号、各条记录如何关联，以及接收器拿到的数据够回答什么。查看可恢复历史见 [Rollout 会话日志](rollout-session.md)，查看推理和工具的诊断证据见 [Rollout Trace](trajectory.md)。 [codex-rs/app-server/README.md:1211-1247](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1211-L1247) [codex-rs/core/src/session/mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [codex-rs/rollout-trace/README.md:1-38](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/README.md#L1-L38) [codex-rs/otel/src/provider.rs:77-153](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/src/provider.rs#L77-L153)
 
 ## 一、信号的所有者与去向
 
@@ -32,6 +32,15 @@ graph TB
     S --> D["本地日志层"]
 ```
 <!-- Sources: codex-rs/core/src/otel_init.rs:22, codex-rs/otel/src/provider.rs:77, codex-rs/otel/src/provider.rs:156, codex-rs/app-server/src/lib.rs:613, codex-rs/tui/src/lib.rs:1216 -->
+
+### Langfuse 的会话插件与原生 OTLP
+
+| 采集路径 | 谁生成 span | Langfuse 里能看到什么 | 源码 |
+| --- | --- | --- | --- |
+| **Langfuse Codex 会话插件** | Codex 的 `Stop` hook 把 `transcript_path` 和 `turn_id` 交给插件。插件读取本地会话 rollout，用 TypeScript SDK 重建 observations，再通过 OTLP/HTTP 上传到 `/api/public/otel/v1/traces` | 默认每个可导出的回合一条 `Codex Turn` trace，下面挂 `LLM` 和工具 observations。同一 Codex 会话的回合共享 `session_id` | [Codex hook 参数](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/hook_runtime.rs#L342-L359) [插件入口](https://github.com/langfuse/codex-observability-plugin/blob/586910c81eeaf21d8f54c1c86c89a29a5466c1ef/plugins/tracing/src/index.ts#L23-L61) [Langfuse 集成文档](https://langfuse.com/integrations/developer-tools/codex#how-it-works) |
+| **Codex 原生 OpenTelemetry** | Codex 进程在运行时生成 span，由 `[otel.trace_exporter]` 配置的 exporter 发往接收端 | 能看到已埋点的 RPC、请求耗时和父子跨度等运行时证据，接收端按收到的 span 属性展示数据 | [Codex tracer provider](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/src/provider.rs#L115-L138) [Langfuse OTLP 属性映射](https://langfuse.com/integrations/native/opentelemetry) |
+
+会话插件再运行时会重读当前会话文件，并通过相邻的 `rollout-*.jsonl.langfuse` 跳过已经标记为上传的回合。因此，恢复旧会话后触发 `Stop` 时，插件也能补传同一文件中此前可导出但尚未上传的回合。插件所读的 JSONL 字段和持久化规则见 [Rollout 会话日志](rollout-session.md)。 [插件回合筛选](https://github.com/langfuse/codex-observability-plugin/blob/586910c81eeaf21d8f54c1c86c89a29a5466c1ef/plugins/tracing/src/trace.ts#L725-L776) [插件上传记录](https://github.com/langfuse/codex-observability-plugin/blob/586910c81eeaf21d8f54c1c86c89a29a5466c1ef/plugins/tracing/src/sidecar.ts#L3-L24)
 
 ## 二、跨 app-server、Core 与模型的关联
 
@@ -134,7 +143,7 @@ protocol = "json"
 | 高 | 完全没有 span | 找实际执行入口和生效的三路 exporter。用本地接收器确认是否送达。 [codex-rs/app-server/src/lib.rs:498-525](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/lib.rs#L498-L525) [codex-rs/exec/src/lib.rs:451-502](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/exec/src/lib.rs#L451-L502) [codex-rs/tui/src/lib.rs:1068-1104](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/tui/src/lib.rs#L1068-L1104) [codex-rs/otel/src/provider.rs:77-153](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/src/provider.rs#L77-L153) |
 | 高 | 客户端与 Core 是两条 trace | 验证 inbound `traceparent`、RPC span parent、`submit_with_trace`、Core dispatch parent。 [codex-rs/app-server/src/app_server_tracing.rs:94-141](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/app_server_tracing.rs#L94-L141) [codex-rs/app-server/src/request_processors/turn_processor.rs:317-339](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L317-L339) [codex-rs/core/src/session/handlers.rs:887-929](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/handlers.rs#L887-L929) [codex-rs/app-server/src/message_processor_tracing_tests.rs:637-707](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/message_processor_tracing_tests.rs#L637-L707) |
 | 高 | 调用成功但没有后续结果 | 检查 flow 中的 turn 终态、模型流终态、工具结果。三者用各自关联键。 [codex-rs/app-server/README.md:1211-1247](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1211-L1247) [codex-rs/core/src/client.rs:1777-1899](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1777-L1899) [codex-rs/rollout-trace/src/model/runtime.rs:23-130](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/runtime.rs#L23-L130) |
-| 中 | 想接入 Langfuse 或同类后端 | 先以 OTLP 接收器验证选定数据的模型名、用量、父子关系和敏感字段，再核对目标站点接收配置和展示映射。此处的实验范围是本地 OTLP。 [codex-rs/core/src/client.rs:1777-1899](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1777-L1899) [codex-rs/otel/tests/suite/otlp_http_loopback.rs:257-345](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/tests/suite/otlp_http_loopback.rs#L257-L345) [codex-rs/otel/src/events/session_telemetry.rs:948-990](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/src/events/session_telemetry.rs#L948-L990) |
+| 中 | 想把 Codex 原生跨度接入 OTLP 后端 | 先以 OTLP 接收器验证选定数据的模型名、用量、父子关系和敏感字段，再核对目标站点接收配置和展示映射。此处的实验范围是本地 OTLP。 [codex-rs/core/src/client.rs:1777-1899](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1777-L1899) [codex-rs/otel/tests/suite/otlp_http_loopback.rs:257-345](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/tests/suite/otlp_http_loopback.rs#L257-L345) [codex-rs/otel/src/events/session_telemetry.rs:948-990](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/otel/src/events/session_telemetry.rs#L948-L990) |
 
 ```mermaid
 stateDiagram-v2
@@ -147,4 +156,4 @@ stateDiagram-v2
 ```
 <!-- Sources: codex-rs/core/src/otel_init.rs:22, codex-rs/app-server/src/app_server_tracing.rs:94, codex-rs/otel/tests/suite/otlp_http_loopback.rs:257, codex-rs/app-server/src/message_processor_tracing_tests.rs:637 -->
 
-继续阅读 [Trajectory](trajectory.md)、[app-server 与客户端线协议](../protocols/app-server-wire.md) 和 [模型协议](../protocols/model-wire.md)。
+继续阅读 [Rollout 会话日志](rollout-session.md)、[Rollout Trace](trajectory.md)、[app-server JSON-RPC](../protocols/app-server-wire.md) 和 [模型协议](../protocols/model-wire.md)。

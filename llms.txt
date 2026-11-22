@@ -29,18 +29,22 @@
 
 ## 协议设计
 
-- [协议设计总览](./wiki/protocols/index.md): 按生产者、消费者、传输和长期兼容边界定位 Codex 的协议专题。
-- [app-server、CLI 与 SDK 的线协议](./wiki/protocols/app-server-wire.md): 核对 JSON-RPC 载体、连接门槛、请求并发、反向请求和 SDK 适配。
-- [Core 操作、事件与会话文件](./wiki/protocols/core-history.md): 区分活跃运行接口、持久化历史和客户端历史投影。
-- [模型请求与响应协议](./wiki/protocols/model-wire.md): 核对 Responses 对象、SSE/WS 流、增量前缀与模型调用关联。
-- [工具调用、审批与动态工具协议](./wiki/protocols/tools-approval.md): 跟踪模型 call ID、工具 dispatch、用户审批的反向 RPC，以及客户端执行能力的回包。
-- [MCP 与 Hook 扩展协议](./wiki/protocols/mcp-hooks.md): 跟踪 Codex 的 MCP 双向角色，以及本地命令 Hook 的 stdin、stdout 与决策。
-- [进程、文件系统与远端执行协议](./wiki/protocols/execution.md): 跟踪 exec-server 的握手、进程流、恢复窗口和 protobuf relay。
-- [配置、能力与 schema 演进](./wiki/protocols/config-schema.md): 解释配置层的有效值、实验能力门槛，以及 Rust 到 TS/JSON Schema 的生成边界。
+- [协议设计总览](./wiki/protocols/index.md): 按通信边界查阅 Codex 的协议字段、关联标识与完成条件。
+- [app-server JSON-RPC](./wiki/protocols/app-server-wire.md): 按字段查阅连接握手、线程与回合请求、通知和客户端关联键。
+- [CLI JSONL 与 SDK](./wiki/protocols/cli-jsonl.md): 按字段解析 codex exec --json 的事件、展示项及 TypeScript SDK 的消费行为。
+- [Core 操作、事件与内存历史](./wiki/protocols/core-history.md): 查阅 Submission、Op、Event、EventMsg 与 ResponseItem 的内部字段和流向。
+- [模型请求与响应协议](./wiki/protocols/model-wire.md): 逐字段查阅 Responses 请求、输入项、SSE 与 WebSocket 事件，以及增量条件。
+- [工具调用、审批与动态工具](./wiki/protocols/tools-approval.md): 对照模型工具调用、Core 调度字段及 app-server 反向请求与回包。
+- [MCP 工具协议](./wiki/protocols/mcp-hooks.md): 查阅 Codex 作为 MCP 客户端和服务端时的工具发现、调用参数、结果字段与关联标识。
+- [Hook 命令协议](./wiki/protocols/hook-wire.md): 查阅 Hook stdin 的事件字段、stdout JSON 的控制字段与退出码语义。
+- [exec-server 进程、文件与远端传输](./wiki/protocols/execution.md): 查阅 exec-server 握手、进程输出游标、文件系统、HTTP 流与 relay 字段。
+- [Rollout 会话 JSONL](./wiki/protocols/rollout-wire.md): 查阅 Rollout 五类记录的字段、会话元数据及 SQLite 线程索引。
+- [配置 RPC 与 schema 兼容](./wiki/protocols/config-schema.md): 查阅配置读写、来源与约束字段，以及 app-server 实验能力和 schema 生成。
 
 ## 子系统详解
 
-- [Trajectory 的设计与实现](./wiki/deep-dive/trajectory.md): 从 Core 生命周期到 raw bundle 和 reducer，重建请求、工具、压缩与跨线程关系。
+- [Rollout 会话日志](./wiki/deep-dive/rollout-session.md): 追踪会话 JSONL 的写入、保留规则、历史恢复与客户端投影。
+- [Rollout Trace](./wiki/deep-dive/trajectory.md): 追踪诊断 bundle 的运行时采集与离线归约，重建模型请求、工具、压缩和跨线程关系。
 - [可观测性](./wiki/deep-dive/observability.md): 追踪本地日志、OpenTelemetry 三种信号、跨进程上下文、指标语义和本地验证。
 - [模型请求与响应流](./wiki/deep-dive/model-transport.md): 从 Prompt 追到 provider、Responses 请求、传输切换和流事件。
 - [配置、技能与 MCP](./wiki/deep-dive/config-extensions.md): 从配置分层、需求和项目可信度走到 skill 注入与 MCP 工具调用。

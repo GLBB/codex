@@ -73,4 +73,4 @@ erDiagram
 
 - [上下文与会话](../architecture/session-state.md)
 - [可观测性](observability.md)
-- [Trajectory](trajectory.md)
+- [Rollout Trace](trajectory.md)

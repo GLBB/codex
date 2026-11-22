@@ -83,4 +83,4 @@ erDiagram
 - [Agent Loop](agent-loop.md)
 - [可观测性](../deep-dive/observability.md)
 - [长期记忆](../deep-dive/memories.md)
-- [Trajectory](../deep-dive/trajectory.md)
+- [Rollout 会话日志](../deep-dive/rollout-session.md)

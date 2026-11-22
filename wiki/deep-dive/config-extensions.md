@@ -74,4 +74,4 @@ flowchart LR
 
 - [工具调度与权限](../architecture/tools-permissions.md)
 - [模型请求与响应流](model-transport.md)
-- [MCP 与 Hook 扩展协议](../protocols/mcp-hooks.md)
+- [MCP 工具协议](../protocols/mcp-hooks.md) 与 [Hook 命令协议](../protocols/hook-wire.md)

@@ -1,22 +1,24 @@
 ---
-title: "Trajectory 的设计与实现"
-description: "从 Core 生命周期到 raw bundle 和 reducer，重建请求、工具、压缩与跨线程关系。"
+title: "Rollout Trace"
+description: "追踪诊断 bundle 的运行时采集与离线归约，重建模型请求、工具、压缩和跨线程关系。"
 ---
 
-# Trajectory 的设计与实现
+# Rollout Trace
 
-这里沿一次含工具调用的任务，追踪 `codex-rollout-trace` 如何保存运行证据，并从原始记录构造诊断图。源码同时保留可恢复会话、模型输入、运行对象和时序度量。它们各有独立的生成时点和可回答的问题。 [codex-rs/core/src/session/mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [codex-rs/core/src/context_manager/history.rs:98-125](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/context_manager/history.rs#L98-L125) [codex-rs/rollout-trace/README.md:1-38](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/README.md#L1-L38) [codex-rs/rollout-trace/src/model/mod.rs:56-90](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/mod.rs#L56-L90)
+要确认某次模型推理收到哪些输入、哪个工具调用触发了一次运行，以及结果是否进入后续请求，可以在启动 Codex 前设置 `CODEX_ROLLOUT_TRACE_ROOT`。运行时写出原始事件与载荷，`codex debug trace-reduce` 再把它们归约为 `RolloutTrace`。线程恢复走 [Rollout 会话日志](rollout-session.md)。 [codex-rs/rollout-trace/src/thread.rs:101-118](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L101-L118) [codex-rs/rollout-trace/src/model/mod.rs:56-90](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/mod.rs#L56-L90) [codex-rs/cli/src/main.rs:1635-1644](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L1635-L1644)
 
 ## 一、结构与生命周期
 
-| 证据 | 写入点与去向 | 适合回答的问题 |
-| --- | --- | --- |
-| 公开的客户端进度 | app-server 发回合和项目通知，历史读取还能从 `RolloutItem` 另行投影 | 客户端看到了哪些变化。 [codex-rs/app-server/README.md:1211-1247](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1211-L1247) [codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L74-L104) |
-| 恢复历史 | `record_conversation_items` 更新内存并交给 rollout，`RolloutRecorder` 异步写入 | 重启后可恢复哪些内容。 [codex-rs/core/src/session/mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [codex-rs/rollout/src/recorder.rs:755-811](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L755-L811) [codex-rs/core/src/session/rollout_reconstruction.rs:87-176](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L87-L176) |
-| 诊断 bundle | `ThreadTraceContext` 在 session 初始化时启用，持有共享 writer | 从哪次推理来，哪些动作最终进入上下文。 [codex-rs/core/src/session/session.rs:675-711](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/session.rs#L675-L711) [codex-rs/rollout-trace/src/thread.rs:93-117](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L93-L117) [codex-rs/rollout-trace/src/writer.rs:49-147](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/writer.rs#L49-L147) |
-| 派生图 | `replay_bundle` 按文件行读取事件，构造 `RolloutTrace` | 输入、输出、工具、终端、代码单元和跨代理动作如何关联。 [codex-rs/rollout-trace/src/reducer/mod.rs:44-82](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/mod.rs#L44-L82) [codex-rs/rollout-trace/src/model/mod.rs:56-90](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/mod.rs#L56-L90) |
+根线程启动时在指定目录下创建 `trace-<UUID>-<thread-id>/`。同一个线程恢复后可以生成新的 bundle。每个 bundle 有自己的 `trace_id`，同时记录被观测的根线程 ID。 [codex-rs/core/src/session/session.rs:675-711](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/session.rs#L675-L711) [codex-rs/rollout-trace/src/thread.rs:420-443](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L420-L443)
 
-启动 session 时会用线程 ID、代理路径、模型及权限信息构造元数据，同时保留可选的普通会话路径。`CODEX_ROLLOUT_TRACE_ROOT` 只由 trace 启动入口读取，启用后建 `trace-{uuid}-{thread_id}`。新建 `ThreadSpawn` 子线程复用父 writer。父线程查找竞态、恢复的子线程、初始化失败分别走禁用分支，其中恢复分支避免重复的 `ThreadStarted`。结束子线程只更新该线程，根线程的结束路径才追加 `RolloutEnded`。置信度高，依据是启动与关闭实现。 [codex-rs/core/src/session/session.rs:675-711](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/session.rs#L675-L711) [codex-rs/rollout-trace/src/thread.rs:93-117](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L93-L117) [codex-rs/rollout-trace/src/thread.rs:420-443](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L420-L443) [codex-rs/core/src/thread_manager.rs:1307-1335](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/thread_manager.rs#L1307-L1335) [codex-rs/rollout-trace/src/thread.rs:148-202](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L148-L202)
+| 文件 | 生成时点 | 读取时用来做什么 |
+| --- | --- | --- |
+| `manifest.json` | writer 初始化 | 识别 bundle、根线程和开始时间。 [codex-rs/rollout-trace/src/writer.rs:49-82](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/writer.rs#L49-L82) |
+| `trace.jsonl` | 各采集点追加原始事件，writer 分配 `seq` | 按记录顺序还原运行时事件，每行可携带线程和回合上下文。 [codex-rs/rollout-trace/src/writer.rs:108-133](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/writer.rs#L108-L133) |
+| `payloads/*.json` | 有载荷的事件先保存 JSON，再记录引用 | 查看一次推理或工具调用的原始证据。 [codex-rs/rollout-trace/src/writer.rs:85-105](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/writer.rs#L85-L105) [codex-rs/rollout-trace/src/inference.rs:169-237](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/inference.rs#L169-L237) |
+| `state.json` | 运行 `codex debug trace-reduce` 后默认生成 | 查询派生的推理、对话项、工具调用及关联边。 [codex-rs/cli/src/main.rs:1635-1644](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L1635-L1644) [codex-rs/rollout-trace/src/model/mod.rs:56-90](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/mod.rs#L56-L90) |
+
+启动 session 时会用线程 ID、代理路径、模型及权限信息构造元数据，同时保留可选的普通会话路径。新建 `ThreadSpawn` 子线程复用父 writer。父线程查找竞态、恢复的子线程、初始化失败分别走禁用分支，其中恢复分支避免重复的 `ThreadStarted`。结束子线程只更新该线程，根线程的结束路径才追加 `RolloutEnded`。置信度高，依据是启动与关闭实现。 [codex-rs/core/src/session/session.rs:675-711](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/session.rs#L675-L711) [codex-rs/rollout-trace/src/thread.rs:93-117](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L93-L117) [codex-rs/rollout-trace/src/thread.rs:420-443](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L420-L443) [codex-rs/core/src/thread_manager.rs:1307-1335](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/thread_manager.rs#L1307-L1335) [codex-rs/rollout-trace/src/thread.rs:148-202](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/thread.rs#L148-L202)
 
 ```mermaid
 graph TB
@@ -106,6 +108,8 @@ stateDiagram-v2
 
 ## 五、实际取证与验证
 
+用本机模拟 Responses 服务跑了一个新线程，再用同一线程 ID 恢复执行。两次运行生成两个不同的 bundle，分别回放得到一个推理 attempt，引用的逻辑输入条目数分别为 3 和 5。对每个 bundle 连续归约两次，生成的 JSON 字节相同。会话文件的续写与恢复见 [Rollout 会话日志的验证](rollout-session.md#五、本地对照验证)。本次联调覆盖本地 HTTP 单次推理，WebSocket 增量重建由下面的离线实验验证。
+
 离线实验按仓库增量测试的格式生成六条 raw 事件和三个 payload。使用工作区已有的 CLI 二进制重放，两次生成的 JSON 字节相同。第二次请求在文件中只有一个输入项，`state.json` 中的 `request_item_ids` 为三个。将引用改为不存在的响应 ID 后，reducer 返回 `referenced unknown previous_response_id`。可在当前提交的 Rust 测试里复现同样的核心断言。 [codex-rs/rollout-trace/src/reducer/conversation_tests.rs:171-248](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation_tests.rs#L171-L248) [codex-rs/rollout-trace/src/reducer/conversation_tests.rs:668-684](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation_tests.rs#L668-L684) [codex-rs/cli/src/main.rs:1635-1645](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L1635-L1645)
 
 ```bash
@@ -123,17 +127,17 @@ jq '.inference_calls | to_entries[] | {
 | --- | --- | --- | --- |
 | 高 | 一次模型为何输出某调用 | request、response、`request_item_ids`、模型 `call_id` | 高。增量重建已用合成样本重放。模型端内部行为需要服务端证据。 [codex-rs/rollout-trace/src/reducer/conversation.rs:34-129](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation.rs#L34-L129) [codex-rs/rollout-trace/src/reducer/tool.rs:411-510](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/tool.rs#L411-L510) |
 | 高 | 一次工具成功是否被模型利用 | 比对 runtime 结果与下一次推理输入 | 高。两个观察点分别有字段和代码入口。 [codex-rs/rollout-trace/src/model/runtime.rs:23-130](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/runtime.rs#L23-L130) [codex-rs/core/src/session/turn.rs:1655-1675](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L1655-L1675) |
-| 高 | 恢复后为何改变了上下文 | 查看 session JSONL、压缩 checkpoint 和恢复重建；有 bundle 时对齐下一次请求 | 高。相关实现已查阅，跨版本兼容需要对旧记录另做回放。 [codex-rs/core/src/session/rollout_reconstruction.rs:87-176](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L87-L176) [codex-rs/rollout-trace/src/reducer/conversation.rs:283-355](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation.rs#L283-L355) [codex-rs/rollout-trace/src/reducer/conversation.rs:34-129](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation.rs#L34-L129) |
+| 高 | 压缩后下一次采样用了哪些条目 | 对齐压缩安装后的 checkpoint 和下一次推理的 `request_item_ids` | 高。安装与归约链路来自源码。 [codex-rs/rollout-trace/src/reducer/conversation.rs:283-357](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation.rs#L283-L357) |
 | 中 | 这轮因何变慢 | 先按回合内 attempts 和工具窗口定位，再按 [可观测性](observability.md) 核对延迟语义 | 高。时间窗口有实现，线上耗时归因需实际样本。 [codex-rs/rollout-trace/src/model/runtime.rs:23-130](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/runtime.rs#L23-L130) [codex-rs/core/src/turn_timing.rs:53-101](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/turn_timing.rs#L53-L101) |
 | 中 | 是否可直接用于评估 | 固定 schema 与源码版本，保留引用和样本采集条件 | 设计推论。当前记录能解释执行，任务正确性还需要外部断言或评估标签。 [codex-rs/rollout-trace/src/raw_event.rs:29-162](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/raw_event.rs#L29-L162) [codex-rs/rollout-trace/src/model/mod.rs:56-90](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/model/mod.rs#L56-L90) [codex-rs/rollout-trace/src/reducer/mod.rs:44-82](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/mod.rs#L44-L82) |
 
 ```mermaid
 flowchart LR
-    Q{"想复原哪层"} -->|恢复线程| H["会话 JSONL 与恢复函数"]
-    Q -->|模型真正收到什么| I["Bundle payload 与请求条目 ID"]
+    Q{"想复原哪层"} -->|模型逻辑输入| I["Bundle payload 与请求条目 ID"]
+    Q -->|压缩后换入了什么| C["压缩检查点和下一次推理"]
     Q -->|是否执行成功| T["ToolCall 窗口和结果"]
     Q -->|服务耗时| M["指标、span 和相关请求 ID"]
 ```
-<!-- Sources: codex-rs/core/src/session/rollout_reconstruction.rs:87, codex-rs/rollout-trace/src/reducer/conversation.rs:34, codex-rs/rollout-trace/src/model/runtime.rs:23, codex-rs/core/src/turn_timing.rs:53 -->
+<!-- Sources: codex-rs/rollout-trace/src/reducer/conversation.rs:34, codex-rs/rollout-trace/src/reducer/conversation.rs:283, codex-rs/rollout-trace/src/model/runtime.rs:23, codex-rs/core/src/turn_timing.rs:53 -->
 
-继续阅读 [可观测性](observability.md)、[Core 与会话协议](../protocols/core-history.md) 和 [模型协议](../protocols/model-wire.md)。
+继续阅读 [Rollout 会话日志](rollout-session.md)、[可观测性](observability.md)、[Core 操作、事件与内存历史](../protocols/core-history.md) 和 [模型协议](../protocols/model-wire.md)。

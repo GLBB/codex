@@ -35,9 +35,10 @@ npm --prefix wiki run build
 | [模型请求与响应流](deep-dive/model-transport.md) | 看请求构建、传输和模型响应事件 |
 | [配置、技能与 MCP](deep-dive/config-extensions.md) | 看配置分层、说明注入和工具调用 |
 | [子代理与线程关系](deep-dive/multi-agent.md) | 看线程创建、继承和任务递送 |
-| [Trajectory](deep-dive/trajectory.md) | 重放推理、工具、压缩与跨线程关系 |
+| [Rollout 会话日志](deep-dive/rollout-session.md) | 查会话 JSONL 的写入、恢复、压缩和回退 |
+| [Rollout Trace](deep-dive/trajectory.md) | 回放诊断 bundle，重建模型请求、工具执行和跨线程关系 |
 | [可观测性](deep-dive/observability.md) | 查本地日志、跨度传播、指标语义与 OTLP 导出 |
-| [协议设计总览](protocols/index.md) | 按客户端、Core、模型、工具、扩展、执行与 schema 阅读 |
+| [协议设计总览](protocols/index.md) | 查阅十个专题的字段表、关联标识及完成条件 |
 | [长期记忆](deep-dive/memories.md) | 看会话提取、全局整理与新线程读取 |
 
 ## 技术栈与关键文件

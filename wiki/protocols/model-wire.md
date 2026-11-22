@@ -1,66 +1,111 @@
 ---
 title: "模型请求与响应协议"
-description: "核对 Responses 对象、SSE/WS 流、增量前缀与模型调用关联。"
+description: "逐字段查阅 Responses 请求、输入项、SSE 与 WebSocket 事件，以及增量条件。"
 ---
 
 # 模型请求与响应协议
 
-`Prompt` 是 Core 的组装结果，`ResponsesApiRequest` 包含经过转换的指令、输入、工具、推理选项和输出格式。模型传输实现会把 SSE 或 WebSocket 帧转换为 `ResponseEvent`，同一轮 Agent Loop 可消费多次这样的流。 [codex-rs/core/src/client_common.rs:25-62](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client_common.rs#L25-L62) [codex-rs/core/src/client.rs:717-805](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L717-L805) [codex-rs/model-provider-info/src/lib.rs:45-109](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/model-provider-info/src/lib.rs#L45-L109) [codex-rs/core/src/client.rs:1570-1642](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1570-L1642) [codex-rs/codex-api/src/common.rs:72-150](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/common.rs#L72-L150) [codex-rs/codex-api/src/sse/responses.rs:399-486](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L399-L486)
+Core 从 `Prompt` 构造 Responses 请求。HTTP 发送请求并读取 SSE，WebSocket 发送 `response.create` 并读取同类响应事件。解析器把事件转换成 Core 的 `ResponseEvent`。供应商选择和重试流程见 [模型传输详解](../deep-dive/model-transport.md)。 [client.rs:717-772](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L717-L772) [client.rs:1570-1642](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1570-L1642) [common.rs:269-277](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/common.rs#L269-L277) [responses.rs:263-396](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L263-L396)
 
-| 层次 | 定义或适配 | 查阅重点 |
+## Responses 请求体
+
+以下为 Codex 当前请求构造器的赋值规则。WS 版继承同组字段，另外带 `type` 及可选的增量字段。 [common.rs:169-240](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/common.rs#L169-L240) [client.rs:717-772](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L717-L772) [client.rs:1366-1388](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1366-L1388)
+
+| 字段 | JSON 类型与出现条件 | 含义 |
 | --- | --- | --- |
-| 供应商配置 | `WireApi`、认证和 endpoint | 当前 `stream` 的业务分支是 Responses。 [codex-rs/model-provider-info/src/lib.rs:45-109](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/model-provider-info/src/lib.rs#L45-L109) [codex-rs/model-provider/src/provider.rs:81-155](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/model-provider/src/provider.rs#L81-L155) [codex-rs/core/src/client.rs:1570-1642](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1570-L1642) |
-| 请求体 | `build_responses_request` | 包含 `instructions`、`input`、工具约束、模型的推理设置及可选输出 schema。 [codex-rs/core/src/client.rs:717-805](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L717-L805) |
-| 流解析 | `process_sse` 和 `process_responses_event` | 将完整输出项、增量、失败与 completed 归一化。 [codex-rs/codex-api/src/sse/responses.rs:263-321](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L263-L321) [codex-rs/codex-api/src/sse/responses.rs:347-394](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L347-L394) [codex-rs/codex-api/src/sse/responses.rs:399-486](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L399-L486) |
-| WebSocket | `prepare_websocket_request` 及 fallback | 可发送 `previous_response_id` 和输入后缀。传输状态参与能否增量。 [codex-rs/core/src/client.rs:996-1074](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L996-L1074) [codex-rs/core/src/client.rs:1423-1467](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1423-L1467) [codex-rs/core/src/client.rs:1570-1642](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1570-L1642) |
-| Core 消费 | 工具从完整输出项进入路由，完成事件报告响应 ID 和用量 | 追踪模型与工具谁先完成应看各自记录。 [codex-rs/core/src/stream_events_utils.rs:342-385](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/stream_events_utils.rs#L342-L385) [codex-rs/core/src/session/turn.rs:1788-1878](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L1788-L1878) [codex-rs/core/src/client.rs:1777-1899](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1777-L1899) |
+| `model` | string | 选中模型的 slug。 |
+| `instructions` | string，空串省略 | Prompt 的基础指令。 |
+| `input` | ResponseItem[] | 已格式化的历史与当次输入。WS 增量时只含输入后缀。 |
+| `tools` | object[] | 本次对模型声明的工具定义。 |
+| `tool_choice` | string | Codex 构造时写 `auto`，由模型选择是否调用工具。 |
+| `parallel_tool_calls` | boolean | Prompt 是否允许同一轮推理发多个工具调用。 |
+| `reasoning` | object 或 null | 推理参数。可选子字段 `effort` 是强度，`summary` 是摘要设置。 |
+| `store` | boolean | 当前构造器对 Azure Responses endpoint 设 true，其余设 false。 |
+| `stream` | boolean | 当前构造器设 true，使用事件流。 |
+| `include` | string[] | 当有 `reasoning` 时请求 `reasoning.encrypted_content`，其余发空数组。 |
+| `service_tier` | string，可省略 | 经模型配置计算后发出的服务层级。 |
+| `prompt_cache_key` | string，可省略 | 构造器使用线程 ID 作为提示缓存键。 |
+| `text` | object，可省略 | 输出控制，含可选 `verbosity` 与 `format`。 |
+| `client_metadata` | string → string 映射，可省略 | 客户端元数据。HTTP 请求体含安装 ID，WS 构造路径还处理线程、回合和 trace 元数据。 |
 
-```mermaid
-flowchart LR
-    C["Prompt"] --> B["ResponsesApiRequest"]
-    B --> H["HTTP SSE"]
-    B --> W["WebSocket response.create"]
-    H --> E["ResponseEvent"]
-    W --> E
-    E --> U["Core 处理项与终态"]
-```
-<!-- Sources: codex-rs/core/src/client.rs:717, codex-rs/core/src/client.rs:1570, codex-rs/core/src/client.rs:1423, codex-rs/codex-api/src/common.rs:72, codex-rs/codex-api/src/sse/responses.rs:399, codex-rs/core/src/session/turn.rs:1788 -->
+`text.format` 的字段是 `type: "json_schema"`、`schema: JSON`、`strict: boolean`、`name: string`。Codex 以 `codex_output_schema` 作为格式名。 `text.verbosity` 取 `low`、`medium` 或 `high`，按模型能力填入。 [common.rs:113-157](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/common.rs#L113-L157) [common.rs:279-297](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/common.rs#L279-L297) [client.rs:634-664](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L634-L664) [client.rs:735-750](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L735-L750)
 
-### 增量是内容引用
+## input 与 output item
 
-`get_incremental_items` 比较去掉输入后的请求设置，然后确认当前输入以前次请求加完整输出为前缀。已有上一响应 ID 时可以引用并截取后缀。用户追踪语义时应保留三件事：参考 ID、实际后缀、内容重建。预热复用的 trace 特判解释见 [Trajectory](../deep-dive/trajectory.md)。 [codex-rs/core/src/client.rs:996-1074](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L996-L1074) [codex-rs/core/src/client.rs:1423-1467](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1423-L1467) [codex-rs/rollout-trace/src/reducer/conversation.rs:34-129](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation.rs#L34-L129)
+常见项按 `type` 解码。这里的 `call_id` 贯穿某一次工具调用及其回填，输出项 `id` 可供流处理定位。部分变体读取 `id`，但在 Codex 再序列化时省略。 [models.rs:750-847](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L750-L847)
+
+| `type` | 字段 | 含义 |
+| --- | --- | --- |
+| `message` | `role: string`、`content: ContentItem[]`、可选 `phase: string` | 消息角色与内容。助手阶段可为 `commentary` 或 `final_answer`。 |
+| `reasoning` | `summary: array`、可选 `content`、`encrypted_content: string 或 null` | 推理摘要、可用的推理内容、服务端提供的加密内容。 |
+| `function_call` | `call_id: string`、`name: string`、可选 `namespace: string`、`arguments: string` | 结构化工具调用，`arguments` 是编码为字符串的 JSON。 |
+| `function_call_output` | `call_id: string`、`output: string 或 array` | 使用原调用 ID 回填工具结果。 |
+| `custom_tool_call` | `call_id: string`、`name: string`、`input: string`、可选 `status: string` | 自由格式工具调用，输入为原始文本。 |
+| `custom_tool_call_output` | `call_id: string`、可选 `name: string`、`output: string 或 array` | 自由格式工具的结果。 |
+
+| 内容位置 | `type` 与附带字段 | 含义 |
+| --- | --- | --- |
+| `message.content[]` | `input_text`、`output_text` 均带 `text: string` | 输入文字或模型文字。 |
+| `message.content[]`、工具 `output[]` | `input_image` 带 `image_url: string` 和可选 `detail: "high" / "original"` | 图像输入与细节级别。 |
+| 工具 `output[]` | `input_text` 带 `text: string`，`encrypted_content` 带 `encrypted_content: string` | 工具返回的文字或加密内容。 |
+
+工具处理器可同时提供内部 `success` 标记，模型线协议的 `output` 字段直接承载字符串或内容数组。 [models.rs:708-732](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L708-L732) [models.rs:1301-1320](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L1301-L1320) [models.rs:1373-1388](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L1373-L1388)
+
+## SSE 和 WebSocket 的响应事件
+
+解析器读取 JSON 的 `type`，然后按分支读取下列字段。完成的模型响应可包含工具调用，Core 因此仍可发起下一次推理。 [responses.rs:98-158](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L98-L158) [responses.rs:263-396](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L263-L396) [turn.rs:1788-1878](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L1788-L1878) [turn.rs:1990-2021](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L1990-L2021)
+
+| `type` | 读取的字段 | 含义 |
+| --- | --- | --- |
+| `response.created` | 可用的 `response` | Core 发出已创建事件。 |
+| `response.output_item.added`、`response.output_item.done` | `item: object` | 可解码时产出开始项或完整项。工具执行从完整项进入路由。 |
+| `response.output_text.delta` | `delta: string` | 新增的输出文本。 |
+| `response.custom_tool_call_input.delta` | `delta: string`、`item_id: string`，可用 `call_id` 回退 | 自由格式工具的输入增量。 |
+| `response.reasoning_summary_text.delta` | `delta: string`、`summary_index: integer` | 某个推理摘要部分的文本增量。 |
+| `response.reasoning_text.delta` | `delta: string`、`content_index: integer` | 某个推理内容部分的文本增量。 |
+| `response.reasoning_summary_part.added` | `summary_index: integer` | 新增摘要部分。 |
+| `response.completed` | `response.id: string`、可选 `response.usage`、可选 `response.end_turn: boolean` | 本次模型响应完成。Core 可根据 `end_turn: false` 继续推理。 |
+| `response.failed` | 可选 `response.error` | 解析为 API 错误；按错误信息区分上下文超限、配额和其他失败。 |
+| `response.incomplete` | 可选 `response.incomplete_details.reason` | 以未完成错误结束流。 |
+
+用量字段包括 `input_tokens`、`output_tokens`、`total_tokens`，均为整数。`input_tokens_details.cached_tokens` 和 `output_tokens_details.reasoning_tokens` 分别是缓存与推理细分，详情缺失时映射为零。SSE 在完成事件之前关闭会报告流错误。 [responses.rs:98-143](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L98-L143) [responses.rs:399-443](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L399-L443)
+
+## WebSocket 增量与标识符
+
+| 消息 | 字段 | 含义 |
+| --- | --- | --- |
+| `response.create` | `previous_response_id: string`，可省略 | 引用上一模型响应，用来让服务端补全当前输入的公共前缀。 |
+| `response.create` | `input: ResponseItem[]` | 发送全量输入，或在有引用时发送后缀。 |
+| `response.create` | `generate: boolean`，可省略 | 预热路径写 false，普通请求省略该值。 |
+| `response.processed` | `response_id: string` | Core 向有活跃 WS 连接的服务端确认对应响应已处理。 |
+
+`get_incremental_items` 先比较去掉 `input` 后的请求对象，再比较本次输入是否以前次请求输入加前次新增输出项为前缀。前缀和上一非空响应 ID 可用时才引用，当前路径允许空后缀。重建实际模型输入时，可结合 [Rollout Trace 的推理归约](../deep-dive/trajectory.md) 对查。 [common.rs:215-277](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/common.rs#L215-L277) [client.rs:950-959](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L950-L959) [client.rs:996-1075](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L996-L1075) [client.rs:1366-1388](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1366-L1388) [turn.rs:2128-2141](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L2128-L2141)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as ModelClientSession
-    participant P as Provider
-    C->>P: 完整请求
-    P-->>C: response ID 与输出项
-    C->>C: 验证配置与输入前缀
-    C->>P: previous_response_id 与新增 input
-    P-->>C: 后续流
+    participant C as Core
+    participant M as Responses API
+    C->>M: input 包含用户消息及历史
+    M-->>C: output_item.done 含工具调用和 call_id
+    M-->>C: response.completed 含 response.id
+    Note over C: 执行工具并准备同 call_id 的结果
+    C->>M: 下一次请求包含工具结果
 ```
-<!-- Sources: codex-rs/core/src/client.rs:996, codex-rs/core/src/client.rs:1423, codex-rs/core/src/client.rs:1777 -->
+<!-- Sources: codex-rs/core/src/client.rs:717-772, codex-rs/codex-api/src/sse/responses.rs:263-396, codex-rs/core/src/stream_events_utils.rs:342-385, codex-rs/core/src/session/turn.rs:1655-1675 -->
 
-### 错误由哪一层报告
+## 实验接口 thread/realtime
 
-传输可能有连接错误、流内错误或没有正常结束。SSE 解析将已识别错误转换，Core 采样层据错误类型和预算决定重试或失败。WebSocket 支持降级到 HTTP。HTTP 请求成功只是 transport 层证据，具体输出按响应流和 turn 终态判断。 [codex-rs/codex-api/src/sse/responses.rs:347-394](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L347-L394) [codex-rs/codex-api/src/sse/responses.rs:399-486](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/codex-api/src/sse/responses.rs#L399-L486) [codex-rs/core/src/session/turn.rs:947-1021](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L947-L1021) [codex-rs/core/src/client.rs:1570-1642](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1570-L1642) [codex-rs/core/src/client.rs:1777-1899](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/client.rs#L1777-L1899) [codex-rs/app-server/README.md:1211-1247](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1211-L1247)
+app-server 另有线程级实时会话方法。它们提交专用的 Core RealtimeConversation 操作，客户端通过 `thread/realtime/*` 通知同步音频、文本和连接状态。以下字段描述 app-server 接入面。 [common.rs:762-791](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/common.rs#L762-L791) [common.rs:1535-1550](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/common.rs#L1535-L1550) [turn_processor.rs:852-954](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L852-L954)
 
-```mermaid
-stateDiagram-v2
-    [*] --> Open
-    Open --> Streaming
-    Open --> Retry : 可重试错误
-    Streaming --> Completed : response completed
-    Streaming --> Failed : 流错误
-    Streaming --> Cancelled : 消费方提前退出
-    Retry --> Open
-```
-<!-- Sources: codex-rs/core/src/session/turn.rs:947, codex-rs/core/src/client.rs:1570, codex-rs/codex-api/src/sse/responses.rs:399, codex-rs/core/src/client.rs:1777 -->
+| 消息 | 字段 | 含义 |
+| --- | --- | --- |
+| `thread/realtime/start` | `threadId: string`、`outputModality: "text" / "audio"` | 目标线程与模型输出模态。 |
+| 同上 | 可选 `prompt`、`realtimeSessionId`、`voice`、`transport` | 提示、实时会话标识、音色与传输。传输按 `type` 选择 `websocket` 或携带 `sdp` 的 `webrtc`。 |
+| `thread/realtime/appendText` | `threadId`、`text: string` | 追加的文本。 |
+| `thread/realtime/appendAudio`、`thread/realtime/outputAudio/delta` | `threadId`、`audio` | 音频块含 `data: string`、`sampleRate: integer`、`numChannels: integer`、可为 null 的 `samplesPerChannel: integer` 和 `itemId: string`。 |
+| `thread/realtime/started` | `threadId`、`realtimeSessionId`、`version` | 启动后公布会话标识和实时协议版本。 |
+| `thread/realtime/transcript/delta`、`thread/realtime/transcript/done` | `threadId`、`role`、`delta` 或 `text` | 对应角色的转写增量和当前片段完成文本。 |
+| `thread/realtime/sdp`、`thread/realtime/error`、`thread/realtime/closed` | `threadId`，以及 `sdp`、`message` 或可空的 `reason` | WebRTC SDP、错误与连接关闭。 |
 
-### 实时音频与文本的接口
-
-实验性的 `thread/realtime/start` 针对线程创建实时会话，并可指定文本或音频输出。默认走 WebSocket，也可以提交浏览器生成的 WebRTC SDP offer，服务端用单独通知返回 answer。`thread/realtime/started` 带上游的 `realtimeSessionId`，后续音频、转写与状态从 realtime 通知取得。调试时按 thread ID 找本地归属，再用 realtime session ID 找上游连接。普通 Responses 推理使用上一节的响应与请求标识。 [codex-rs/app-server/README.md:761-809](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L761-L809) [codex-rs/app-server/README.md:1189-1202](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1189-L1202) [codex-rs/core/src/realtime_conversation.rs:278-370](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/realtime_conversation.rs#L278-L370) [codex-rs/rollout-trace/src/raw_event.rs:29-162](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/raw_event.rs#L29-L162)
-
-继续阅读 [协议总览](index.md)、[模型请求与响应流](../deep-dive/model-transport.md) 和 [可观测性](../deep-dive/observability.md)。
+[realtime.rs:12-22](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs#L12-L22) [realtime.rs:62-148](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs#L62-L148) [realtime.rs:164-241](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs#L164-L241)

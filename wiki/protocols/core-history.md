@@ -1,67 +1,72 @@
 ---
-title: "Core 操作、事件与会话文件"
-description: "区分活跃运行接口、持久化历史和客户端历史投影。"
+title: "Core 操作、事件与内存历史"
+description: "查阅 Submission、Op、Event、EventMsg 与 ResponseItem 的内部字段和流向。"
 ---
 
-# Core 操作、事件与会话文件
+# Core 操作、事件与内存历史
 
-Core 边界围绕 `Submission` 和 `Event`。客户端协议转换成 Core 操作后，操作循环分发工作。送出的事件与持久化条目可以重用同一些类型，分发、持久化和读回仍有各自入口。 [codex-rs/protocol/src/protocol.rs:121-155](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L121-L155) [codex-rs/protocol/src/protocol.rs:1121-1186](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1121-L1186) [codex-rs/core/src/session/handlers.rs:708-766](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/handlers.rs#L708-L766) [codex-rs/core/src/session/mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [codex-rs/rollout/src/recorder.rs:755-811](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L755-L811)
+宿主把操作放入 Core 提交队列，Core 经事件队列汇报进度。模型会话的内容由内存历史中的 `ResponseItem` 承载。下文使用 Rust 类型名称和它们的 Serde 字段名。磁盘形状见 [Rollout 会话 JSONL](rollout-wire.md)，客户端形状见 [app-server JSON-RPC](app-server-wire.md)。 [mod.rs:679-708](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L679-L708) [mod.rs:1758-1775](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L1758-L1775) [mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547)
 
-| 合约 | 生产与消费 | 带来的约束 |
+## Submission 与 Op
+
+| 字段 | 类型与出现条件 | 含义 |
 | --- | --- | --- |
-| `Submission { id, op, trace }` | app-server 建 `Op::UserInput`，提交循环按枚举分发 | 请求 ID 到 turn 标识的转换在 server 层。trace context 可随操作传递。 [codex-rs/protocol/src/protocol.rs:121-155](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L121-L155) [codex-rs/app-server/src/request_processors/turn_processor.rs:355-433](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L355-L433) [codex-rs/app-server/src/request_processors/turn_processor.rs:317-339](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L317-L339) [codex-rs/core/src/session/handlers.rs:708-766](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/handlers.rs#L708-L766) |
-| `Event { id, msg }` | Core 发 `EventMsg`，adapter 选择如何映射通知 | 业务状态由具体变体表达。调用侧结合所属 thread/turn 消费。 [codex-rs/protocol/src/protocol.rs:1121-1186](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1121-L1186) [codex-rs/app-server/README.md:1211-1247](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/README.md#L1211-L1247) |
-| `ResponseItem` | 模型输出、工具结果、用户上下文进入内存历史 | 发送之前按输入模态与配对规则处理。 [codex-rs/protocol/src/models.rs:752-847](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L752-L847) [codex-rs/core/src/session/mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [codex-rs/core/src/context_manager/history.rs:362-390](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/context_manager/history.rs#L362-L390) |
-| `RolloutItem` | 会话元数据、事件、上下文和响应项交给 recorder | 入队与完成写入相隔一个 writer 层。 [codex-rs/protocol/src/protocol.rs:2698-2728](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L2698-L2728) [codex-rs/rollout/src/recorder.rs:755-811](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L755-L811) |
-| `ThreadStore` | 读取线程、归档与 history | 持久化入口和 Core 复原规则可独立追踪。 [codex-rs/thread-store/src/store.rs:28-114](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/store.rs#L28-L114) [codex-rs/thread-store/src/local/read_thread.rs:28-97](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/read_thread.rs#L28-L97) [codex-rs/core/src/session/rollout_reconstruction.rs:87-176](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L87-L176) |
+| `Submission.id` | String | 本次操作的关联 ID。常规 `submit_with_trace` 生成 UUIDv7，回合上下文可使用它作为 `sub_id`。 |
+| `Submission.op` | Op | 操作体。序列化后由 `op.type` 选择操作变体。 |
+| `Submission.trace` | W3cTraceContext，可省略 | 跨异步队列传递的追踪上下文。未提供时提交路径尝试从当前 span 提取。 |
+| `trace.traceparent` | String，可省略 | W3C 父级追踪信息，包含 trace ID 等。 |
+| `trace.tracestate` | String，可省略 | 服务商扩展的追踪状态。 |
+
+[protocol.rs:124-144](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L124-L144) [protocol.rs:474-535](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L474-L535) [mod.rs:679-708](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L679-L708)
+
+| `op.type` | 字段 | 消费行为 |
+| --- | --- | --- |
+| `user_input` | `items: UserInput[]` | 用户输入。处理器尝试追加到正在运行的回合，若无活动回合则启动常规任务。 |
+| `user_input` | `environments: TurnEnvironmentSelection[]`，可省略 | 本回合环境选择。 |
+| `user_input` | `final_output_json_schema: JSON`，可省略 | 本回合最终输出约束。 |
+| `user_input` | `responsesapi_client_metadata: Map<String,String>`，可省略 | 模型请求使用的回合元数据。 |
+| `user_input`、`thread_settings` | 展平的 `ThreadSettingsOverrides` | 持久到后续回合的设置更新，`thread_settings` 操作本身只更新设置。 |
+| `interrupt` | 只有 `type` | 中断当前任务。 |
+| `inter_agent_communication` | `communication: InterAgentCommunication` | 向目标线程递交代理消息，进入目标线程提交生命周期。 |
+
+[protocol.rs:474-536](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L474-L536) [handlers.rs:188-269](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/handlers.rs#L188-L269) [handlers.rs:708-787](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/handlers.rs#L708-L787) [control.rs:721-735](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/agent/control.rs#L721-L735) [input_queue.rs:42-81](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/input_queue.rs#L42-L81)
+
+## Event 与 EventMsg
+
+`Event.id: String` 关联提交，`Event.msg: EventMsg` 携带带标签的事件体。常规回合事件用 `TurnContext.sub_id` 构造外壳。Core 向会话存储交付的是 `msg`，磁盘的 `event_msg` 行由此只包含事件体。 [protocol.rs:1121-1188](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1121-L1188) [mod.rs:1610-1624](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L1610-L1624) [mod.rs:1758-1775](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L1758-L1775)
+
+| `msg.type` 写入值 | 字段 | 含义 |
+| --- | --- | --- |
+| `task_started` | `turn_id: String` | 开始事件的业务回合 ID。读取时也接受 `turn_started`。 |
+| `task_started` | `started_at: i64?`、`trace_id: String?` | Unix 秒与可选追踪 ID。 |
+| `task_started` | `model_context_window: i64?`、`collaboration_mode_kind: ModeKind` | 上下文容量与当前协作模式。 |
+| `task_complete` | `turn_id: String`、`last_agent_message: String?` | 完成的回合与可用的最终助手文本。读取时也接受 `turn_complete`。 |
+| `task_complete` | `completed_at: i64?`、`duration_ms: i64?`、`time_to_first_token_ms: i64?` | Unix 秒、运行耗时与首 token 耗时。后两项以毫秒计。 |
+| `token_count` | `info: TokenUsageInfo?`、`rate_limits: RateLimitSnapshot?` | 用量统计和可用的限额快照。 |
+
+[protocol.rs:1172-1188](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1172-L1188) [protocol.rs:1832-1865](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1832-L1865) [protocol.rs:1909-1920](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1909-L1920) [protocol.rs:1975-1988](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/protocol.rs#L1975-L1988)
+
+## 内存历史如何进入模型
+
+`record_conversation_items` 先按截断策略写入内存，再交给存储并发出 raw response item 事件。构建模型输入时，`ContextManager::for_prompt` 归一化调用与结果的配对，并按模型输入模态处理内容。工具调用可通过 `call_id` 对回结果，具体结构见 [模型请求与响应](model-wire.md)。 [mod.rs:2527-2547](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/mod.rs#L2527-L2547) [history.rs:98-125](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/context_manager/history.rs#L98-L125) [history.rs:362-390](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/context_manager/history.rs#L362-L390) [models.rs:787-847](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/protocol/src/models.rs#L787-L847)
+
+| 对象 | 关联字段 | 去向 |
+| --- | --- | --- |
+| `Submission` | `id` | Core 接收用户操作或设置变更。 |
+| `Event` | `id`，回合类事件另有 `msg.turn_id` | 宿主接收 Core 事件，并为客户端映射通知。 |
+| `ResponseItem` | `type`，工具项用 `call_id` | 内存历史、会话回放、模型输入。 |
+| `RolloutItem::EventMsg` | 事件变体自己的字段 | 会话事件持久化及后续客户端历史投影。 |
 
 ```mermaid
 graph TB
-    U["客户端请求"] --> S["Submission"]
-    S --> Q["submission_loop"]
-    Q --> E["EventMsg"]
-    Q --> I["ResponseItem"]
-    I --> H["内存历史"]
-    I --> R["RolloutItem"]
-    R --> F["会话文件"]
+    S["宿主提交 Submission"] --> Q["Core 操作队列"]
+    Q --> T["处理 UserInput 并运行或引导回合"]
+    T --> E["Event 队列"]
+    E --> A["app-server 客户端通知"]
+    T --> H["ContextManager 内存历史"]
+    H --> P["构建模型输入"]
+    T --> R["Rollout 存储"]
 ```
-<!-- Sources: codex-rs/app-server/src/request_processors/turn_processor.rs:355, codex-rs/protocol/src/protocol.rs:121, codex-rs/core/src/session/handlers.rs:708, codex-rs/protocol/src/protocol.rs:1121, codex-rs/core/src/session/mod.rs:2527, codex-rs/rollout/src/recorder.rs:755 -->
+<!-- Sources: codex-rs/core/src/session/mod.rs:679-708, codex-rs/core/src/session/handlers.rs:188-269, codex-rs/core/src/session/mod.rs:1758-1775, codex-rs/core/src/session/mod.rs:2527-2547, codex-rs/app-server/README.md:1211-1247 -->
 
-### 恢复与历史显示是两个消费者
-
-从存储恢复时，`ThreadManager` 读出历史，Core 处理 `InitialHistory` 与 rollout 条目，重建上下文引用和压缩/回滚语义。客户端读历史时，app-server 使用 `build_turns_from_rollout_items` 构造 UI 所需的 turn 列表。模型所见历史还会经过 `for_prompt` 规范化。以同一个 JSONL 文件为源时，这两个读者的输出并不要求一致。 [codex-rs/core/src/thread_manager.rs:640-685](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/thread_manager.rs#L640-L685) [codex-rs/core/src/session/rollout_reconstruction.rs:87-176](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/rollout_reconstruction.rs#L87-L176) [codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L74-L104) [codex-rs/core/src/context_manager/history.rs:98-125](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/context_manager/history.rs#L98-L125) [codex-rs/core/src/context_manager/history.rs:362-390](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/context_manager/history.rs#L362-L390)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant T as ThreadManager
-    participant S as ThreadStore
-    participant C as Core
-    participant A as API 历史读取
-    T->>S: 载入 thread 历史
-    S-->>T: RolloutItem
-    T->>C: InitialHistory
-    C->>C: 恢复上下文
-    S-->>A: 同源会话条目
-    A->>A: 投影客户端 Turn
-```
-<!-- Sources: codex-rs/core/src/thread_manager.rs:640, codex-rs/thread-store/src/store.rs:28, codex-rs/core/src/session/rollout_reconstruction.rs:87, codex-rs/app-server-protocol/src/protocol/thread_history.rs:74 -->
-
-### 状态交接的检查方法
-
-看历史何时可读时，区分 recorder 收到 `AddItems`、调用 `persist` 创建文件、`flush` 完成排队写入的三个状态。SQLite 可提供额外索引或摘要字段。对旧数据查本地实现的回退链与相应行为测试。 [codex-rs/rollout/src/recorder.rs:755-811](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout/src/recorder.rs#L755-L811) [codex-rs/thread-store/src/local/read_thread.rs:28-97](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/thread-store/src/local/read_thread.rs#L28-L97) [codex-rs/state/src/lib.rs:70-90](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/state/src/lib.rs#L70-L90)
-
-```mermaid
-stateDiagram-v2
-    [*] --> Queued
-    Queued --> Materialized : persist
-    Materialized --> Flushed : flush 应答
-    Flushed --> Read : 下游读取
-```
-<!-- Sources: codex-rs/rollout/src/recorder.rs:755, codex-rs/thread-store/src/local/read_thread.rs:28 -->
-
-### 跨代理消息如何进入回合
-
-跨代理递送可通过 `Op::InterAgentCommunication` 提交到目标线程。目标输入队列维护 mailbox，区分排队和唤醒条件。被取出的消息随后可能进入目标推理输入。发送方提交、目标线程接收项与最终模型可见输入须分别核对。[codex-rs/core/src/agent/control.rs:721-735](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/agent/control.rs#L721-L735) [codex-rs/core/src/session/input_queue.rs:42-81](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/input_queue.rs#L42-L81) [codex-rs/rollout-trace/src/reducer/tool/agents.rs:373-475](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/tool/agents.rs#L373-L475) [codex-rs/rollout-trace/src/reducer/conversation.rs:34-129](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/rollout-trace/src/reducer/conversation.rs#L34-L129)
-
-继续阅读 [协议总览](index.md)、[上下文与会话](../architecture/session-state.md) 和 [Trajectory](../deep-dive/trajectory.md)。
+跨代理调度与目标线程的唤醒规则见 [子代理与线程关系](../deep-dive/multi-agent.md)。
