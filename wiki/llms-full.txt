@@ -2150,29 +2150,31 @@ app-server 的远程控制另有 JSON 外壳。排查跨进程流量时可从以
 <doc title="Rollout 会话 JSONL" path="./protocols/rollout-wire.md">
 # Rollout 会话 JSONL
 
-Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固定 `timestamp` 和 `type`，`payload` 的结构由 `type` 决定。写入器首次真正落盘时先写 `session_meta`，之后按回合追加模型项、事件、上下文快照、世界状态和用量记录。读取方把行还原为 `RolloutItem`，再分别用于恢复模型历史、构建客户端回合和更新 SQLite 线程索引。
+活跃会话通过追加 JSONL 落盘。每行是一个 `RolloutLine`，`type` 决定 `payload` 的结构。写入器首次真正落盘时先写 `session_meta`，之后按回合追加模型项、事件、上下文快照、世界状态和用量记录。读取方把行还原为 `RolloutItem`，再分别用于恢复模型历史、构建客户端回合和更新 SQLite 线程索引。
 
-本页字段表以当前工作区的 `RolloutItemWire` 为准（提交 `4b7a20f60c`），覆盖该枚举的全部 13 类记录。字段路径以 `payload` 为根；「是否必须」指正常写入时该键是否一定出现。实测日志（`0.171.0-alpha.13`，`history_mode = "legacy"`）中的 `metadata.model_search_state` 与 `metadata.mcp_attribution` 已从当前源码移除，不在下表，其余字段与源码一致。 [rollout_payload.rs:36-82](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L36-L82) [lib.rs:635-646](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L635-L646)
+本页字段表以源码提交 `4b7a20f60c` 的 `RolloutItemWire` 为准，覆盖该枚举的全部 13 类记录。字段路径以 `payload` 为根；「是否必须」指正常写入时该键是否一定出现。文末另记一份 `0.171.0-alpha.13` 的 legacy 实测日志，便于区分样本观测和当前写入规则。 [rollout_payload.rs:36-82](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L36-L82) [lib.rs:635-646](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L635-L646)
 
 ## 记录类型与写入时机
 
-| `type` | `payload` | 写入时机 | 读取用途 |
-| --- | --- | --- | --- |
-| `session_meta` | `SessionMetaLine` | 首次落盘，以及 Git、记忆模式等元数据显式更新时 | 线程身份、来源和创建参数；SQLite 与列表投影的输入。 |
-| `dynamic_tools_updated` | `{thread_id, tools}` | 线程的动态工具目录被整体替换时 | 恢复后续模型步骤的工具目录，包括清空。 |
-| `response_item` | `ResponseItem`，可带 `id_allocation` | 模型输入或输出条目被接受时 | 重建模型历史；app-server 据此构建 `Turn` 与展示项。 |
-| `inter_agent_communication` | `InterAgentCommunication` | 子代理之间发送消息时 | 恢复代理间通信的顺序与内容。 |
-| `inter_agent_communication_metadata` | `{trigger_turn}` | 记录某条代理通信是否触发新回合时 | 判定通信对回合边界的影响。 |
-| `compacted` | `CompactedItem` | 上下文压缩完成时 | 建立替换历史基线；恢复窗口、用量和保留上下文。 |
-| `turn_context` | `TurnContextItem` 加兼容字段 | 每个真实用户回合写一次，压缩后重建基线时再写 | 恢复模型与权限设置；作为上下文差异的比较基准。 |
-| `token_usage_record` | `TokenUsageRecord` | 每次收到带 usage 的模型响应后 | 重建线程与回合的 token 累计。 |
-| `world_state` | `WorldStateItem` | 世界状态首次建立基线或某 section 变化时 | 恢复模型可见状态及其 diff 基线。 |
-| `retained_context` | `RetainedContextEvent` | 宿主的保留证据变化时（如已接受回答、确认投递） | 恢复不可信但需保留的上下文证据。 |
-| `security_risk_score` | `SecurityRiskScore` | 安全风险采样写入时 | 线程内风险快照，不进入模型上下文。 |
-| `event_msg` | `EventMsg` | 持久化白名单中的事件发生时 | 回合边界、用量快照，以及 legacy 模式的展示事件。 |
-| `realtime_item` | `RealtimeItem` | `paginated` 模式下记录实时会话帧时 | 重建实时语音与回合交接。 |
+同一个线程有几种需要持久化的信息。Core 恢复时要知道上一轮给模型看到了什么、应从哪份历史和上下文基线继续。app-server 要恢复回合的起止、状态和客户端条目。线程列表与索引还需要身份、来源和用量等可独立读取的字段。因此，Rollout 会为同一次操作保存不同用途的记录。以用户输入为例，Core 会把整理后的模型输入写为 `response_item`，并另外生成供客户端使用的用户条目，其中可以保留 `client_id`。 [mod.rs:6088-6098](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L6088-L6098) [mod.rs:6112-6138](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L6112-L6138) [mod.rs:6150-6162](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L6150-L6162)
 
-`session_meta.payload.history_mode` 决定记录形态：`legacy` 用 `event_msg` 和 `response_item` 表达回合内容，行外壳不写 `ordinal`；`paginated` 额外写 `ordinal`，用 `item_completed` 承载完整条目，并持久化 `realtime_item`。 [policy.rs:22-63](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L22-L63)
+| `type` | `payload` | 写入时机 | 为什么单独记录 |
+| --- | --- | --- | --- |
+| `session_meta` | `SessionMetaLine` | 新会话首次落盘时写入。旧模式下，某些 Git 或记忆模式更新也会追加。 | 为整份文件提供身份与创建基线。读取器取第一条 `session_meta` 识别线程，索引用线程元数据建立列表记录。 [recorder.rs:1906-1925](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/recorder.rs#L1906-L1925) [recorder.rs:1194-1211](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/recorder.rs#L1194-L1211) [update_thread_metadata.rs:160-212](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/update_thread_metadata.rs#L160-L212) [extract.rs:85-109](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/extract.rs#L85-L109) |
+| `dynamic_tools_updated` | `{thread_id, tools}` | 持久化线程整体替换动态工具目录时，先追加完整目录，再更新内存配置。 | 工具目录可以在回合之外变化。恢复时取本线程最近的完整目录，空数组表示显式清空，因此不会回退到创建时的旧工具。 [thread_settings.rs:24-56](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/thread_settings.rs#L24-L56) [lib.rs:802-825](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L802-L825) |
+| `response_item` | `ResponseItem`，可带 `id_allocation` | 用户输入、模型输出、工具调用或结果等被接受进可持久化历史时。 | 保存 Core 能逐项重放的模型历史。比如工具结果仍以工具输出的结构和调用标识保存，恢复后可与对应调用配对。客户端回合的状态和展示条目主要从 `event_msg` 投影。 [mod.rs:4247-4287](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L4247-L4287) [rollout_reconstruction.rs:588-597](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L588-L597) [thread_history.rs:471-555](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L471-L555) |
+| `inter_agent_communication` | `InterAgentCommunication` | 旧版写入完整的代理通信结构。当前常规路径分别追加元数据行与正文 `response_item`。 | 让旧文件里的代理消息继续可用。Core 将旧记录中的发送方、接收方和正文转换为模型输入，再恢复到历史。 [rollout_reconstruction.rs:591-598](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L591-L598) [代理消息落盘改动](https://github.com/GLBB/codex/commit/b4f0f3eff1303ea445a218afb039e0079df0afce) |
+| `inter_agent_communication_metadata` | `{trigger_turn}` | 当前 Core 接受代理消息时，紧挨着写在正文 `response_item` 之前。 | 在正文使用模型历史格式的同时，单独保留触发标记与通信边界。回滚计划用该记录识别随后到来的 `agent_message` 属于一次代理通信。 [mod.rs:4836-4846](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L4836-L4846) [rollback_plan.rs:152-161](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/rollout_migration/rollback_plan.rs#L152-L161) [rollback_plan.rs:260-268](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/rollout_migration/rollback_plan.rs#L260-L268) |
+| `compacted` | `CompactedItem` | 安装压缩结果时。 | 标记从哪里换用压缩后的历史。恢复可以采用仍然有效的 `replacement_history`，再重放其后的记录，同时恢复窗口、累计用量与保留证据等检查点数据。 [mod.rs:5060-5100](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5060-L5100) [rollout_reconstruction.rs:257-280](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L257-L280) [rollout_reconstruction.rs:335-363](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L335-L363) |
+| `turn_context` | `TurnContextItem` 加兼容字段 | 真实用户回合保存上下文基线时，压缩重建基线时也写入。 | 记录该回合实际使用的模型、目录、权限配置等设置。即使模型没有收到新的上下文差异，恢复也能找回上一轮的设置与比较基准。 [mod.rs:5761-5782](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5761-L5782) [rollout_reconstruction.rs:406-431](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L406-L431) |
+| `token_usage_record` | `TokenUsageRecord` | 收到带 `response_id` 和用量的模型响应时，也包括报告了这两项的未完成响应。 | 用 `response_id` 关联单次用量，同时保存回合和线程累计。恢复可以从最近一条记录或压缩检查点续算。`event_msg` 里的 `token_count` 另供客户端显示上下文用量、限额等信息。 [mod.rs:2155-2174](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L2155-L2174) [mod.rs:5785-5813](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5785-L5813) [mod.rs:5856-5877](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5856-L5877) [mod.rs:6036-6042](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L6036-L6042) |
+| `world_state` | `WorldStateItem` | 首次建立状态基线、某个状态分区变化或压缩重建时。 | 让恢复后的 Core 还能判断动态状态有哪些变化，例如模型可见的工具目录。它按顺序读取全量快照和增量补丁，得到下一次生成上下文差异所需的结构化基线。 [mod.rs:4303-4334](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L4303-L4334) [mod.rs:5092-5100](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5092-L5100) [rollout_reconstruction.rs:645-661](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L645-L661) |
+| `retained_context` | `RetainedContextEvent` | 宿主确认并保留一条证据时，例如收到交互式问题的答案。 | 压缩可能替换原来的模型历史，审阅仍需要宿主核验过的事实。恢复时先读取压缩检查点，再应用后续证据。已确认的助手消息投递有专门的兼容编码，落盘为带标记的 `response_item`。 [request_user_input.rs:128-150](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/tools/handlers/request_user_input.rs#L128-L150) [prompt.rs:118-124](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/guardian/prompt.rs#L118-L124) [rollout_reconstruction.rs:544-556](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L544-L556) [rollout_reconstruction.rs:583-593](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L583-L593) [rollout_payload.rs:218-269](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L218-L269) |
+| `security_risk_score` | `SecurityRiskScore` | Guardian V2 接受当次分类结果、启用了分值持久化且线程可落盘时。 | 给工具动作的风险判断留下可按 `call_id` 和采样时间核对的记录。该记录由分类器产生，Core 的模型历史回放和客户端条目投影都会跳过。 [classification.rs:410-453](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/ext/guardian-v2/src/async_scorer/classification.rs#L410-L453) [security_risk.rs:8-25](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/security_risk.rs#L8-L25) |
+| `event_msg` | `EventMsg` | Core 发出符合当前历史模式持久化规则的事件时。 | 保存单看模型消息推不出的运行事实，例如回合完成、中断、回滚和客户端条目完成。Core 用其中的边界和回滚事件判断有效历史，app-server 用事件投影回合状态与展示项。 [policy.rs:130-161](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L130-L161) [rollout_reconstruction.rs:365-405](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L365-L405) [thread_history_projection.rs:35-74](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history_projection.rs#L35-L74) |
+| `realtime_item` | `RealtimeItem` | `paginated` 模式中，记录实时会话、转写帧或输入交接时。 | 实时交谈有自己的会话与事件顺序，部分转写随后才进入代理回合。独立记录支持按实时历史分页，并能通过交接回执关联输入与来源事件。 [realtime.rs:33-76](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/realtime.rs#L33-L76) [realtime_history.rs:94-119](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/realtime_history.rs#L94-L119) [realtime_stream.rs:99-115](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/thread_history/realtime_stream.rs#L99-L115) |
+
+`session_meta.payload.history_mode` 决定展示历史的落盘形态。两种模式都可保存模型历史 `response_item` 和回合事件 `event_msg`。`legacy` 保留旧版展示事件，省略行级 `ordinal`。`paginated` 主要用 `event_msg.payload.type = "item_completed"` 保存用于回放的已完成条目，并写入 `ordinal`，支持持久化 `realtime_item`。 [policy.rs:22-41](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L22-L41) [policy.rs:130-161](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L130-L161) [policy.rs:233-254](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L233-L254) [ordinal.rs:23-43](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/ordinal.rs#L23-L43)
 
 ## 行外壳 `RolloutLine`
 
@@ -2184,7 +2186,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 行外壳 | `payload` | 必须 | object | 记录内容。多数记录把底层结构展平到这一层。 |
 | 行外壳 | `metadata` | 可选 | object | 仅 `response_item` 有的宿主元数据，见下一节；与 `payload` 平级。 |
 
-`RolloutLine` 刻意没有实现 `Deserialize`，读取必须走仓库的规范解析器，否则扁平信封里的高精度小数会丢精度。 [lib.rs:635-646](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L635-L646) [rollout_payload.rs:41-50](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L41-L50)
+Rust 中使用 `parse_rollout_line` 或 `decode_rollout_line` 读取。启用 `serde_json/arbitrary_precision` 时，Serde 的通用缓冲层可能无法还原展平或内部标记结构里的嵌套浮点数。规范解码器先解析 JSON 对象，再分别处理行外壳和记录内容。 [lib.rs:44-84](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/lib.rs#L44-L84) [tests.rs:55-72](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/tests.rs#L55-L72)
 
 ## 行级元数据 `metadata`
 
@@ -2209,7 +2211,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 保留策略 | `retain_in_children` | 可选 | boolean | 覆盖 spawn 子代理时的继承行为。 |
 | 预算 | `fallback_token_limit_override` | 可选 | integer | 原始历史预算（token，含工具专项额度），回放持久历史时复用。Rust 字段名是 `history_truncation_token_limit`。 |
 | 预算 | `tool_audio_budget_applied` | 可选 | boolean | 核心在工具音频仍按内联成本计时已应用历史限额；`false` 时省略。 |
-| 投递 | `delivered_assistant_message` | 可选 | string | 由成功消息工具结果确认的有界助手文本，属于不可信上下文。 |
+| 投递 | `delivered_assistant_message` | 可选 | string | 历史形态可携带宿主确认的有界助手文本。当前兼容编码也用此字段写投递标记，见下文。 |
 | 投递 | `delivered_assistant_message_incomplete` | 可选 | boolean | 已确认投递但在保留限额内拿不到全文。 |
 | 配置 | `harness_authored_configuration` | 可选 | boolean | 该 `configuration_update` 是否由 harness 自己创建。 |
 | 压缩 | `compaction_without_file_error_sources` | 可选 | boolean | 该 opaque 压缩检查点的输入不含音频或文件型图片。 |
@@ -2250,7 +2252,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 ## 会话元数据 `session_meta.payload`
 
-`payload` 是展平的 `SessionMetaLine`，所以线程 ID 的路径是 `payload.id`。首次落盘时写入器还会从 `cwd` 采集 Git 信息。后续的 Git 或记忆模式更新会重读文件头、打补丁后追加一整条 `session_meta`，因此同一文件可以有多条；读取器以第一条作为身份与创建参数，其余用于更新字段。 [protocol.rs:3568-3690](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3568-L3690) [recorder.rs:2009-2034](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/recorder.rs#L2009-L2034)
+`payload` 是展平的 `SessionMetaLine`，所以线程 ID 的路径是 `payload.id`。首次落盘时写入器还会从 `cwd` 采集 Git 信息。在 `legacy` 模式下，后续的 Git 或记忆模式更新可重读文件头、打补丁后再追加一整条 `session_meta`。读取器以第一条识别线程与创建参数。`paginated` 模式下，这类元数据更新保存到 SQLite。 [update_thread_metadata.rs:146-176](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/update_thread_metadata.rs#L146-L176) [protocol.rs:3568-3690](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3568-L3690) [recorder.rs:2009-2034](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/recorder.rs#L2009-L2034) [capabilities.rs:57-84](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/capabilities.rs#L57-L84) [protocol.rs:3353-3365](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3353-L3365)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2269,7 +2271,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 身份 | `history_mode` | 必须 | enum string | `legacy` 或 `paginated`，缺省 `legacy`。决定是否写 `ordinal` 和是否使用分页继承。 |
 | 身份 | `history_base` | 可选 | object | 从另一条分页 rollout 继承的排他前缀，见下表。 |
 | 身份 | `subagent_history_start_ordinal` | 可选 | integer | 子代理自身投影历史的首个序号；更早记录只作为继承上下文。 |
-| 身份 | `multi_agent_version` | 可选 | enum string | `disabled`、`v1` 或 `v2`。运行中以 `turn_context` 为准。 |
+| 身份 | `multi_agent_version` | 可选 | enum string | `disabled`、`v1` 或 `v2`。恢复历史时优先取匹配本线程且带值的最近一条 `session_meta`。 |
 | 身份 | `context_window` | 可选 | object | 初始上下文窗口身份，供只 tail 文件的消费者在首次压缩前定位窗口。 |
 | 来源 | `source` | 必须 | enum string 或 tagged object | 会话来源，缺省 `vscode`。带载荷形态见下表。 |
 | 来源 | `thread_source` | 可选 | enum string | 分析分类：`user`、`subagent`、`guardian_review`、`memory_consolidation`；未知值按自定义 feature 字符串保留。 |
@@ -2293,9 +2295,9 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `source` | `source.subagent` | 可选 | enum string 或 tagged object | 无载荷取 `review`、`compact`、`memory_consolidation`；带载荷为 `{"thread_spawn":{...}}` 或 `{"other":"..."}`。 |
 | `source.subagent.thread_spawn` | `parent_thread_id` | 必须 | UUID 字符串 | 启动该子代理的父线程。 |
 | `source.subagent.thread_spawn` | `depth` | 必须 | integer | 派生深度。 |
-| `source.subagent.thread_spawn` | `agent_path` | 可选 | string | 派生时记录的规范路径。 |
-| `source.subagent.thread_spawn` | `agent_nickname` | 可选 | string | 派生时记录的昵称。 |
-| `source.subagent.thread_spawn` | `agent_role` | 可选 | string | 派生时记录的角色，兼容旧键 `agent_type`。 |
+| `source.subagent.thread_spawn` | `agent_path` | 必须（可为 null） | string 或 null | 派生时记录的规范路径。 |
+| `source.subagent.thread_spawn` | `agent_nickname` | 必须（可为 null） | string 或 null | 派生时记录的昵称。 |
+| `source.subagent.thread_spawn` | `agent_role` | 必须（可为 null） | string 或 null | 派生时记录的角色，兼容旧键 `agent_type`。 |
 | `source.subagent` | `other` | 可选 | string | 其他子代理来源标签。 |
 | `git` | `commit_hash` | 可选 | string | 当前提交 SHA，清空时该键省略。 |
 | `git` | `branch` | 可选 | string | 分支名。 |
@@ -2311,17 +2313,17 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `selected_capability_roots[]` | `id` | 必须 | string | 平台提供的稳定根标识。 |
 | `selected_capability_roots[]` | `location.type` | 必须 | enum string | 目前只有 `environment`。 |
 | `selected_capability_roots[]` | `location.environmentId` | 必须 | string | 根所属执行环境。 |
-| `selected_capability_roots[]` | `location.path` | 必须 | string | 根在该环境内的绝对路径。 |
+| `selected_capability_roots[]` | `location.path` | 必须 | string | 该环境中的 `PathUri` 字符串，例如 `file:///C:/plugins/demo`。当前读端也接受可转换的旧路径字符串。 |
 | `history_base` | `thread_id` | 必须 | UUID 字符串 | 前缀文件的 rollout ID。普通线程等于线程 ID，revert 后则是不同的 rollout ID。 |
 | `history_base` | `end_ordinal_exclusive` | 必须 | integer | 从该前缀文件继承到的排他序号。 |
 | `history_base` | `end_byte_offset` | 必须 | integer | 前缀文件最后一条被包含记录之后的字节偏移。 |
 | `context_window` | `window_id` | 必须 | string 或 object | 模型可见窗口身份，通常是 UUIDv7；也可能是带分配序号的窗口对象。 |
 
-查当前 Git 或记忆模式时不能只看首条记录：Git 按条目顺序应用本线程的带 `git` 元数据，记忆模式从后往前取第一个有值的 `memory_mode`。显式更新会先核对文件头里的线程 ID 再追加。 [update_thread_metadata.rs:907-936](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/update_thread_metadata.rs#L907-L936) [protocol.rs:3532-3560](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3532-L3560)
+从 `legacy` 文件提取时，Git 按顺序应用本线程元数据中的更新，记忆模式从后往前取首个有值的记录。查询 `paginated` 线程的当前 Git 和记忆模式时，使用 SQLite 中的线程元数据。文件头提供创建时的记录。 [metadata.rs:111-186](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/metadata.rs#L111-L186) [metadata.rs:319-346](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/metadata.rs#L319-L346) [update_thread_metadata.rs:146-176](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/local/update_thread_metadata.rs#L146-L176)
 
 ## 回合上下文 `turn_context.payload`
 
-每个真实用户回合在计算完本轮的模型可见上下文变化后写一次；回合中途压缩、替换历史重建基线时再写一次。读取端只用 `permission_profile` 等新字段，写出时由序列化器额外补上 `sandbox_policy` 和可选的 `file_system_sandbox_policy`，供旧读端使用。正因为写出的形状和 Rust 结构不同，字段表把两个兼容字段也列出。 [protocol.rs:3747-3787](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3747-L3787) [rollout_payload.rs:84-136](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L84-L136)
+真实用户回合会保存 `turn_context` 比较基线，压缩重建基线时也可写入。当前写入器写 `permission_profile`，并为旧读端生成 `sandbox_policy` 及必要的 `file_system_sandbox_policy`。读取时优先取 `permission_profile`。旧记录缺少它或值为 `null` 时，读端用旧沙箱策略和可用的细分规则构造权限配置。 [mod.rs:5761-5782](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5761-L5782) [mod.rs:5092-5100](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5092-L5100) [rollout_payload.rs:84-136](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L84-L136) [protocol.rs:3794-3843](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3794-L3843)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2332,14 +2334,14 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 上下文 | `cwd` | 必须 | string | 本轮工作目录，也是旧版沙箱策略反推的基准。 |
 | 权限 | `approval_policy` | 必须 | enum string 或 tagged object | `untrusted`、`on-request`、`never`，或带五个布尔项的 `{"granular":{...}}`。 |
 | 权限 | `approvals_reviewer` | 可选 | enum string | `user` 或 `auto_review`；兼容旧值 `guardian_subagent`。 |
-| 权限 | `permission_profile` | 必须 | tagged object | 规范的运行时权限，见下表。运行时只使用该字段。 |
+| 权限 | `permission_profile` | 必须 | tagged object | 当前写入的运行时权限，见下表。兼容读取时可由旧字段构造。 |
 | 权限 | `active_permission_profile` | 可选 | object | 产生该权限的命名或内置配置标识。 |
-| 权限 | `sandbox_policy` | 必须（仅写出） | tagged object | 由权限配置反推的旧版沙箱策略，见下表。 |
-| 权限 | `file_system_sandbox_policy` | 可选（仅写出） | object | 旧版策略无法承载的细分文件系统规则；与反推结果一致时省略。 |
+| 权限 | `sandbox_policy` | 必须 | tagged object | 由权限配置反推。读旧记录时，缺少 `permission_profile` 则要求该字段。 |
+| 权限 | `file_system_sandbox_policy` | 可选 | object | 兼容的细分文件系统规则，写出时与旧策略推导结果一致可省略。读取旧权限时可用它恢复细分规则。 |
 | 模型 | `model` | 必须 | string | 本轮模型 slug。SQLite 的最近模型与窗口计算取它。 |
 | 模型 | `comp_hash` | 可选 | string | 压缩模板或模型配置哈希，用于判断压缩行为是否变化。 |
 | 协作 | `collaboration_mode` | 可选 | object | 本轮协作模式与设置，见下表。 |
-| 多代理 | `multi_agent_version` | 可选 | enum string | `disabled`、`v1` 或 `v2`；恢复时优先于 `session_meta` 的同名字段。 |
+| 多代理 | `multi_agent_version` | 可选 | enum string | `disabled`、`v1` 或 `v2`。找不到匹配且带值的 `session_meta` 时，才从 `turn_context` 或压缩恢复元数据回退取值。 [lib.rs:855-868](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L855-L868) [compaction_resume_metadata.rs:61-69](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/compaction_resume_metadata.rs#L61-L69) |
 | 实时 | `realtime_active` | 可选 | boolean | 本轮是否启用实时通道。 |
 | 安全 | `cyber_access_program` | 可选 | enum string | `standard`、`daybreak_blue` 或 `daybreak_red`；是否授权仍由服务端决定。 |
 | 推理 | `effort` | 可选 | enum string | 推理强度：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`、`persistent`，或模型自定义值。 |
@@ -2350,7 +2352,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `permission_profile` | `type` | 必须 | enum string | `managed`（Codex 自建沙箱）、`disabled`（关闭外层沙箱）或 `external`（调用方负责隔离）。 |
 | `permission_profile` | `file_system` | 必须（managed） | tagged object | `{"type":"restricted","entries":[...]}` 或 `{"type":"unrestricted"}`。 |
 | `permission_profile.file_system` | `entries[]` | 必须（restricted；可为空） | array\<object\> | 文件系统条目，按顺序与具体度合并。 |
-| `permission_profile.file_system.entries[]` | `path` | 必须 | tagged object | `{"type":"path","path":"..."}`、`{"type":"glob_pattern","pattern":"..."}` 或特殊位置 `root`、`minimal`、`project_roots`、`tmpdir`、`slash_tmp`、`unknown`。 |
+| `permission_profile.file_system.entries[]` | `path` | 必须 | tagged object | `{"type":"path","path":"..."}`、`{"type":"glob_pattern","pattern":"..."}` 或特殊位置对象，如 `{"type":"special","value":{"kind":"root"}}`。`value.kind` 还可取 `minimal`、`project_roots`、`tmpdir`、`slash_tmp`、`unknown`。`project_roots` 可带 `subpath`，`unknown` 含 `path` 及可选的 `subpath`。 [permissions.rs:149-176](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/permissions.rs#L149-L176) [permissions.rs:435-454](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/permissions.rs#L435-L454) |
 | `permission_profile.file_system.entries[]` | `access` | 必须 | enum string | `read`、`write`、`deny`；冲突时 `deny` 优先于 `write`，`write` 优先于 `read`。 |
 | `permission_profile.file_system.entries[]` | `missing_path_behavior` | 可选 | enum string | 目前只有 `skip`：路径不存在时跳过。 |
 | `permission_profile.file_system` | `glob_scan_max_depth` | 可选 | integer | glob 扫描深度上限。 |
@@ -2397,12 +2399,12 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 ## 世界状态 `world_state.payload`
 
-`state` 的每个键是一个 section，值是该 section 的模型可见比较值。`full: true` 建立新基线；`full: false` 是对当前基线应用 RFC 7386 merge patch，对象成员为 `null` 表示删除该键。只有 section 内容变化时才写记录，因此一个文件可能只有一条全量快照。压缩或回退会清空基线，之后按顺序重新应用。 [protocol.rs:3724-3730](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L3724-L3730) [history.rs:588-615](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context_manager/history.rs#L588-L615)
+`state` 的键是状态分区。`full: true` 建立全量基线，`full: false` 保存按 RFC 7386 应用的增量补丁。补丁中的对象成员为 `null` 时删除该成员。恢复遇到 `compacted` 时清空旧基线，随后由新的全量快照建立基线。遇到旧版回滚记录时，恢复器跳过被撤销的回合段，再按原顺序重放其余状态记录。 [rollout_reconstruction.rs:135-155](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L135-L155) [rollout_reconstruction.rs:645-661](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L645-L661) [mod.rs:535-553](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/mod.rs#L535-L553)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
 | 状态 | `full` | 必须 | boolean | `true` 为全量快照；`false` 为 merge patch。 |
-| 状态 | `state` | 必须 | object | section ID 到比较值的映射。「必须」指全量快照一定包含下列 section；补丁只含变化项。 |
+| 状态 | `state` | 必须 | object | section ID 到比较值的映射。全量快照包含当次收集到的分区。补丁只含变化项与删除标记。 |
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2432,24 +2434,24 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 扩展 | `state.host_skills` | 可选 | object | 宿主技能目录，形状同 `skills`。 |
 | 扩展 | `state.git_attribution` | 可选 | boolean | 工作区是否要求提交或 PR 的归属声明。 |
 
-写入前会递归剔除对象中的 `null` 成员，所以空 `Option` 表现为键缺失，而不是 `null`。没有变化时 `merge_patch_from` 返回 `None`，不写记录。 [world_state.rs:78-543](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/world_state.rs#L78-L543) [world_state/mod.rs:540-575](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/mod.rs#L540-L575)
+构造分区快照时，Core 递归去掉对象中的空值字段，数组保持原样。随后进行差分，生成的补丁仍可写入 `null` 来删除整个分区或嵌套字段。没有差异时，`merge_patch_from` 返回 `None`，该步骤省略补丁记录。 [mod.rs:186-209](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/mod.rs#L186-L209) [mod.rs:535-553](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/mod.rs#L535-L553) [mod.rs:739-766](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/mod.rs#L739-L766)
 
 ## 压缩检查点 `compacted.payload`
 
-一次压缩会依次写入 `compacted`、全量 `world_state`、`turn_context` 和线程设置事件，因此压缩后的基线可以独立恢复。`message` 是摘要文本，回放时被当作一条助手消息插入历史；`replacement_history` 存在时，后续回放从它开始。 [lib.rs:561-581](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L561-L581) [rollout_payload.rs:374-402](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L374-L402) [mod.rs:5092-5100](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5092-L5100)
+安装压缩结果时可以依次写入 `compacted`、全量 `world_state`、`turn_context` 和线程设置事件。恢复以选中的 `replacement_history` 为基线，再回放其后有效的记录。远程压缩可以把 `message` 写成空字符串。缺少 `replacement_history` 的旧检查点才会用 `message` 重建历史。 [mod.rs:5092-5100](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L5092-L5100) [compact_remote_v2_installation.rs:256-272](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/compact_remote_v2_installation.rs#L256-L272) [rollout_reconstruction.rs:541-556](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L541-L556) [rollout_reconstruction.rs:599-618](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L599-L618)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
-| 摘要 | `message` | 必须 | string | 压缩摘要文本，也是摘要内容的唯一权威来源。 |
+| 摘要 | `message` | 必须 | string | 压缩摘要文本，可为空。旧检查点缺少替换历史时用于重建历史。 |
 | 历史 | `replacement_history` | 可选 | array\<object\> | 压缩后的替换历史，元素与 `response_item.payload` 同形；旧压缩可能没有。 |
-| 历史 | `replacement_history_metadata` | 可选 | array\<object\> | 与 `replacement_history` 等长对齐的宿主元数据，缺失位写 `{}`；长度不一致会解析失败。 |
+| 历史 | `replacement_history_metadata` | 可选 | array\<object\> | 与 `replacement_history` 等长对齐的宿主元数据。只在有条目携带元数据时写数组，缺失位写默认对象 `{"client_authored":false}`。长度不一致会解析失败。 [rollout_payload.rs:404-418](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L404-L418) [lib.rs:121-126](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L121-L126) |
 | 历史 | `guardian_history` | 可选 | array\<object\> | Guardian 审阅证据检查点，条目为模型项加可选 `guardian_metadata`。 |
 | 历史 | `retained_context` | 可选 | object | 保留上下文快照，见下表。 |
 | 历史 | `mcp_resource_origins` | 可选 | object | MCP 应用资源来源检查点，跨压缩保留授权证据。 |
 | 窗口 | `window_number` | 可选 | integer | 窗口序号；旧数据把数字写在 `window_id` 时解析会回填到这里。 |
-| 窗口 | `first_window_id` | 可选 | string | 本线程首个窗口 ID。 |
-| 窗口 | `previous_window_id` | 可选 | string | 上一个窗口 ID。 |
-| 窗口 | `window_id` | 可选 | string 或 integer | 当前窗口 ID；旧版写数字序号，读取时兼容。 |
+| 窗口 | `first_window_id` | 可选 | string 或 object | 本线程首个窗口 ID，可写 UUIDv7 字符串或 `{"salt":"window","ordinal":...,"value":...}`。 |
+| 窗口 | `previous_window_id` | 可选 | string 或 object | 上一个窗口 ID，形态同上。 |
+| 窗口 | `window_id` | 可选 | string 或 object；兼容 integer | 当前窗口 ID。数字是旧格式的窗口序号，读端可用它回填 `window_number`。 [context_window_id.rs:10-15](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/context_window_id.rs#L10-L15) [rollout_payload.rs:387-395](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L387-L395) [rollout_payload.rs:485-492](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L485-L492) [tests.rs:1253-1285](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/tests.rs#L1253-L1285) |
 | 压缩 | `compaction_response_id` | 必须（可为 null） | string 或 null | 模型压缩请求的响应 ID，便于与服务端日志对齐。 |
 | 用量 | `latest_token_usage_record` | 必须（可为 null） | object 或 null | 写入压缩时最近一条用量记录的快照，结构与 `token_usage_record.payload` 相同。 |
 | 恢复 | `resume_metadata` | 可选 | object | 无法由伴随记录表达的状态，见下表。存在即表示这些值被显式持久化。 |
@@ -2550,7 +2552,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `session_input_saved` | `input_item_id` | 必须 | string | 输入模型项的 ID。 |
 | `session_input_saved` | `input` | 必须 | string | 保存的转写文本。 |
 
-`retained_context` 记录的 `type` 取 `accepted_file_audio`、`verified_answer` 或 `delivered_assistant_message`，分别携带文件音频证据、已核验回答和已确认投递的助手文本。它们与 `compacted` 里的 `retained_context` 快照共享同一组结构。 [retained_context.rs:171-193](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/retained_context.rs#L171-L193) [realtime.rs:8-103](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/realtime.rs#L8-L103) [security_risk.rs:13-25](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/security_risk.rs#L13-L25)
+`retained_context` 行中的 `payload.type` 可记录 `accepted_file_audio` 和 `verified_answer`，分别携带文件音频证据和已核验回答。宿主确认助手消息已投递时，当前写入器把 `delivered_assistant_message` 编码成带 `metadata.delivered_assistant_message` 的 `response_item` 行。全文可用时，正文位于 `payload.content[0].text`，元数据填 `codex:code-mode-delivery:v1:complete`。正文不完整时，payload 使用占位文本，元数据以 `codex:code-mode-delivery:v1:incomplete:` 为前缀附带已保留的文本。当前读端将两种编码还原为保留上下文事件。 [rollout_payload.rs:218-269](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L218-L269) [rollout_payload.rs:293-330](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L293-L330) [retained_context.rs:171-193](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/retained_context.rs#L171-L193) [realtime.rs:8-103](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/realtime.rs#L8-L103) [security_risk.rs:13-25](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/security_risk.rs#L13-L25) [rollout_payload.rs:32-34](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L32-L34)
 
 ## 持久化事件 `event_msg.payload`
 
@@ -2560,13 +2562,14 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 | 条件 | 事件 `type` | 说明 |
 | --- | --- | --- |
-| 总是写入 | `task_started`、`task_complete`、`token_count`、`thread_settings_applied`、`thread_rolled_back`、`turn_aborted`、`thread_goal_updated` | 回合边界、用量和线程级设置。 |
+| 两种模式均保留 | `task_started`、`task_complete`、`token_count`、`thread_settings_applied`、`turn_aborted`、`thread_goal_updated` | 回合边界、用量和线程级设置。 |
+| 兼容旧记录 | `thread_rolled_back` | 旧版回放标记。持久化筛选可保留该类型，当前不支持用旧操作生成新回滚标记。 |
 | 按历史模式裁剪 | `item_completed` | `legacy` 只保留无法由原始模型项无损表达的 `FunctionCallOutput`、`Plan`、`Extension(Sleep)` 与 `SubAgentActivity(Completed)`；`paginated` 保留全部条目。 |
 | 仅 `legacy` 写入 | `user_message`、`agent_message`、`agent_reasoning`、`agent_reasoning_raw_content`、`entered_review_mode`、`exited_review_mode`、`patch_apply_end`、`context_compacted`、`mcp_tool_call_end`、`web_search_end`、`image_generation_end` | 新线程改用 `item_completed` 承载这些内容。 |
 | 仅 `legacy` 且非终态 | `sub_agent_activity` | `kind = completed` 的活动不写入。 |
 | 从不写入 | `exec_command_end`、`item_started`、各类流式 delta、审批请求等 | 瞬时事件，只发给客户端。 |
 
-命令聚合输出和 MCP 结果在写入前有 64 KiB 上限，超出部分用截断标记替换。 [policy.rs:130-228](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L130-L228) [policy.rs:233-288](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L233-L288)
+`paginated` 的 `item_completed` 对命令聚合文本和序列化后的 MCP 结果应用 64 KiB 阈值。超限的命令文本会被截短，MCP 结果会转成受限文本预览，保留 `isError` 并省略 `structuredContent` 与 `_meta`。`legacy` 的 `mcp_tool_call_end` 沿用生产事件时按 1 MiB 处理的结果。上述阈值针对对应内容字段。 [policy.rs:129-161](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L129-L161) [policy.rs:233-288](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L233-L288) [mcp_tool_call.rs:139](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/mcp_tool_call.rs#L139) [mcp_tool_call.rs:1142-1155](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/mcp_tool_call.rs#L1142-L1155) [lib.rs:25](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/utils/pty/src/lib.rs#L25) [lib.rs:99-155](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/utils/output-truncation/src/lib.rs#L99-L155) [legacy_events.rs:541-567](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/legacy_events.rs#L541-L567)
 
 ### 回合开始 `task_started`
 
@@ -2606,10 +2609,10 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
 | `error` | `message` | 必须 | string | 面向用户的错误消息。 |
-| `error` | `codex_error_info` | 必须（可为 null） | string、object 或 null | 错误分类，决定回合是否失败。单元变体是字符串，带状态码的变体是 `{"<kind>":{"http_status_code":n}}`。 |
+| `error` | `codex_error_info` | 必须（可为 null） | string、object 或 null | 错误分类。单元变体写成字符串，结构变体写成以分类名为键的对象，例如 `{"response_stream_disconnected":{"http_status_code":null}}`。分页投影根据 `task_complete.error` 是否存在标记回合失败。 |
 | `error` | `rejected_audio_file_ids` | 可选 | array\<string\> | 被拒绝的音频文件 ID，仅宿主可见。 |
 
-`error.codex_error_info` 的主要取值包括 `context_window_exceeded`、`session_budget_exceeded`、`usage_limit_exceeded`、`rate_limit_exceeded`、`server_overloaded`、`model_not_found`、`unauthorized`、`bad_request`、`sandbox_error`、`response_stream_disconnected`、`thread_rollback_failed` 和 `other`。 [protocol.rs:2502-2529](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2502-L2529) [codex_error_info.rs:13-60](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/codex_error_info.rs#L13-L60)
+`error.codex_error_info` 的主要取值包括 `context_window_exceeded`、`session_budget_exceeded`、`usage_limit_exceeded`、`rate_limit_exceeded`、`server_overloaded`、`model_not_found`、`unauthorized`、`bad_request`、`sandbox_error`、`response_stream_disconnected`、`thread_rollback_failed` 和 `other`。 [protocol.rs:2502-2529](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2502-L2529) [codex_error_info.rs:13-60](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/codex_error_info.rs#L13-L60) [codex_error_info.rs:13-68](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/codex_error_info.rs#L13-L68) [thread_history_projection.rs:35-47](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history_projection.rs#L35-L47)
 
 ### 用量快照 `token_count`
 
@@ -2656,7 +2659,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 ### 线程设置 `thread_settings_applied`
 
-设置更新成功后写一条完整快照。恢复线程时以最后一条快照为准；`thread_id` 指向逻辑任务，可能与物理 rollout 文件不同。 [protocol.rs:2558-2605](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2558-L2605)
+线程设置更新后可追加生效配置快照。恢复会按字段与线程归属选择快照。`thread_id` 标明快照属于哪个逻辑线程，继承来的快照保留原归属。从设置快照恢复目录及工作区根时只取当前线程的快照，无此快照时可回退到创建元数据。审批与模型设置各有针对无归属旧记录的回退规则。 [protocol.rs:2558-2605](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2558-L2605) [persisted_resume_settings.rs:19-71](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server/src/request_processors/persisted_resume_settings.rs#L19-L71) [persisted_resume_settings.rs:134-154](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server/src/request_processors/persisted_resume_settings.rs#L134-L154) [thread_processor.rs:4312-4349](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server/src/request_processors/thread_processor.rs#L4312-L4349) [thread_processor.rs:4398-4423](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server/src/request_processors/thread_processor.rs#L4398-L4423)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2685,7 +2688,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 ### 条目完成 `item_completed`
 
-`paginated` 模式用这个事件承载完整展示条目；`legacy` 模式只在条目无法由原始模型项无损表达时写入。 [protocol.rs:2256-2273](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2256-L2273)
+`paginated` 模式用这个事件承载已完成的展示条目。`legacy` 只保留筛选规则列出的几类，例如 `Plan` 和 `FunctionCallOutput`。 [protocol.rs:2256-2273](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L2256-L2273) [policy.rs:233-254](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L233-L254)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2762,7 +2765,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 投递 | `delivery` | 可选 | enum string | `async` 表示异步投递。 |
 | 提问 | `questions` | 可选 | array\<object\> | 结构化异步提问：`title` 与 `options`（开放式问题为 `null`）。 |
 | 引用 | `memory_citation.entries[]` | 必须 | array\<object\> | 引用条目：`path`、`lineStart`、`lineEnd`、`note`。 |
-| 引用 | `memory_citation.rollout_ids` | 必须 | array\<string\> | 来源 rollout。 |
+| 引用 | `memory_citation.rolloutIds` | 必须 | array\<string\> | 来源 rollout。 [memory_citation.rs:6-20](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/memory_citation.rs#L6-L20) |
 
 #### 推理文本 `agent_reasoning` 与 `agent_reasoning_raw_content`
 
@@ -2788,7 +2791,9 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 变更 | `changes.<path>.unified_diff` | 必须（update） | string | 统一 diff 文本。 |
 | 变更 | `changes.<path>.move_path` | 必须（update） | string 或 null | 重命名目标；无重命名时为 `null`。 |
 
-#### 其余生命周期事件
+### 其余生命周期事件
+
+`turn_aborted` 与 `thread_goal_updated` 可见于两种历史模式。独立的 `context_compacted` 和非终态 `sub_agent_activity` 是 legacy 展示事件。`thread_rolled_back` 用于回放旧历史。 [policy.rs:129-161](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L129-L161) [protocol.rs:1616-1621](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L1616-L1621)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2812,13 +2817,13 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `sub_agent_activity` | `agent_path` | 必须 | string | 子代理规范路径。 |
 | `sub_agent_activity` | `kind` | 必须 | enum string | `started`、`interacted`、`interrupted`、`completed`；`completed` 不写入。 |
 
-`thread_goal_updated` 使用 camelCase 字段；`goal` 是整份目标快照：
+`thread_goal_updated` 使用 camelCase 字段；`goal` 是整份目标快照： [protocol.rs:4601-4626](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/protocol.rs#L4601-L4626)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
 | `thread_goal_updated` | `type` | 必须 | string | 固定 `thread_goal_updated`。 |
-| `thread_goal_updated` | `thread_id` | 必须 | UUID 字符串 | 目标所属线程。 |
-| `thread_goal_updated` | `turn_id` | 可选 | string | 触发更新的回合；异步更新没有。 |
+| `thread_goal_updated` | `threadId` | 必须 | UUID 字符串 | 目标所属线程。 |
+| `thread_goal_updated` | `turnId` | 可选 | string | 触发更新的回合；异步更新没有。 |
 | `thread_goal_updated` | `goal` | 必须 | object | 完整目标状态，见下表。 |
 | `goal` | `threadId` | 必须 | UUID 字符串 | 目标所属线程。 |
 | `goal` | `objective` | 必须 | string | 目标描述，最长 4000 字符。 |
@@ -2829,7 +2834,9 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `goal` | `createdAt` | 必须 | integer | 创建时间。 |
 | `goal` | `updatedAt` | 必须 | integer | 更新时间。 |
 
-#### 工具结束事件
+### 工具结束事件
+
+下列独立的 `*_end` 事件由 `legacy` 模式保留。 [policy.rs:143-157](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L143-L157)
 
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
@@ -2838,14 +2845,14 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | `mcp_tool_call_end` | `invocation` | 必须 | object | `server`、`environment_id?`、`tool`、`arguments`。 |
 | `mcp_tool_call_end` | `connector_id` | 可选 | string | 连接器 ID。 |
 | `mcp_tool_call_end` | `mcp_app_resource_uri` | 可选 | string | 旧兼容字段，优先使用 `mcp_app_ui`。 |
-| `mcp_tool_call_end` | `mcp_app_ui` | 可选 | object | `resource_uri` 与 `preferred_model_display_mode`。 |
+| `mcp_tool_call_end` | `mcp_app_ui` | 可选 | object | `resourceUri` 与 `preferredModelDisplayMode`。 [items.rs:458-465](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/items.rs#L458-L465) |
 | `mcp_tool_call_end` | `link_id` | 可选 | string | 外部资源链接 ID。 |
 | `mcp_tool_call_end` | `app_name` | 可选 | string | 应用展示名。 |
 | `mcp_tool_call_end` | `action_name` | 可选 | string | 动作展示名。 |
 | `mcp_tool_call_end` | `plugin_id` | 可选 | string | 插件 ID。 |
 | `mcp_tool_call_end` | `read_only_hint` | 可选 | boolean | 工具声明的只读标注，不是执行结果。 |
 | `mcp_tool_call_end` | `duration` | 必须 | object | `{"secs":n,"nanos":n}`。 |
-| `mcp_tool_call_end` | `result` | 必须 | object | `{"Ok":{...}}` 或 `{"Err":"..."}`，`Ok` 载荷含 `content[]`、`structured_content?`、`is_error?`、`_meta?`。 |
+| `mcp_tool_call_end` | `result` | 必须 | object | `{"Ok":{...}}` 或 `{"Err":"..."}`，`Ok` 载荷含 `content[]`、`structuredContent?`、`isError?`、`_meta?`。 [mcp.rs:273-287](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/mcp.rs#L273-L287) |
 | `web_search_end` | `call_id` | 必须 | string | 与 `web_search_begin` 配对。 |
 | `web_search_end` | `query` | 必须 | string | 搜索词。 |
 | `web_search_end` | `action` | 必须 | object | 实际动作，见下表。 |
@@ -2888,7 +2895,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 判别 | `type` | 必须 | string | 固定 `additional_tools`。 |
 | 标识 | `id` | 可选 | string | 条目 ID，前缀 `at`。 |
 | 角色 | `role` | 必须 | string | 工具声明所属角色，通常为 `developer`。 |
-| 工具 | `tools` | 必须 | array\<object\> | 完整工具声明数组，整份替换后续步骤的目录。 |
+| 工具 | `tools` | 必须 | array\<object\> | 这一批工具声明。首次建立基线时可发出初始声明，后续可只发新增或变更的工具与命名空间成员。移除通过另外的上下文通知表达。 [top_level_tools.rs:248-329](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/top_level_tools.rs#L248-L329) [top_level_tools.rs:332-377](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/context/world_state/top_level_tools.rs#L332-L377) [mod.rs:4303-4334](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/mod.rs#L4303-L4334) |
 
 ### `message`
 
@@ -2948,7 +2955,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 判别 | `type` | 必须 | string | 固定 `reasoning`。 |
 | 标识 | `id` | 可选 | string | 条目 ID，前缀 `rs`。 |
 | 摘要 | `summary` | 必须 | array\<object\> | 推理摘要段，元素为 `{"type":"summary_text","text":...}`；可为空数组。 |
-| 内容 | `content` | 可选 | array\<object\> | 原始推理段，元素为 `{"type":"reasoning_text","text":...}` 或 `{"type":"text","text":...}`。含 `reasoning_text` 时整个键不写盘。 |
+| 内容 | `content` | 可选（可为 null） | array\<object\> 或 null | 推理内容，元素可为 `{"type":"reasoning_text","text":...}` 或 `{"type":"text","text":...}`。数组中含 `reasoning_text` 时写出整个数组。空数组或仅含 `text` 时省略字段，未提供内容时写 `null`。 [models.rs:1187-1199](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L1187-L1199) [models.rs:1902-1908](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L1902-L1908) |
 | 加密 | `encrypted_content` | 必须（可为 null） | string 或 null | 加密推理内容，用于原样回放。 |
 | 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
 
@@ -2961,7 +2968,8 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 标识 | `id` | 可选 | string | 条目 ID，前缀 `lsh`。 |
 | 调用 | `call_id` | 必须（可为 null） | string 或 null | Responses API 调用 ID。 |
 | 状态 | `status` | 必须 | enum string | `completed`、`in_progress` 或 `incomplete`。 |
-| 动作 | `action` | 必须 | object | `{"type":"exec","command":[...],"timeout_ms":...}`；`timeout_ms`、`working_directory`、`env`、`user` 可缺省或为 `null`。 |
+| 动作 | `action` | 必须 | object | `{"type":"exec","command":[...],"timeout_ms":...}`；`timeout_ms`、`working_directory`、`env`、`user` 的键在正常写出时保留，未设置时写 `null`。 [models.rs:1201-1216](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L1201-L1216) [models.rs:2182-2194](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/protocol/src/models.rs#L2182-L2194) |
+| 透传 | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
 
 ### `function_call`
 
@@ -2983,6 +2991,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
 | --- | --- | --- | --- | --- |
 | 判别 | `type` | 必须 | string | 固定 `tool_search_call`。 |
+| 加密 | `encrypted_content` | 可选 | string | 加密内容。 |
 | 标识 | `id` | 可选 | string | 条目 ID，前缀 `tsc`。 |
 | 调用 | `call_id` | 必须（可为 null） | string 或 null | 调用 ID。 |
 | 状态 | `status` | 可选 | string | 输出状态。 |
@@ -3076,7 +3085,7 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 | --- | --- | --- | --- | --- |
 | `compaction` | `type` | 必须 | string | 固定 `compaction`；反序列化兼容旧值 `compaction_summary`。 |
 | `compaction` | `id` | 可选 | string | 条目 ID，前缀 `cmp`。 |
-| `compaction` | `encrypted_content` | 必须 | string | opaque 压缩检查点；人类可读摘要见 `compacted.message`。 |
+| `compaction` | `encrypted_content` | 必须 | string | 不透明的模型压缩内容。部分检查点会在 `compacted.message` 提供文本摘要。 |
 | `compaction` | `internal_chat_message_metadata_passthrough` | 可选 | object | 内部元数据。 |
 | `configuration_update` | `type` | 必须 | string | 固定 `configuration_update`。 |
 | `configuration_update` | `reasoning.effort` | 必须 | enum string | 后端按路由模型解释的推理强度。 |
@@ -3091,58 +3100,63 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 ## 与实测日志的差异
 
-以 `leaarn/rollout-session/logs/` 下的一份 299 行会话为例：`response_item` 147 条、`event_msg` 88 条、`token_usage_record` 54 条、`turn_context` 5 条、`session_meta` 4 条、`world_state` 1 条。对照上面的字段表，可以把差异归成三类。
+在本地 `leaarn/rollout-session/logs/` 的一份 299 行 legacy 样本中，观察到 `response_item` 147 条、`event_msg` 88 条、`token_usage_record` 54 条、`turn_context` 5 条、`session_meta` 4 条、`world_state` 1 条。
 
-| 现象 | 原因 |
+| 样本观测 | 按当前源码解读 |
 | --- | --- |
-| 没有 `ordinal`、没有 `item_completed` | 该线程 `history_mode = "legacy"`。legacy 不写行序号，展示内容改由 `user_message`、`agent_message`、`patch_apply_end` 等事件承载。 |
-| 没有 `compacted`、`retained_context`、`security_risk_score`、`realtime_item`、`dynamic_tools_updated`、`inter_agent_communication` | 本次会话没有发生压缩、保留证据变化、风险采样、实时会话、动态工具或代理间通信，属于未触发。 |
-| `metadata` 里有 `model_search_state`、`mcp_attribution` | 这两个键属于更早的构建，已从当前源码移除，读端会静默忽略；当前代码重新落盘后它们消失。 |
-
-其余缺口都是可选字段：普通根线程没有 `forked_from_id`、`parent_thread_id` 和子代理字段；没有显式路由时 `turn_context` 不写 `direct_only_tool_namespaces`；权限为 `disabled` 时不需要 `file_system_sandbox_policy`；`user_message` 的 `image_details`、`audio_references` 等键在没有附件时省略。`session_meta` 出现 4 条是因为创建后又追加了记忆模式更新，读取时应取第一条的身份、最后一条的 `memory_mode`。
+| 没有 `ordinal`，也没有 `item_completed` | legacy 省略行级序号，但可保留筛选规则列出的部分 `item_completed`。 [policy.rs:233-254](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L233-L254) [ordinal.rs:23-43](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/ordinal.rs#L23-L43) |
+| 没观察到压缩、风险分值、代理通信或实时会话等专用记录 | 这些是本文件的观测结果。legacy 会过滤 `realtime_item`，Guardian V2 可在关闭分值持久化的情况下采样，部分保留证据也可编码成 `response_item`。 [policy.rs:22-41](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/rollout/src/policy.rs#L22-L41) [classification.rs:431-453](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/ext/guardian-v2/src/async_scorer/classification.rs#L431-L453) [rollout_payload.rs:218-269](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/rollout_payload.rs#L218-L269) |
+| `metadata` 中有 `model_search_state` 与 `mcp_attribution` | 这是样本构建写出的元数据。当前 `CodexHarnessMetadata` 未定义这两个键，解码时忽略未知字段。 [lib.rs:72-192](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/history/src/lib.rs#L72-L192) |
+| `session_meta` 在第 1、37、48、141 行出现 | 第 37 行相对首条只新增 `memory_mode`，其后两条的 payload 与第 37 行相同。文件可用于比对追加顺序和字段变化。 |
 
 ## 线程索引投影
 
-会话文件的元数据最终投影到 `state_5.sqlite` 的 `threads` 行，并另有一份名称索引。活跃线程先写 rollout，再由 `LiveThread` 观察已接受的条目并更新索引；修复路径可以扫描整个 rollout 重建。 [thread_metadata.rs:126-188](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/model/thread_metadata.rs#L126-L199) [live_thread.rs:243-300](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/live_thread.rs#L243-L300) [threads.rs:635-700](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/runtime/threads.rs#L635-L700)
+会话文件的元数据最终投影到 `state_5.sqlite` 的 `threads` 行，并另有一份名称索引。活跃线程先写 rollout，再由 `LiveThread` 观察已接受的条目并更新索引；修复路径可以扫描整个 rollout 重建。 [thread_metadata.rs:126-188](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/model/thread_metadata.rs#L126-L199) [live_thread.rs:243-300](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/thread-store/src/live_thread.rs#L243-L300) [threads.rs:635-700](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/runtime/threads.rs#L635-L700) [threads.rs:647-690](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/runtime/threads.rs#L647-L690) [threads.rs:695-745](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/runtime/threads.rs#L695-L745)
 
-| 字段分类 | 字段 | 是否必须 | 类型 | 描述 |
+| 字段分类 | 列名 | 约束 | 声明类型 | 描述 |
 | --- | --- | --- | --- | --- |
-| 身份 | `id` | 必须 | TEXT | 线程 ID。 |
-| 身份 | `rollout_path` | 必须 | TEXT | 会话文件的绝对路径。 |
-| 时间 | `created_at` | 必须 | INTEGER | 创建时间，Unix 秒。 |
-| 时间 | `updated_at` | 必须 | INTEGER | 最后更新时间，Unix 秒。 |
-| 时间 | `recency_at` | 必须 | INTEGER | 用于列表排序的最近使用时间。 |
-| 来源 | `source` | 必须 | TEXT | `session_meta.source` 的字符串化值。 |
-| 来源 | `history_mode` | 必须 | TEXT | `legacy` 或 `paginated`。 |
-| 来源 | `thread_source` | 可选 | TEXT | 统计分类。 |
-| 来源 | `agent_nickname` | 可选 | TEXT | 子代理昵称。 |
-| 来源 | `agent_role` | 可选 | TEXT | 子代理角色。 |
-| 来源 | `agent_path` | 可选 | TEXT | 子代理规范路径。 |
-| 派生 | `attached_thread_parent_id` | 可选 | TEXT | 附着线程的父线程。 |
-| 派生 | `originator` | 可选 | TEXT | 创建时的写入端标识。 |
-| 账号 | `creator_user_id` | 可选 | TEXT | 创建线程的用户。 |
-| 账号 | `creator_account_id` | 可选 | TEXT | 创建时的账号。 |
-| 模型 | `model_provider` | 必须 | TEXT | 供应商配置 ID。 |
-| 模型 | `model` | 可选 | TEXT | 最近观察到的模型。 |
-| 模型 | `reasoning_effort` | 可选 | TEXT | 最近观察到的推理强度。 |
-| 路径 | `cwd` | 必须 | TEXT | 会话工作目录。 |
-| 路径 | `cli_version` | 必须 | TEXT | 创建线程的 CLI 版本。 |
-| 展示 | `title` | 必须 | TEXT | 尽力生成的标题。 |
-| 展示 | `name` | 可选 | TEXT | 用户显式设置的线程名。 |
-| 展示 | `preview` | 可选 | TEXT | 列表预览文本。 |
-| 权限 | `sandbox_policy` | 必须 | TEXT | 序列化的权限配置或旧版沙箱策略。 |
-| 权限 | `approval_mode` | 必须 | TEXT | 审批模式。 |
-| 用量 | `tokens_used` | 必须 | INTEGER | 最近观察到的 token 总量。 |
-| 消息 | `first_user_message` | 可选 | TEXT | 首个可生成预览的用户消息；纯图片输入为 `[Image]`。 |
-| 归档 | `archived_at` | 可选 | INTEGER | 归档时间，Unix 秒。 |
-| 分区 | `section` | 可选 | TEXT | 用户分区。 |
-| 分区 | `section_position` | 可选 | INTEGER | 分区内的稀疏排序位置。 |
-| 分区 | `section_entered_at` | 可选 | INTEGER | 进入当前分区的时间，Unix 秒。 |
-| 项目 | `project_id` | 可选 | TEXT | app-server 维护的项目归属。 |
-| 偏好 | `daybreak_enabled` | 可选 | INTEGER | 显式设置过的 Daybreak 偏好。 |
-| Git | `git_sha` | 可选 | TEXT | 对应 `session_meta.git.commit_hash`。 |
-| Git | `git_branch` | 可选 | TEXT | 对应 `session_meta.git.branch`。 |
-| Git | `git_origin_url` | 可选 | TEXT | 对应 `session_meta.git.repository_url`。 |
+| 身份 | `id` | 主键 | TEXT | 线程 ID。 |
+| 身份 | `rollout_path` | 非空 | TEXT | 会话文件的绝对路径。 |
+| 时间 | `created_at` | 非空 | INTEGER | 创建时间，Unix 秒。 |
+| 时间 | `updated_at` | 非空 | INTEGER | 最后更新时间，Unix 秒。 |
+| 时间 | `recency_at` | 非空 | INTEGER | 最近使用时间，Unix 秒。 |
+| 时间 | `created_at_ms`、`updated_at_ms` | 可空 | INTEGER | 创建和最后更新时间，Unix 毫秒。旧列以秒为单位。 |
+| 时间 | `recency_at_ms` | 非空 | INTEGER | 最近使用时间，Unix 毫秒。分页等查询用它排序。 |
+| 来源 | `source` | 非空 | TEXT | `session_meta.source` 的字符串化值。 |
+| 来源 | `history_mode` | 非空 | TEXT | `legacy` 或 `paginated`。 |
+| 来源 | `thread_source` | 可空 | TEXT | 统计分类。 |
+| 来源 | `agent_nickname` | 可空 | TEXT | 子代理昵称。 |
+| 来源 | `agent_role` | 可空 | TEXT | 子代理角色。 |
+| 来源 | `agent_path` | 可空 | TEXT | 子代理规范路径。 |
+| 派生 | `attached_thread_parent_id` | 可空 | TEXT | 附着线程的父线程。 |
+| 派生 | `originator` | 可空 | TEXT | 创建时的写入端标识。 |
+| 账号 | `creator_user_id` | 可空 | TEXT | 创建线程的用户。 |
+| 账号 | `creator_account_id` | 可空 | TEXT | 创建时的账号。 |
+| 模型 | `model_provider` | 非空 | TEXT | 供应商配置 ID。 |
+| 模型 | `model` | 可空 | TEXT | 最近观察到的模型。 |
+| 模型 | `reasoning_effort` | 可空 | TEXT | 最近观察到的推理强度。 |
+| 路径 | `cwd` | 非空 | TEXT | 会话工作目录。 |
+| 路径 | `cli_version` | 非空 | TEXT | 创建线程的 CLI 版本。 |
+| 展示 | `title` | 非空 | TEXT | 尽力生成的标题。 |
+| 展示 | `name` | 可空 | TEXT | 用户显式设置的线程名。 |
+| 展示 | `preview` | 非空 | TEXT | 列表预览文本，无预览时存空字符串。 |
+| 权限 | `sandbox_policy` | 非空 | TEXT | 序列化的权限配置或旧版沙箱策略。 |
+| 权限 | `approval_mode` | 非空 | TEXT | 审批模式。 |
+| 用量 | `tokens_used` | 非空 | INTEGER | 最近观察到的 token 总量。 |
+| 消息 | `first_user_message` | 非空 | TEXT | 首个可生成预览的用户消息，缺省为空字符串。纯图片输入为 `[Image]`。 |
+| 消息 | `has_user_event` | 非空 | INTEGER | 历史布尔标记，默认 0。旧索引迁移使用。 |
+| 记忆 | `memory_mode` | 非空 | TEXT | `enabled` 或 `disabled`，默认 `enabled`。 |
+| 归档 | `archived` | 非空 | INTEGER | 归档标记，0 或 1。 |
+| 归档 | `archived_at` | 可空 | INTEGER | 归档时间，Unix 秒。 |
+| 分区 | `is_pinned` | 非空 | INTEGER | 历史置顶标记，默认 0。 |
+| 分区 | `thread_section_id` | 可空 | TEXT | 用户分区 ID。 |
+| 分区 | `section_position` | 可空 | INTEGER | 分区内的稀疏排序位置。 |
+| 分区 | `section_entered_at_ms` | 可空 | INTEGER | 进入当前分区的时间，Unix 毫秒。 |
+| 项目 | `project_id` | 可空 | TEXT | app-server 维护的项目归属。 |
+| 偏好 | `daybreak_enabled` | 可空 | BOOLEAN | 显式设置过的 Daybreak 偏好。 |
+| Git | `git_sha` | 可空 | TEXT | 对应 `session_meta.git.commit_hash`。 |
+| Git | `git_branch` | 可空 | TEXT | 对应 `session_meta.git.branch`。 |
+| Git | `git_origin_url` | 可空 | TEXT | 对应 `session_meta.git.repository_url`。 |
 
 名称索引是追加文件 `${CODEX_HOME}/session_index.jsonl`，读取时按 ID 取最新一条：
 
@@ -3156,10 +3170,13 @@ Rollout 文件是只追加的 JSONL。每行是一个 `RolloutLine`：外层固�
 
 ## 同一文件的两种读取结果
 
-| 消费方 | 读取后产物 | 遇到压缩或回滚时 |
+Core 恢复用于下一次推理的上下文。app-server 构建用于展示的回合和条目，其读取路径由历史模式决定。
+
+| 消费方 | 读取后产物 | 读哪些记录 |
 | --- | --- | --- |
-| Core 恢复器 | 内存 `ResponseItem` 历史、上一回合设置、参考上下文 | 用 `replacement_history` 建基线并回放后续记录；回滚移除指定数量的用户回合。 |
-| app-server 历史投影 | 客户端 `Turn[]` 及其展示项 | 历史构建器按事件与响应项识别回合和展示数据，按其自身分支处理压缩与回滚。 |
+| Core 恢复器 | 内存 `ResponseItem` 历史、上一回合设置、参考上下文 | 使用有效压缩检查点的 `replacement_history`，重放后续模型项和恢复标记。旧回滚事件会移除相应用户回合。 [rollout_reconstruction.rs:541-556](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L541-L556) [rollout_reconstruction.rs:588-629](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/core/src/session/rollout_reconstruction.rs#L588-L629) |
+| app-server（`legacy`） | 历史构建器重放出的客户端 `Turn[]` | 以持久化事件为主，少量原始模型项用于恢复 HookPrompt。压缩标记可以保留只有压缩操作的回合，旧回滚事件会裁剪展示历史。 [thread_history.rs:523-555](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L523-L555) [thread_history.rs:607-630](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L607-L630) [thread_history.rs:1570-1592](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history.rs#L1570-L1592) |
+| app-server（`paginated`） | `thread_history_1.sqlite` 历史投影中的回合和条目，由 `thread/turns/list` 分页读取 | 逐行投影 `task_started`、`task_complete`、`turn_aborted` 与 `item_completed`。该投影跳过模型响应项、压缩检查点和旧回滚事件。 [thread_history_projection.rs:17-87](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server-protocol/src/protocol/thread_history_projection.rs#L17-L87) [thread_processor.rs:3462-3503](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server/src/request_processors/thread_processor.rs#L3462-L3503) [thread_processor.rs:3594-3642](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/app-server/src/request_processors/thread_processor.rs#L3594-L3642) [sqlite.rs:49-54](https://github.com/GLBB/codex/blob/4b7a20f60cd186c0bfbb0aec2027b51b1c99efa9/codex-rs/state/src/sqlite.rs#L49-L54) |
 
 ```mermaid
 sequenceDiagram
@@ -3175,14 +3192,18 @@ sequenceDiagram
     L->>D: 通过 LocalThreadStore 更新元数据
 ```
 
+<!-- Sources: codex-rs/thread-store/src/live_thread.rs:243-300, codex-rs/thread-store/src/local/live_writer.rs:539-594, codex-rs/thread-store/src/live_thread.rs:341-372 -->
+
 ```mermaid
 graph TB
     R["会话 JSONL"] --> L["逐行解码为 RolloutItem"]
     L --> C["Core 重建上下文历史"]
-    L --> A["app-server 构建 Turn 和 ThreadItem"]
+    L -->|"legacy"| A["app-server 重放展示事件"]
+    L -->|"paginated"| P["逐行生成 SQLite 历史投影"]
+    P --> Q["app-server 分页读取回合"]
 ```
 
-<!-- Sources: codex-rs/history/src/rollout_payload.rs:36-82, codex-rs/thread-store/src/live_thread.rs:243-300, codex-rs/core/src/session/rollout_reconstruction.rs:234-299, codex-rs/app-server-protocol/src/protocol/thread_history.rs:74-104 -->
+<!-- Sources: codex-rs/rollout/src/lib.rs:54-84, codex-rs/core/src/session/rollout_reconstruction.rs:541-629, codex-rs/app-server-protocol/src/protocol/thread_history.rs:91-102, codex-rs/app-server-protocol/src/protocol/thread_history_projection.rs:17-87, codex-rs/thread-store/src/local/thread_history_materialization.rs:313-324, codex-rs/app-server/src/request_processors/thread_processor.rs:3462-3503 -->
 
 写入策略、文件生命周期、压缩与回退的恢复语义见 [Rollout 会话日志详解](../deep-dive/rollout-session.md)。
 </doc>
