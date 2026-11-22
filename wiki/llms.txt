@@ -1,6 +1,6 @@
 # Codex 源码 Wiki
 
-> 中文源码导览。Codex CLI 通过 app-server 和 Core 启动会话与回合，调用模型与工具，并记录可恢复历史。源码引用固定到提交 9f42c89c01。
+> 中文源码导览。Codex CLI 通过 app-server 和 Core 启动会话与回合，调用模型与工具，并记录可恢复历史。各页源码引用固定到对应提交。
 
 会话 JSONL 用于恢复，诊断 bundle 可离线重放成运行图，OpenTelemetry 提供日志、跨度和指标。协议目录按发送方与消费者定位实现。
 
@@ -18,6 +18,7 @@
 
 ## 核心架构
 
+- [Codex 模块架构全景](./architecture/module-overview.md): 从客户端、Core、模型、工具、扩展和存储理解 Codex 的运行边界，并查阅 179 个 Rust workspace 成员。
 - [Agent Loop](./architecture/agent-loop.md): 从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。
 - [工具调度与权限](./architecture/tools-permissions.md): 沿模型工具调用追到路由、执行、审批和工具结果回传。
 - [上下文与会话](./architecture/session-state.md): 追踪 ResponseItem 在内存历史、会话 JSONL、索引和恢复流程中的不同用途。

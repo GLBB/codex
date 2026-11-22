@@ -67,6 +67,13 @@
       "prompt": "从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。 核对源码 codex-rs/app-server/src/request_processors/turn_processor.rs:355-433、codex-rs/core/src/session/handlers.rs:708-766、codex-rs/core/src/tasks/regular.rs:36-74、codex-rs/core/src/session/turn.rs:131-183、codex-rs/core/src/session/turn.rs:207-326、codex-rs/core/src/session/turn.rs:863-947、codex-rs/core/src/session/turn.rs:947-1021、codex-rs/core/src/session/turn.rs:1788-1878、codex-rs/core/src/stream_events_utils.rs:342-385、codex-rs/core/src/session/turn.rs:1655-1675、codex-rs/core/src/tasks/mod.rs:769-808。",
       "children": [
         {
+          "title": "Codex 模块架构全景",
+          "name": "architecture/module-overview",
+          "description": "从客户端、Core、模型、工具、扩展和存储理解 Codex 的运行边界，并查阅 179 个 Rust workspace 成员。",
+          "prompt": "从客户端与 app-server 进入 Core，再按模型、工具、存储和扩展定位模块。核对源码 codex-rs/Cargo.toml:1-176、codex-rs/app-server/src/message_processor.rs:372-423、codex-rs/app-server/src/request_processors/turn_processor.rs:727-809、codex-rs/core/src/session/turn.rs:663-698。",
+          "children": []
+        },
+        {
           "title": "Agent Loop",
           "name": "architecture/agent-loop",
           "description": "从 turn/start 和 Op::UserInput 跟到模型流、工具回灌与回合结束。",

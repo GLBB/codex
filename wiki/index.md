@@ -5,7 +5,7 @@ description: "以一次用户输入为线索阅读 Codex 的客户端、运行�
 
 # Codex 源码 Wiki
 
-这份中文 Wiki 对应 `learning/codex` 生成时的源码提交 `9f42c89c01`。从发起任务入手，可以一路看到 app-server 如何提交输入、Core 如何反复请求模型、工具和历史又如何参与回合。源码链接固定到这一提交；只有 [Rollout 会话 JSONL](protocols/rollout-wire.md) 的字段表按较新的 `4b7a20f60c` 校对。 [codex-rs/cli/src/main.rs:823-880](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L823-L880) [codex-rs/app-server/src/request_processors/turn_processor.rs:355-433](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L355-L433) [codex-rs/core/src/session/turn.rs:131-183](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L131-L183) [codex-rs/core/src/session/turn.rs:207-326](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L207-L326)
+这份中文 Wiki 对应 `learning/codex` 生成时的源码提交 `9f42c89c01`。从发起任务入手，可以一路看到 app-server 如何提交输入、Core 如何反复请求模型、工具和历史又如何参与回合。原有专题的源码链接固定到这一提交。[模块架构全景](architecture/module-overview.md) 和 [Rollout 会话 JSONL 字段表](protocols/rollout-wire.md) 以较新的 `4b7a20f60c` 为准。 [codex-rs/cli/src/main.rs:823-880](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/cli/src/main.rs#L823-L880) [codex-rs/app-server/src/request_processors/turn_processor.rs:355-433](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/app-server/src/request_processors/turn_processor.rs#L355-L433) [codex-rs/core/src/session/turn.rs:131-183](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L131-L183) [codex-rs/core/src/session/turn.rs:207-326](https://github.com/GLBB/codex/blob/9f42c89c0112771dc29100a6f3fc904049b2655f/codex-rs/core/src/session/turn.rs#L207-L326)
 
 ## 快速开始
 
@@ -28,6 +28,7 @@ npm --prefix wiki run build
 | --- | --- |
 | [角色指南](onboarding/index.md) | 贡献者、架构工程师、工程管理者与产品经理 |
 | [本地运行与读日志](getting-started/run-locally.md) | 先编译启动，观察协议与 JSONL |
+| [模块架构全景](architecture/module-overview.md) | 看入口、Core、模型、工具、扩展和存储的全景，再按职责查 179 个 Rust workspace 成员 |
 | [Agent Loop](architecture/agent-loop.md) | 顺着一轮输入看模型采样和工具续接 |
 | [工具调度与权限](architecture/tools-permissions.md) | 查调用解析、工具运行时、审批和执行边界 |
 | [上下文与会话](architecture/session-state.md) | 看内存历史、会话文件和恢复逻辑 |
